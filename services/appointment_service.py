@@ -1,0 +1,359 @@
+from datetime import datetime, time, date
+from typing import List, Optional, Tuple
+from core.database import get_db
+from models.appointment import Appointment
+from utils.validators import Validators
+from utils.date_utils import is_working_hours, is_future_datetime
+from .observable import Observable
+import logging
+logger = logging.getLogger(__name__)
+
+# Define or import the notify_all function
+def notify_all(event_type: str, data: dict):
+    """
+    Mock implementation of notify_all.
+    Replace this with the actual implementation or import it from the correct module.
+    """
+    logger.info(f"Notification sent: {event_type} with data {data}")
+
+class AppointmentService(Observable):
+    @staticmethod
+    def delete_client_appointments(client_id: int) -> bool:
+        """Elimina todas las citas de un cliente"""
+        with get_db() as cursor:
+            cursor.execute(
+                "DELETE FROM appointments WHERE client_id = %s",
+                (client_id,)
+            )
+            return cursor.rowcount > 0
+    
+    @staticmethod
+    def update_appointment_status(appointment_id, new_status):
+        with get_db() as cursor:
+            cursor.execute(
+                "UPDATE appointments SET status = %s WHERE id = %s",
+                (new_status, appointment_id)
+            )
+            if cursor.rowcount > 0:
+                notify_all('APPOINTMENT_STATUS_CHANGED', {
+                    'id': appointment_id,
+                    'status': new_status
+                })
+                return True
+        return False
+    
+    @staticmethod
+    def create_appointment(client_id: int, 
+                         appointment_date: date, 
+                         appointment_time: time,
+                         notes: Optional[str] = None) -> Tuple[bool, str]:
+        """
+        Crea una nueva cita en el sistema
+        Returns:
+            Tuple[bool, str]: (success, message)
+        """
+        try:
+            # Validar datos antes de crear
+            appointment_dt = datetime.combine(appointment_date, appointment_time)
+            
+            # Validar horario laboral
+            if not is_working_hours(appointment_time):
+                return False, "Fuera del horario laboral (07:30 - 19:30)"
+                
+            # Validar que sea en el futuro
+            if not is_future_datetime(appointment_dt):
+                return False, "No se pueden agendar citas en el pasado"
+            
+            with get_db() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO appointments 
+                    (client_id, date, hour, notes, status, created_at, updated_at)
+                    VALUES (%s, %s, %s, %s, 'pending', NOW(), NOW())
+                    RETURNING id
+                    """,
+                    (client_id, appointment_date, appointment_time, notes)
+                )
+                appointment_id = cursor.fetchone()[0]
+                return True, f"Cita creada exitosamente (ID: {appointment_id})"
+                
+        except Exception as e:
+            return False, f"Error al crear cita: {str(e)}"
+
+    @staticmethod
+    def get_appointment_by_id(appointment_id: int) -> Optional[Appointment]:
+        """Obtiene una cita por su ID"""
+        with get_db() as cursor:
+            cursor.execute(
+                """
+                SELECT a.id, a.client_id, c.name, c.cedula, 
+                       a.date, a.hour, a.status, a.notes, 
+                       a.created_at, a.updated_at
+                FROM appointments a
+                JOIN clients c ON a.client_id = c.id
+                WHERE a.id = %s
+                """,
+                (appointment_id,)
+            )
+            if result := cursor.fetchone():
+                return Appointment(*result)
+            return None
+
+    @staticmethod
+    def update_appointment(appointment_id: int, **kwargs) -> Tuple[bool, str]:
+        """Actualiza una cita existente"""
+        valid_fields = ['client_id', 'date', 'hour', 'notes', 'status']
+        updates = {k: v for k, v in kwargs.items() if k in valid_fields and v is not None}
+        
+        if not updates:
+            return False, "No hay campos válidos para actualizar"
+            
+        try:
+            with get_db() as cursor:
+                set_clause = ", ".join([f"{field} = %s" for field in updates.keys()])
+                values = list(updates.values())
+                values.append(appointment_id)
+                
+                cursor.execute(
+                    f"""
+                    UPDATE appointments 
+                    SET {set_clause}, updated_at = NOW()
+                    WHERE id = %s
+                    RETURNING id
+                    """,
+                    values
+                )
+                
+                if cursor.rowcount == 0:
+                    return False, "Cita no encontrada"
+                    
+                return True, "Cita actualizada exitosamente"
+                
+        except Exception as e:
+            return False, f"Error al actualizar cita: {str(e)}"
+
+    @staticmethod
+    def search_available_slots(date: date) -> List[Tuple[time, bool]]:
+        """Busca horarios disponibles para una fecha dada"""
+        slots = []
+        start_time = time(7, 30)
+        end_time = time(19, 30)
+        
+        with get_db() as cursor:
+            # Obtener citas existentes para la fecha
+            cursor.execute(
+                "SELECT hour FROM appointments WHERE date = %s AND status = 'pending'",
+                (date,)
+            )
+            booked_times = {t[0] for t in cursor.fetchall()}
+            
+            # Generar slots cada 30 minutos
+            current_time = start_time
+            while current_time <= end_time:
+                slots.append((
+                    current_time,
+                    current_time not in booked_times
+                ))
+                # Añadir 30 minutos
+                current_time = time(
+                    current_time.hour + (current_time.minute + 30) // 60,
+                    (current_time.minute + 30) % 60
+                )
+                
+        return slots
+
+    @staticmethod
+    def validate_appointment_time(date: date, time: time, exclude_id: Optional[int] = None) -> Tuple[bool, str]:
+        """
+        Valida si un horario de cita es válido
+        Args:
+            exclude_id: ID de cita a excluir (para actualizaciones)
+        """
+        appointment_dt = datetime.combine(date, time)
+        
+        # Validar horario laboral
+        if not is_working_hours(time):
+            return False, "Fuera del horario laboral (07:30 - 19:30)"
+            
+        # Validar que sea en el futuro
+        if not is_future_datetime(appointment_dt):
+            return False, "No se pueden agendar citas en el pasado"
+            
+        # Validar colisión con otras citas
+        with get_db() as cursor:
+            query = """
+                SELECT id FROM appointments 
+                WHERE date = %s AND hour = %s AND status = 'pending'
+            """
+            params = [date, time]
+            
+            if exclude_id:
+                query += " AND id != %s"
+                params.append(exclude_id)
+                
+            cursor.execute(query, params)
+            if cursor.fetchone():
+                return False, "Horario ya reservado"
+                
+        return True, "Horario disponible"
+    
+    @staticmethod
+    def search_clients(search_term: str) -> List[Tuple[int, str, str]]:
+        """
+        Busca clientes por nombre o cédula.
+        Returns:
+            List[Tuple[id, name, cedula]]
+        """
+        with get_db() as cursor:
+            cursor.execute(
+                """
+                SELECT id, name, cedula 
+                FROM clients 
+                WHERE name ILIKE %s OR cedula ILIKE %s
+                LIMIT 10
+                """,
+                (f"%{search_term}%", f"%{search_term}%")
+            )
+            return cursor.fetchall()
+    
+    @staticmethod
+    def get_upcoming_appointments(limit: int = 5) -> List[Appointment]:
+        """Versión más robusta con manejo de errores"""
+        try:
+            with get_db() as cursor:
+                cursor.execute("""
+                    SELECT a.id, a.client_id, c.name, c.cedula, 
+                        a.date, a.hour, a.status, a.notes,
+                        a.created_at, a.updated_at
+                    FROM appointments a
+                    JOIN clients c ON a.client_id = c.id
+                    WHERE a.date >= CURRENT_DATE
+                    AND a.status = 'pending'
+                    ORDER BY a.date ASC, a.hour ASC
+                    LIMIT %s
+                """, (limit,))
+                
+                results = cursor.fetchall()
+                if not results:
+                    return []
+                    
+                appointments = []
+                for row in results:
+                    try:
+                        appointments.append(Appointment(*row))
+                    except Exception as e:
+                        logger.error(f"Error al crear Appointment: {str(e)}")
+                        continue
+                        
+                return appointments
+                
+        except Exception as e:
+            logger.error(f"Error en get_upcoming_appointments: {str(e)}")
+            return []  # Devuelve lista vacía en lugar de None
+
+    @staticmethod
+    def update_appointment_status(appointment_id: int, new_status: str) -> bool:
+        """Actualiza el estado de una cita"""
+        with get_db() as cursor:
+            cursor.execute("""
+                UPDATE appointments 
+                SET status = %s, updated_at = NOW()
+                WHERE id = %s
+            """, (new_status, appointment_id))
+            return cursor.rowcount > 0
+    
+    @staticmethod
+    def get_appointments(limit: int = 10, offset: int = 0, filters: dict = None) -> List[Appointment]:
+        """Obtiene citas paginadas con filtros"""
+        filters = filters or {}
+        query = """
+            SELECT a.id, a.client_id, c.name, c.cedula, 
+                a.date, a.hour, a.status, a.notes,
+                a.created_at, a.updated_at
+            FROM appointments a
+            JOIN clients c ON a.client_id = c.id
+            WHERE 1=1
+        """
+        params = []
+    
+        # Aplicar filtros
+        if filters.get('date_from'):
+            query += " AND a.date >= %s"
+            params.append(filters['date_from'])
+        if filters.get('date_to'):
+            query += " AND a.date <= %s"
+            params.append(filters['date_to'])
+        if filters.get('status'):
+            query += " AND a.status = %s"
+            params.append(filters['status'])
+        if filters.get('search_term'):
+            query += " AND (c.name ILIKE %s OR c.cedula ILIKE %s OR a.notes ILIKE %s)"
+            params.extend([f"%{filters['search_term']}%"] * 3)
+        
+        query += " ORDER BY a.date DESC, a.hour DESC LIMIT %s OFFSET %s"
+        params.extend([limit, offset])
+        
+        with get_db() as cursor:
+            cursor.execute(query, params)
+            return [Appointment(*row) for row in cursor.fetchall()]
+
+    @staticmethod
+    def count_appointments(filters: dict = None) -> int:
+        """Cuenta el total de citas que coinciden con los filtros"""
+        filters = filters or {}
+        query = "SELECT COUNT(*) FROM appointments a JOIN clients c ON a.client_id = c.id WHERE 1=1"
+        params = []
+        
+        # Aplicar filtros (igual que en get_appointments)
+        if filters.get('date_from'):
+            query += " AND a.date >= %s"
+            params.append(filters['date_from'])
+        if filters.get('date_to'):
+            query += " AND a.date <= %s"
+            params.append(filters['date_to'])
+        if filters.get('status'):
+            query += " AND a.status = %s"
+            params.append(filters['status'])
+        if filters.get('search_term'):
+            query += " AND (c.name ILIKE %s OR c.cedula ILIKE %s OR a.notes ILIKE %s)"
+            params.extend([f"%{filters['search_term']}%"] * 3)
+        
+        with get_db() as cursor:
+            cursor.execute(query, params)
+            return cursor.fetchone()[0]
+
+    @staticmethod
+    def delete_appointment(appointment_id: int) -> bool:
+        """Elimina una cita por su ID"""
+        with get_db() as cursor:
+            cursor.execute("DELETE FROM appointments WHERE id = %s", (appointment_id,))
+            return cursor.rowcount > 0
+        
+
+# Funciones de conveniencia para mantener compatibilidad
+def create_appointment(*args, **kwargs):
+    return AppointmentService.create_appointment(*args, **kwargs)
+
+def get_appointment_by_id(*args, **kwargs):
+    return AppointmentService.get_appointment_by_id(*args, **kwargs)
+
+def update_appointment(*args, **kwargs):
+    return AppointmentService.update_appointment(*args, **kwargs)
+
+def search_available_slots(*args, **kwargs):
+    return AppointmentService.search_available_slots(*args, **kwargs)
+
+def validate_appointment_time(*args, **kwargs):
+    return AppointmentService.validate_appointment_time(*args, **kwargs)
+
+def search_clients(*args, **kwargs):  # ¡Añade esta línea!
+    return AppointmentService.search_clients(*args, **kwargs)
+
+def get_appointments(*args, **kwargs):
+    return AppointmentService.get_appointments(*args, **kwargs)
+
+def count_appointments(*args, **kwargs):
+    return AppointmentService.count_appointments(*args, **kwargs)
+
+def delete_appointment(*args, **kwargs):
+    return AppointmentService.delete_appointment(*args, **kwargs)

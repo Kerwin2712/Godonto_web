@@ -1,0 +1,431 @@
+import flet as ft
+from datetime import datetime
+from services.appointment_service import AppointmentService
+from utils.alerts import AlertManager
+from utils.widgets import build_appointment_card
+from models.appointment import Appointment
+
+class AppointmentsView:
+    def __init__(self, page: ft.Page):
+        self.page = page
+        self.appointment_service = AppointmentService()
+        
+        # Estado de la vista
+        self.current_page = 1
+        self.items_per_page = 10
+        self.total_items = 0
+        self.filters = {
+            'date_from': None,
+            'date_to': None,
+            'status': None,
+            'search_term': None
+        }
+        
+        # Componentes UI
+        self.appointment_grid = ft.GridView(
+            expand=True,
+            runs_count=3,
+            max_extent=400,
+            child_aspect_ratio=1.2,
+            spacing=15,
+            run_spacing=15,
+        )
+        
+        # Inicializar componentes
+        self._init_date_pickers()
+        self._init_search_controls()
+        self._init_pagination_controls()
+        
+        # Cargar datos iniciales
+        self.update_appointments()
+
+    def _init_date_pickers(self):
+        """Inicializa los selectores de fecha"""
+        self.date_picker_from = ft.DatePicker(
+            first_date=datetime(2020, 1, 1),
+            last_date=datetime(2030, 12, 31),
+            on_change=self._handle_date_from_change
+        )
+        
+        self.date_picker_to = ft.DatePicker(
+            first_date=datetime(2020, 1, 1),
+            last_date=datetime(2030, 12, 31),
+            on_change=self._handle_date_to_change
+        )
+        
+        self.page.overlay.extend([self.date_picker_from, self.date_picker_to])
+        
+        self.date_from_button = ft.ElevatedButton(
+            "Desde",
+            icon=ft.icons.CALENDAR_MONTH,
+            on_click=lambda e: self.page.open(self.date_picker_from),
+        )
+        
+        self.date_to_button = ft.ElevatedButton(
+            "Hasta",
+            icon=ft.icons.CALENDAR_MONTH,
+            on_click=lambda e: self.page.open(self.date_picker_to),
+        )
+
+    def _init_search_controls(self):
+        """Inicializa los controles de búsqueda mejorados"""
+        self.search_bar = ft.SearchBar(
+            view_elevation=4,
+            divider_color=ft.colors.BLUE_ACCENT,
+            bar_hint_text="Buscar por nombre, cédula o detalles...",
+            view_hint_text="Filtrar citas...",
+            bar_leading=ft.Icon(ft.icons.SEARCH),
+            controls=[],
+            width=400,
+            on_change=self._handle_search_change,
+            #on_tap=lambda e: self.search_bar.open_view(),
+            on_submit=lambda e: self._handle_search_submit(e)
+        )
+        
+        self.status_dropdown = ft.Dropdown(
+            options=[
+                ft.dropdown.Option("Todas"),
+                ft.dropdown.Option("pending", "Pendiente"),
+                ft.dropdown.Option("completed", "Completada"),
+                ft.dropdown.Option("cancelled", "Cancelada")
+            ],
+            value="Todas",
+            on_change=lambda e: self.update_filters(),
+            width=150
+        )
+
+    def _init_pagination_controls(self):
+        """Inicializa los controles de paginación"""
+        self.pagination_row = ft.Row(alignment=ft.MainAxisAlignment.CENTER)
+
+    def update_filters(self):
+        """Actualiza los filtros basados en los controles UI"""
+        self.filters.update({
+            'search_term': self.search_bar.value if self.search_bar.value else None,
+            'status': self.status_dropdown.value if self.status_dropdown.value != "Todas" else None
+        })
+        self.current_page = 1  # Resetear a primera página
+        self.update_appointments()
+
+    def apply_search_filter(self, term):
+        """Aplica un filtro de búsqueda"""
+        self.search_bar.value = term
+        self.search_bar.close_view(term)
+        self.update_filters()
+
+    def clear_date_filters(self, e):
+        """Limpia los filtros de fecha"""
+        self.filters['date_from'] = None
+        self.filters['date_to'] = None
+        self.date_from_button.text = "Desde"
+        self.date_to_button.text = "Hasta"
+        self.update_appointments()
+
+    def update_appointments(self):
+        """Actualiza la lista de citas con los filtros actuales"""
+        offset = (self.current_page - 1) * self.items_per_page
+        appointments = self.appointment_service.get_appointments(
+            limit=self.items_per_page,
+            offset=offset,
+            filters=self.filters
+        )
+        self.total_items = self.appointment_service.count_appointments(self.filters)
+        self._render_appointments(appointments)
+        self._update_pagination_controls()
+
+    def _render_appointments(self, appointments):
+        """Renderiza las citas en el grid"""
+        self.appointment_grid.controls.clear()
+        
+        if not appointments:
+            self._render_empty_state()
+            return
+            
+        for appt in appointments:
+            self.appointment_grid.controls.append(
+                self._build_appointment_card(appt)
+            )
+        
+        self.page.update()
+
+    def _render_empty_state(self):
+        """Muestra estado cuando no hay citas"""
+        self.appointment_grid.controls.append(
+            ft.Container(
+                content=ft.Column([
+                    ft.Icon(ft.icons.INFO_OUTLINE, size=40),
+                    ft.Text("No se encontraron citas", 
+                           text_align=ft.TextAlign.CENTER)
+                ], 
+                alignment=ft.MainAxisAlignment.CENTER,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                col={"sm": 12, "md": 6, "lg": 4},
+                alignment=ft.alignment.center
+            )
+        )
+        self.page.update()
+
+    def _build_appointment_card(self, appointment: Appointment):
+        """Construye una tarjeta de cita individual"""
+        return ft.Card(
+            content=ft.Container(
+                content=ft.Column([
+                    ft.ListTile(
+                        title=ft.Text(appointment.client_name, 
+                                     weight=ft.FontWeight.BOLD),
+                        subtitle=ft.Text(f"Cédula: {appointment.client_cedula}"),
+                    ),
+                    ft.Divider(height=1),
+                    ft.Container(
+                        content=ft.Column([
+                            ft.Row([
+                                ft.Icon(ft.icons.CALENDAR_TODAY, size=16),
+                                ft.Text(appointment.date.strftime('%d/%m/%Y'), size=14)
+                            ]),
+                            ft.Row([
+                                ft.Icon(ft.icons.ACCESS_TIME, size=16),
+                                ft.Text(appointment.time, size=14)
+                            ]),
+                            ft.Row([
+                                ft.Icon(ft.icons.INFO_OUTLINE, size=16),
+                                ft.Text(appointment.status.capitalize(), 
+                                       color=self._get_status_color(appointment.status),
+                                       size=14)
+                            ]),
+                        ], spacing=5),
+                        padding=ft.padding.symmetric(horizontal=10)
+                    ),
+                    ft.Row([
+                        ft.IconButton(
+                            icon=ft.icons.EDIT,
+                            icon_color=ft.colors.BLUE,
+                            tooltip="Editar",
+                            on_click=lambda e, a=appointment: self.edit_appointment(a.id)
+                        ),
+                        ft.IconButton(
+                            icon=ft.icons.DELETE,
+                            icon_color=ft.colors.RED,
+                            tooltip="Eliminar",
+                            on_click=lambda e, a=appointment: self.confirm_delete(a.id, a.client_name)
+                        )
+                    ], alignment=ft.MainAxisAlignment.END)
+                ], spacing=5),
+                padding=10,
+                width=400,
+            ),
+            elevation=8,
+            col={"sm": 12, "md": 6, "lg": 4}
+        )
+
+    def _get_status_color(self, status):
+        """Obtiene el color según el estado de la cita"""
+        status_colors = {
+            'pending': ft.colors.ORANGE,
+            'completed': ft.colors.GREEN,
+            'cancelled': ft.colors.RED
+        }
+        return status_colors.get(status.lower(), ft.colors.GREY)
+
+    def _update_pagination_controls(self):
+        """Actualiza los controles de paginación"""
+        total_pages = max(1, (self.total_items + self.items_per_page - 1) // self.items_per_page)
+        
+        self.pagination_row.controls = [
+            ft.IconButton(
+                icon=ft.icons.FIRST_PAGE,
+                on_click=lambda e: self.change_page(1),
+                disabled=self.current_page == 1
+            ),
+            ft.IconButton(
+                icon=ft.icons.CHEVRON_LEFT,
+                on_click=lambda e: self.change_page(self.current_page - 1),
+                disabled=self.current_page == 1
+            ),
+            ft.Text(f"Página {self.current_page} de {total_pages}"),
+            ft.IconButton(
+                icon=ft.icons.CHEVRON_RIGHT,
+                on_click=lambda e: self.change_page(self.current_page + 1),
+                disabled=self.current_page * self.items_per_page >= self.total_items
+            ),
+            ft.IconButton(
+                icon=ft.icons.LAST_PAGE,
+                on_click=lambda e: self.change_page(total_pages),
+                disabled=self.current_page * self.items_per_page >= self.total_items
+            ),
+            ft.Dropdown(
+                options=[
+                    ft.dropdown.Option("5"),
+                    ft.dropdown.Option("10"),
+                    ft.dropdown.Option("20"),
+                    ft.dropdown.Option("50"),
+                ],
+                value=str(self.items_per_page),
+                width=100,
+                on_change=self.change_items_per_page
+            )
+        ]
+        self.page.update()
+
+    def change_page(self, new_page):
+        """Cambia la página actual"""
+        self.current_page = new_page
+        self.update_appointments()
+
+    def change_items_per_page(self, e):
+        """Cambia el número de items por página"""
+        self.items_per_page = int(e.control.value)
+        self.current_page = 1
+        self.update_appointments()
+
+    def edit_appointment(self, appointment_id):
+        """Navega al formulario de edición"""
+        self.page.go(f"/appointment_form/{appointment_id}")
+
+    def confirm_delete(self, appointment_id, client_name):
+        """Muestra confirmación para eliminar cita"""
+        AlertManager.show_confirmation(
+            page=self.page,
+            title="Confirmar eliminación",
+            content=f"¿Eliminar cita con {client_name}?",
+            on_confirm=lambda: self._delete_appointment(appointment_id, client_name)
+        )
+
+    def _delete_appointment(self, appointment_id, client_name):
+        """Elimina una cita"""
+        try:
+            self.appointment_service.delete_appointment(appointment_id)
+            self.update_appointments()
+            AlertManager.show_success(self.page, f"Cita con {client_name} eliminada")
+        except Exception as e:
+            AlertManager.show_error(self.page, f"Error al eliminar: {str(e)}")
+
+    def _handle_date_from_change(self, e):
+        """Maneja el cambio en la fecha de inicio"""
+        if self.date_picker_from.value:
+            self.filters['date_from'] = self.date_picker_from.value
+            self.date_from_button.text = self.date_picker_from.value.strftime("%d/%m/%Y")
+            self.update_appointments()
+
+    def _handle_date_to_change(self, e):
+        """Maneja el cambio en la fecha de fin"""
+        if self.date_picker_to.value:
+            self.filters['date_to'] = self.date_picker_to.value
+            self.date_to_button.text = self.date_picker_to.value.strftime("%d/%m/%Y")
+            self.update_appointments()
+
+    def _build_search_row(self):
+        """Construye la fila de búsqueda mejorada"""
+        return ft.ResponsiveRow([
+            ft.Column(
+                col={"sm": 12, "md": 6, "lg": 4},
+                controls=[
+                    ft.Row([
+                        self.search_bar,
+                        ft.IconButton(
+                            icon=ft.icons.CLEAR,
+                            tooltip="Limpiar búsqueda",
+                            on_click=self._reset_search,
+                            icon_color=ft.colors.GREY_600
+                        )
+                    ], spacing=5)
+                ]
+            ),
+            ft.Column(
+                col={"sm": 12, "md": 6, "lg": 3},
+                controls=[
+                    ft.Row([
+                        self.date_from_button,
+                        self.date_to_button,
+                        ft.IconButton(
+                            ft.icons.CLEAR,
+                            tooltip="Limpiar fechas",
+                            on_click=self.clear_date_filters
+                        )
+                    ], spacing=5)
+                ]
+            ),
+            ft.Column(
+                col={"sm": 12, "md": 6, "lg": 3},
+                controls=[self.status_dropdown]
+            ),
+            ft.Column(
+                col={"sm": 12, "md": 6, "lg": 2},
+                controls=[
+                    ft.ElevatedButton(
+                        "Nueva Cita",
+                        icon=ft.icons.ADD,
+                        on_click=lambda e: self.page.go("/appointment_form"),
+                        expand=True
+                    )
+                ]
+            )
+        ], spacing=10)
+
+    def _handle_search_change(self, e):
+        """Maneja el cambio en la búsqueda"""
+        search_term = e.control.value.strip()
+        if not search_term:
+            self.search_bar.controls = []
+            self.page.update()
+            return
+        
+        # Actualizar filtros inmediatamente mientras se escribe
+        self.filters['search_term'] = search_term if search_term else None
+        self.current_page = 1
+        self.update_appointments()
+    
+    def _handle_search_submit(self, e):
+        """Maneja la búsqueda al presionar Enter"""
+        if self.search_bar.controls and len(self.search_bar.controls) > 0:
+            self.search_bar.close_view(self.search_bar.value)
+        self.update_filters()
+    
+    def _reset_search(self, e):
+        """Resetea la búsqueda"""
+        self.search_bar.value = ""
+        self.search_bar.controls = []
+        self.filters['search_term'] = None
+        self.current_page = 1
+        self.update_appointments()
+    
+    def build_view(self):
+        """Construye la vista completa"""
+        return ft.View(
+            "/appointments",
+            controls=[
+                ft.AppBar(
+                    title=ft.Text("Gestión de Citas", weight="bold"),
+                    leading=ft.IconButton(
+                        icon=ft.icons.ARROW_BACK,
+                        tooltip="Volver al Dashboard",
+                        on_click=lambda e: self.page.go("/dashboard"),
+                    )
+                ),
+                ft.Container(
+                    content=ft.Column([
+                        # Fila de búsqueda y filtros
+                        self._build_search_row(),
+                        
+                        # Grid de citas
+                        ft.Container(
+                            content=ft.Column([
+                                self.appointment_grid,
+                                ft.Divider(),
+                                self.pagination_row
+                            ]),
+                            padding=ft.padding.only(top=20),
+                            expand=True
+                        )
+                    ], spacing=20),
+                    padding=20,
+                    expand=True
+                )
+            ],
+            scroll=ft.ScrollMode.AUTO,
+            padding=0
+        )
+
+
+def appointments_view(page: ft.Page):
+    """Función de fábrica para crear la vista de citas"""
+    return AppointmentsView(page).build_view()
