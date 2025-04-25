@@ -22,23 +22,32 @@ class Config:
     # Configuración de la base de datos (compatible con local y Render)
     @property
     def DB_CONFIG(self):
-        # Obtiene la URL de Render y la convierte al formato correcto
-        db_url = os.getenv('DATABASE_URL')
-        if not db_url:
-            raise ValueError("DATABASE_URL no está configurada en Render")
-        
-        # Convierte postgres:// a postgresql:// y parsea la URL
-        db_url = db_url.replace('postgres://', 'postgresql://')
-        parsed = urlparse(db_url)
-        
-        return {
-            'host': parsed.hostname,
-            'database': parsed.path[1:],  # Elimina el / inicial
-            'user': parsed.username,
-            'password': parsed.password,
-            'port': parsed.port or 5432,
-            'sslmode': 'require'  # Obligatorio para Render
-        }
+        # FORZAR uso de DATABASE_URL en producción
+        if os.getenv('RENDER'):  # Variable automática en Render
+            db_url = os.getenv('DATABASE_URL')
+            if not db_url:
+                raise ValueError("DATABASE_URL es requerida en Render")
+            
+            db_url = db_url.replace('postgres://', 'postgresql://')
+            parsed = urlparse(db_url)
+            
+            return {
+                'host': parsed.hostname,
+                'database': parsed.path[1:],
+                'user': parsed.username,
+                'password': parsed.password,
+                'port': parsed.port,
+                'sslmode': 'require'
+            }
+        else:  # Desarrollo local
+            return {
+                'host': 'localhost',
+                'database': 'godonto_db',
+                'user': 'postgres',
+                'password': '',
+                'port': 5432,
+                'sslmode': 'disable'
+            }
     
     # Resto de la configuración permanece igual...
     FLET_PORT: int = int(os.getenv("FLET_PORT", "8500"))
