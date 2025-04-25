@@ -15,7 +15,7 @@ class Database:
     def initialize(cls):
         """Inicializa el pool de conexiones a la base de datos"""
         try:
-            db_config = settings.get_database_config()
+            db_config = settings.DB_CONFIG
             logger.info(f"Intentando conectar a la base de datos con config: {db_config}")
             cls._connection_pool = pool.ThreadedConnectionPool(
                 minconn=1,
