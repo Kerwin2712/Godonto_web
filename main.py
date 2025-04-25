@@ -137,7 +137,7 @@ if __name__ == "__main__":
         ft.app(
             target=main, 
             view=settings.FLET_VIEW,
-            port=settings.FLET_PORT
+            port=8000
         )
     except Exception as e:
         logger.critical(f"Error crítico al iniciar la aplicación: {e}")
