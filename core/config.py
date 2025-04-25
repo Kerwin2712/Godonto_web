@@ -21,30 +21,24 @@ class Config:
     
     # Configuración de la base de datos (compatible con local y Render)
     @property
-    def DB_CONFIG(self) -> Dict[str, Any]:
-        """Obtiene configuración de DB, compatible con local y producción"""
-        db_url = os.getenv("DATABASE_URL")
+    def DB_CONFIG(self):
+        # Obtiene la URL de Render y la convierte al formato correcto
+        db_url = os.getenv('DATABASE_URL')
+        if not db_url:
+            raise ValueError("DATABASE_URL no está configurada en Render")
         
-        if db_url:  # Para Render (producción)
-            db_url = db_url.replace("postgres://", "postgresql://")
-            parsed = urlparse(db_url)
-            return {
-                "host": parsed.hostname,
-                "port": parsed.port or 5432,
-                "database": parsed.path[1:],
-                "user": parsed.username,
-                "password": parsed.password,
-                "sslmode": "require"
-            }
-        else:  # Para desarrollo local
-            return {
-                "host": os.getenv("DB_HOST", "localhost"),
-                "port": os.getenv("DB_PORT", "5432"),
-                "database": os.getenv("DB_NAME", "godonto_db"),
-                "user": os.getenv("DB_USER", "postgres"),
-                "password": os.getenv("DB_PASSWORD", ""),
-                "sslmode": "disable"  # SSL no necesario en local
-            }
+        # Convierte postgres:// a postgresql:// y parsea la URL
+        db_url = db_url.replace('postgres://', 'postgresql://')
+        parsed = urlparse(db_url)
+        
+        return {
+            'host': parsed.hostname,
+            'database': parsed.path[1:],  # Elimina el / inicial
+            'user': parsed.username,
+            'password': parsed.password,
+            'port': parsed.port or 5432,
+            'sslmode': 'require'  # Obligatorio para Render
+        }
     
     # Resto de la configuración permanece igual...
     FLET_PORT: int = int(os.getenv("FLET_PORT", "8500"))

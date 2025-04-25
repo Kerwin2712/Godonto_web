@@ -13,28 +13,25 @@ class Database:
     # En database.py, modifica el método initialize:
     @classmethod
     def initialize(cls):
-        """Inicializa el pool de conexiones a la base de datos"""
         try:
             db_config = settings.DB_CONFIG
-            logger.info(f"Intentando conectar a la base de datos con config: {db_config}")
+            logger.info(f"Intentando conectar a: {db_config['host']}")  # Para ver en logs
+            
+            # Prueba primero una conexión simple
+            test_conn = psycopg2.connect(**db_config)
+            test_conn.close()
+            
+            # Si funciona, crea el pool
             cls._connection_pool = pool.ThreadedConnectionPool(
                 minconn=1,
                 maxconn=10,
-                host=db_config["host"],
-                database=db_config["database"],
-                user=db_config["user"],
-                password=db_config["password"],
-                port=db_config["port"]
+                **db_config
             )
-            logger.info("Pool de conexiones a la base de datos inicializado correctamente")
+            logger.info("Pool de conexiones creado exitosamente")
             
-            # Test connection
-            with cls.get_cursor() as cur:
-                cur.execute("SELECT 1")
-                logger.info("Conexión a la base de datos verificada correctamente")
         except Exception as e:
-            logger.critical(f"No se pudo conectar a la base de datos: {str(e)}")
-            raise ConnectionError(f"No se pudo conectar a la base de datos: {str(e)}")
+            logger.error(f"Error de conexión DB: {str(e)}")
+            raise ConnectionError(f"Error configurando pool: {str(e)}")
 
     @classmethod
     @contextmanager
