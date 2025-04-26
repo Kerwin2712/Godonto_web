@@ -254,19 +254,24 @@ class DashboardView:
         )
 
     def _build_section_header(self, title: str, button_text: str, route: str):
-        """Construye un encabezado de sección común"""
-        return ft.Row([
-            ft.Text(title, size=18, weight="bold"),
-            ft.ElevatedButton(
-                button_text,
-                icon=ft.icons.ADD,
-                on_click=lambda e: self.page.go(route),
-                style=ft.ButtonStyle(
-                    padding=15,
-                    shape=ft.RoundedRectangleBorder(radius=10)
+        """Construye un encabezado de sección responsive"""
+        return ft.ResponsiveRow(
+            controls=[
+                ft.Text(title, size=18, weight="bold", col={"sm": 12, "md": 8}),
+                ft.ElevatedButton(
+                    button_text,
+                    icon=ft.icons.ADD,
+                    on_click=lambda e: self.page.go(route),
+                    style=ft.ButtonStyle(
+                        padding=15,
+                        shape=ft.RoundedRectangleBorder(radius=10)
+                    ),
+                    col={"sm": 12, "md": 4}
                 )
-            )
-        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+            ],
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            spacing=10
+        )
 
     def _build_appointment_actions(self):
         """Construye los botones de acción para citas"""
