@@ -93,6 +93,7 @@ class DashboardView:
             title=ft.Text("Inicio"),
             bgcolor=ft.colors.BLUE_700,
             color=ft.colors.WHITE,
+            automatically_imply_leading=False,
             actions=[
                 ft.IconButton(
                     icon=ft.icons.LOGOUT,
