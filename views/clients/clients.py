@@ -18,73 +18,64 @@ class ClientsView:
         self.load_clients()
     
     def _build_search_bar(self):
-        """Construye el componente SearchBar"""
+        """Construye el componente SearchBar responsive"""
         return ft.SearchBar(
             view_elevation=4,
             divider_color=ft.colors.GREY_300,
-            bar_hint_text="Buscar por nombre o cédula...",
-            view_hint_text="Seleccione un cliente...",
+            bar_hint_text="Buscar...",
+            view_hint_text="Buscar cliente...",
             bar_leading=ft.Icon(ft.icons.SEARCH),
             controls=[],
-            width=400,
+            width=300,  # Ancho fijo que se ajustará en móviles
+            expand=True,  # Permitir que ocupe espacio disponible
             on_change=self._filter_clients,
             on_tap=self._open_search_view,
             on_submit=lambda e: self.update_clients()
         )
-    
+        
     def _build_view_controls(self):
-        """
-        Constructs the top-level controls for the client view.
-
-        This method creates a row layout containing a search bar with associated 
-        action buttons and a floating action button for adding new clients.
-
-        Returns:
-            ft.Row: A row containing the search bar, action buttons, and a floating 
-            action button for navigation.
-
-        Components:
-            - Search Bar: A text input field for searching clients.
-            - Clear Button: An icon button to clear the search input.
-            - Search Button: An icon button to initiate the search action.
-            - Floating Action Button: A button to navigate to the client form for 
-              adding a new client.
-
-        Layout:
-            - The search bar and its associated buttons are aligned to the start.
-            - The floating action button is aligned to the end.
-            - Spacing and alignment are configured for a clean layout.
-        """
-        return ft.Row(
+        """Construye los controles superiores responsive"""
+        return ft.ResponsiveRow(
             controls=[
-                ft.Row(
+                # Search bar y botones
+                ft.Column(
+                    col={"sm": 12, "md": 8},
                     controls=[
-                        self.search_bar,
-                        self._build_icon_button(
-                            icon=ft.icons.CLEAR,
-                            tooltip="Limpiar búsqueda",
-                            on_click=lambda e: self._reset_search(),
-                            color=ft.colors.GREY_600
-                        ),
-                        self._build_icon_button(
-                            icon=ft.icons.SEARCH,
-                            tooltip="Buscar clientes",
-                            on_click=self._open_search_view
+                        ft.Row(
+                            controls=[
+                                self.search_bar,
+                                ft.IconButton(
+                                    icon=ft.icons.CLEAR,
+                                    tooltip="Limpiar",
+                                    on_click=lambda e: self._reset_search(),
+                                    icon_color=ft.colors.GREY_600
+                                ),
+                            ],
+                            spacing=5,
+                            alignment=ft.MainAxisAlignment.START,
+                            expand=True,
                         )
                     ],
-                    spacing=5,
-                    alignment=ft.MainAxisAlignment.START,
-                    expand=True,
+                    expand=True
                 ),
-                ft.FloatingActionButton(
-                    icon=ft.icons.ADD,
-                    text="Nuevo Cliente",
-                    on_click=lambda e: self.page.go("/client_form"),
-                    expand=True,
-                ),
+                # Botón de nuevo cliente
+                ft.Column(
+                    col={"sm": 12, "md": 4},
+                    controls=[
+                        ft.FilledButton(
+                            icon=ft.icons.ADD,
+                            text="Nuevo Cliente",
+                            on_click=lambda e: self.page.go("/client_form"),
+                            expand=True,
+                            height=45
+                        )
+                    ],
+                    alignment=ft.MainAxisAlignment.END
+                )
             ],
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-            spacing=20,
+            spacing=10,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER
         )
     
     def _build_icon_button(self, icon, tooltip, on_click, color=None):
@@ -97,66 +88,91 @@ class ClientsView:
         )
     
     def _build_client_card(self, client: Client):
-        """Construye una tarjeta de cliente con opciones de pagos/deudas"""
-        return ft.Container(
-            content=ft.Row(
-                controls=[
-                    ft.Column(
-                        controls=[
-                            ft.Text(client.name, weight="bold", size=16),
-                            ft.Text(f"Cédula: {client.cedula}", size=14),
-                            ft.Text(f"Tel: {client.phone}", size=14),
-                            ft.Text(client.email, size=14),
-                        ],
-                        expand=True,
-                        spacing=5,
+        """Construye una tarjeta de cliente responsive"""
+        return ft.ResponsiveRow(
+            controls=[
+                ft.Card(
+                    content=ft.Container(
+                        content=ft.Column(
+                            controls=[
+                                # Primera fila: Información básica
+                                ft.ResponsiveRow(
+                                    controls=[
+                                        ft.Column(
+                                            col={"sm": 12, "md": 8},
+                                            controls=[
+                                                ft.Text(client.name, weight="bold", size=16),
+                                                ft.Text(f"Cédula: {client.cedula}", size=14),
+                                                ft.Text(f"Tel: {client.phone}", size=14),
+                                            ],
+                                            spacing=5,
+                                        ),
+                                        # Segunda columna: Botones de acción
+                                        ft.Column(
+                                            col={"sm": 12, "md": 4},
+                                            controls=[
+                                                ft.Row(
+                                                    controls=[
+                                                        ft.PopupMenuButton(
+                                                            icon=ft.icons.MORE_VERT,
+                                                            items=[
+                                                                ft.PopupMenuItem(
+                                                                    text="Registrar Pago",
+                                                                    icon=ft.icons.PAYMENT,
+                                                                    on_click=lambda e, c=client: self._show_payment_dialog(c)
+                                                                ),
+                                                                ft.PopupMenuItem(
+                                                                    text="Registrar Deuda",
+                                                                    icon=ft.icons.MONEY_OFF,
+                                                                    on_click=lambda e, c=client: self._show_debt_dialog(c)
+                                                                ),
+                                                                ft.PopupMenuItem(
+                                                                    text="Ver Historial",
+                                                                    icon=ft.icons.HISTORY,
+                                                                    on_click=lambda e, c=client: self._show_history(c)
+                                                                ),
+                                                                ft.PopupMenuItem(),  # Separador
+                                                                ft.PopupMenuItem(
+                                                                    text="Editar",
+                                                                    icon=ft.icons.EDIT,
+                                                                    on_click=lambda e, c=client: self._edit_client(c)
+                                                                ),
+                                                                ft.PopupMenuItem(
+                                                                    text="Eliminar",
+                                                                    icon=ft.icons.DELETE,
+                                                                    on_click=lambda e, c=client: self._delete_client(c)
+                                                                ),
+                                                            ]
+                                                        )
+                                                    ],
+                                                    alignment=ft.MainAxisAlignment.END
+                                                )
+                                            ]
+                                        )
+                                    ],
+                                    spacing=10,
+                                    vertical_alignment=ft.CrossAxisAlignment.CENTER
+                                ),
+                                # Email (se muestra en una línea separada en móviles)
+                                ft.ResponsiveRow(
+                                    controls=[
+                                        ft.Column(
+                                            col={"sm": 12},
+                                            controls=[
+                                                ft.Text(client.email, size=14),
+                                            ]
+                                        )
+                                    ]
+                                )
+                            ],
+                            spacing=10,
+                        ),
+                        padding=15,
                     ),
-                    ft.Row(
-                        controls=[
-                            # Menú de opciones (tres puntos)
-                            ft.PopupMenuButton(
-                                icon=ft.icons.MORE_VERT,
-                                items=[
-                                    ft.PopupMenuItem(
-                                        text="Registrar Pago",
-                                        icon=ft.icons.PAYMENT,
-                                        on_click=lambda e, c=client: self._show_payment_dialog(c)
-                                    ),
-                                    ft.PopupMenuItem(
-                                        text="Registrar Deuda",
-                                        icon=ft.icons.MONEY_OFF,
-                                        on_click=lambda e, c=client: self._show_debt_dialog(c)
-                                    ),
-                                    ft.PopupMenuItem(
-                                        text="Ver Historial",
-                                        icon=ft.icons.HISTORY,
-                                        on_click=lambda e, c=client: self._show_history(c)
-                                    ),
-                                    ft.PopupMenuItem(),  # Separador
-                                    ft.PopupMenuItem(
-                                        text="Editar",
-                                        icon=ft.icons.EDIT,
-                                        on_click=lambda e, c=client: self._edit_client(c)
-                                    ),
-                                    ft.PopupMenuItem(
-                                        text="Eliminar",
-                                        icon=ft.icons.DELETE,
-                                        on_click=lambda e, c=client: self._delete_client(c)
-                                    ),
-                                ]
-                            )
-                        ],
-                        spacing=10,
-                    ),
-                ],
-                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            ),
-            padding=15,
-            border=ft.border.all(1, ft.colors.GREY_300),
-            border_radius=10,
-            bgcolor=ft.colors.GREY_50,
-            margin=ft.margin.symmetric(vertical=5),
+                    elevation=1,
+                    margin=ft.margin.symmetric(vertical=5),
+                )
+            ]
         )
     
     def _show_payment_dialog(self, client):
@@ -341,14 +357,24 @@ class ClientsView:
             show_error(self.page, f"Error al cargar historial: {str(e)}")
     
     def _build_appbar(self):
-        """Construye la barra de aplicación"""
+        """Construye la barra de aplicación responsive"""
         return ft.AppBar(
-            title=ft.Text("Gestión de Clientes", weight="bold"),
-            leading=self._build_icon_button(
+            title=ft.Text("Gestión de Clientes", weight=ft.FontWeight.BOLD),
+            center_title=False,
+            bgcolor=ft.colors.SURFACE_VARIANT,
+            automatically_imply_leading=False,
+            leading=ft.IconButton(
                 icon=ft.icons.ARROW_BACK,
                 tooltip="Volver al Dashboard",
-                on_click=lambda e: self.page.go("/dashboard")
-            )
+                on_click=lambda _: self.page.go("/dashboard")
+            ),
+            actions=[
+                ft.IconButton(
+                    icon=ft.icons.REFRESH,
+                    tooltip="Recargar clientes",
+                    on_click=lambda _: self.load_clients()
+                )
+            ]
         )
     
     def load_clients(self, search_term=None):
@@ -505,7 +531,7 @@ class ClientsView:
         self.page.update()
     
     def build_view(self):
-        """Construye la vista completa"""
+        """Construye la vista completa responsive"""
         return ft.View(
             "/clients",
             controls=[
@@ -518,13 +544,13 @@ class ClientsView:
                             ft.Container(
                                 content=self.client_list,
                                 expand=True,
-                                padding=ft.padding.symmetric(horizontal=20),
+                                padding=ft.padding.symmetric(horizontal=10),
                             ),
                         ],
                         spacing=0,
                         expand=True,
                     ),
-                    padding=20,
+                    padding=ft.padding.symmetric(horizontal=10, vertical=5),
                     expand=True,
                 ),
             ],
