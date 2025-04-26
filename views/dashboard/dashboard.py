@@ -88,11 +88,18 @@ class DashboardView:
             )
 
     def _build_appbar(self):
-        """Construye la barra de aplicación"""
+        """Construye la barra de aplicación con botón de cerrar sesión"""
         return ft.AppBar(
             title=ft.Text("Inicio"),
             bgcolor=ft.colors.BLUE_700,
-            color=ft.colors.WHITE
+            color=ft.colors.WHITE,
+            actions=[
+                ft.IconButton(
+                    icon=ft.icons.LOGOUT,
+                    tooltip="Cerrar sesión",
+                    on_click=lambda e: self.page.go("/login"),
+                )
+            ]
         )
 
     def _build_main_content(self):
