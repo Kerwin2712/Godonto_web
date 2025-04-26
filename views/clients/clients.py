@@ -359,25 +359,20 @@ class ClientsView:
     def _build_appbar(self):
         """Construye la barra de aplicación responsive"""
         return ft.AppBar(
-            title=ft.Text("Gestión de Clientes", weight="bold", size=18),
+            title=ft.Text("Gestión de Clientes", weight=ft.FontWeight.BOLD),
             center_title=False,
+            bgcolor=ft.colors.SURFACE_VARIANT,
             automatically_imply_leading=False,
             leading=ft.IconButton(
                 icon=ft.icons.ARROW_BACK,
                 tooltip="Volver al Dashboard",
-                on_click=lambda e: self.page.go("/dashboard")
+                on_click=lambda _: self.page.go("/dashboard")
             ),
             actions=[
-                ft.ResponsiveRow(
-                    controls=[
-                        ft.IconButton(
-                            icon=ft.icons.REFRESH,
-                            tooltip="Recargar clientes",
-                            on_click=lambda e: self.load_clients(),
-                            col={"sm": 4}
-                        ),
-                    ],
-                    spacing=5
+                ft.IconButton(
+                    icon=ft.icons.REFRESH,
+                    tooltip="Recargar clientes",
+                    on_click=lambda _: self.load_clients()
                 )
             ]
         )
