@@ -113,13 +113,27 @@ class ClientService:
     
     @staticmethod
     def get_all_clients(search_term=None) -> List[Client]:
-        query = "SELECT id, name, cedula, phone, email, created_at, updated_at FROM clients"
-        params = ()
+        query = """
+            SELECT id, name, cedula, phone, email, created_at, updated_at 
+            FROM clients
+            WHERE 1=1
+        """
+        params = []
         
         if search_term:
-            query += " WHERE unaccent(name) ILIKE %s OR cedula ILIKE %s"
-            params = (f"%{search_term}%", f"%{search_term}%")
-            
+            query += """
+                AND (
+                    unaccent(name) ILIKE unaccent(%s) OR 
+                    unaccent(cedula) ILIKE unaccent(%s) OR 
+                    unaccent(phone) ILIKE unaccent(%s) OR 
+                    unaccent(email) ILIKE unaccent(%s)
+                )
+            """
+            search_param = f"%{search_term}%"
+            params = [search_param] * 4  # Mismo término para todos los campos
+        
+        query += " ORDER BY name ASC"  # Orden alfabético por nombre
+        
         with Database.get_cursor() as cursor:
             cursor.execute(query, params)
             return [Client(*row) for row in cursor.fetchall()]

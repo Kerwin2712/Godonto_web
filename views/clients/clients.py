@@ -428,26 +428,19 @@ class ClientsView:
     
     def _filter_clients(self, e):
         """Filtra clientes en tiempo real según término de búsqueda"""
-        search_term = e.control.value.lower().strip()
+        search_term = e.control.value.strip()
         
         if not search_term:
-            # Si no hay término de búsqueda, mostrar todos los clientes
             self.update_clients()
             return
         
-        # Filtrar clientes que coincidan con el término de búsqueda
-        filtered_clients = [
-            c for c in self.all_clients 
-            if (search_term in c.name.lower() or 
-                search_term in (c.cedula or "").lower() or
-                search_term in (c.phone or "").lower() or
-                search_term in (c.email or "").lower())
-        ]
+        # Usar el servicio para buscar con unaccent
+        filtered_clients = self.client_service.get_all_clients(search_term)
         
         # Actualizar la lista de clientes mostrados
         self.update_clients(filtered_clients)
         
-        # Actualizar las sugerencias del SearchBar (opcional)
+        # Actualizar las sugerencias del SearchBar
         self.search_bar.controls = [
             ft.ListTile(
                 title=ft.Text(c.name),
@@ -455,7 +448,7 @@ class ClientsView:
                 on_click=lambda e, c=c: self._select_client(c),
                 data=c
             )
-            for c in filtered_clients[:10]  # Limitar a 10 sugerencias
+            for c in filtered_clients[:10]
         ]
         self.search_bar.update()
     
