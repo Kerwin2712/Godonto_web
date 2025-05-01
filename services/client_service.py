@@ -117,7 +117,7 @@ class ClientService:
         params = ()
         
         if search_term:
-            query += " WHERE name ILIKE %s OR cedula ILIKE %s"
+            query += " WHERE unaccent(name) ILIKE %s OR cedula ILIKE %s"
             params = (f"%{search_term}%", f"%{search_term}%")
             
         with Database.get_cursor() as cursor:
