@@ -24,10 +24,7 @@ class ClientsView:
             divider_color=ft.colors.GREY_300,
             bar_hint_text="Buscar...",
             view_hint_text="Buscar cliente...",
-            bar_leading=ft.IconButton(
-                icon=ft.icons.SEARCH,
-                on_click=lambda e: self.search_bar.open_view()
-            ),
+            bar_leading=ft.Icon(ft.icons.SEARCH),
             controls=[],
             width=300,  # Ancho fijo que se ajustará en móviles
             expand=True,  # Permitir que ocupe espacio disponible
@@ -394,19 +391,27 @@ class ClientsView:
         self.page.update()
     
     def _filter_clients(self, e):
-        """Filtra clientes según término de búsqueda"""
-        search_term = e.control.value.lower()
+        """Filtra clientes en tiempo real según término de búsqueda"""
+        search_term = e.control.value.lower().strip()
+        
         if not search_term:
-            self.search_bar.controls = []
+            # Si no hay término de búsqueda, mostrar todos los clientes
             self.update_clients()
             return
         
-        filtered = [
+        # Filtrar clientes que coincidan con el término de búsqueda
+        filtered_clients = [
             c for c in self.all_clients 
-            if search_term in c.name.lower() or 
-               search_term in (c.cedula or "").lower()
+            if (search_term in c.name.lower() or 
+                search_term in (c.cedula or "").lower() or
+                search_term in (c.phone or "").lower() or
+                search_term in (c.email or "").lower())
         ]
         
+        # Actualizar la lista de clientes mostrados
+        self.update_clients(filtered_clients)
+        
+        # Actualizar las sugerencias del SearchBar (opcional)
         self.search_bar.controls = [
             ft.ListTile(
                 title=ft.Text(c.name),
@@ -414,7 +419,7 @@ class ClientsView:
                 on_click=lambda e, c=c: self._select_client(c),
                 data=c
             )
-            for c in filtered[:10]
+            for c in filtered_clients[:10]  # Limitar a 10 sugerencias
         ]
         self.search_bar.update()
     
@@ -428,10 +433,12 @@ class ClientsView:
         """Abre la vista de sugerencias del search bar"""
         self.search_bar.open_view()
     
-    def _reset_search(self):
-        """Resetea la búsqueda"""
+    def _reset_search(self, e):
+        """Resetea la búsqueda y muestra todos los clientes"""
         self.search_bar.value = ""
+        self.search_bar.controls = []
         self.update_clients()
+        self.page.update()
     
     def _edit_client(self, client: Client):
         """Navega al formulario de edición"""
