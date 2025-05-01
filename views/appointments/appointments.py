@@ -389,7 +389,7 @@ class AppointmentsView:
         self.update_appointments()
     
     def build_view(self):
-        """Construye la vista completa"""
+        """Construye la vista completa y la hace responsive"""
         return ft.View(
             "/appointments",
             controls=[
@@ -401,25 +401,32 @@ class AppointmentsView:
                         on_click=lambda e: self.page.go("/dashboard"),
                     )
                 ),
-                ft.Container(
-                    content=ft.Column([
-                        # Fila de búsqueda y filtros
-                        self._build_search_row(),
-                        
-                        # Grid de citas
-                        ft.Container(
-                            content=ft.Column([
-                                self.appointment_grid,
-                                ft.Divider(),
-                                self.pagination_row
-                            ]),
-                            padding=ft.padding.only(top=20),
-                            expand=True
-                        )
-                    ], spacing=20),
-                    padding=20,
-                    expand=True
-                )
+                ft.ResponsiveRow([
+                    ft.Column(
+                        col={"sm": 12, "md": 12, "lg": 12},
+                        controls=[
+                            ft.Container(
+                                content=ft.Column([
+                                    # Fila de búsqueda y filtros
+                                    self._build_search_row(),
+                                    
+                                    # Grid de citas
+                                    ft.Container(
+                                        content=ft.Column([
+                                            self.appointment_grid,
+                                            ft.Divider(),
+                                            self.pagination_row
+                                        ]),
+                                        padding=ft.padding.only(top=20),
+                                        expand=True
+                                    )
+                                ], spacing=20),
+                                padding=20,
+                                expand=True
+                            )
+                        ]
+                    )
+                ]),
             ],
             scroll=ft.ScrollMode.AUTO,
             padding=0
