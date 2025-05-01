@@ -209,7 +209,7 @@ class AppointmentService(Observable):
                 """
                 SELECT id, name, cedula 
                 FROM clients 
-                WHERE name ILIKE %s OR cedula ILIKE %s
+                WHERE unaccent(name) ILIKE %s OR cedula ILIKE %s
                 LIMIT 10
                 """,
                 (f"%{search_term}%", f"%{search_term}%")
