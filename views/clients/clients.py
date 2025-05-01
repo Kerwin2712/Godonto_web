@@ -18,21 +18,57 @@ class ClientsView:
         self.load_clients()
     
     def _build_search_bar(self):
-        """Construye el componente SearchBar responsive"""
+        """Construye el componente SearchBar responsive con búsqueda en tiempo real"""
         return ft.SearchBar(
             view_elevation=4,
             divider_color=ft.colors.GREY_300,
-            bar_hint_text="Buscar...",
-            view_hint_text="Buscar cliente...",
+            bar_hint_text="Buscar por nombre o cédula...",
+            view_hint_text="Filtrar clientes...",
             bar_leading=ft.Icon(ft.icons.SEARCH),
             controls=[],
-            width=300,  # Ancho fijo que se ajustará en móviles
-            expand=True,  # Permitir que ocupe espacio disponible
-            on_change=self._filter_clients,
-            #on_tap=self._open_search_view,
-            on_submit=lambda e: self.update_clients()
+            width=300,
+            expand=True,
+            on_change=self._handle_search_change,  # Cambio clave para búsqueda en tiempo real
+            on_submit=lambda e: self._handle_search_submit()
         )
+    
+    def _handle_search_change(self, e):
+        """Maneja el cambio en la búsqueda en tiempo real"""
+        search_term = e.control.value.strip().lower()
         
+        if not search_term:
+            # Si no hay término de búsqueda, mostrar todos los clientes
+            self.update_clients()
+            return
+        
+        # Filtrar clientes que coincidan con el término de búsqueda
+        filtered_clients = [
+            c for c in self.all_clients 
+            if (search_term in c.name.lower() or 
+                search_term in (c.cedula or "").lower())
+        ]
+        
+        # Actualizar la lista de clientes mostrados
+        self.update_clients(filtered_clients)
+        
+        # Actualizar las sugerencias del SearchBar
+        self.search_bar.controls = [
+            ft.ListTile(
+                title=ft.Text(c.name),
+                subtitle=ft.Text(f"Cédula: {c.cedula}"),
+                on_click=lambda e, c=c: self._select_client(c),
+                data=c
+            )
+            for c in filtered_clients[:10]  # Limitar a 10 sugerencias
+        ]
+        self.search_bar.update()
+    
+    def _handle_search_submit(self, e):
+        """Maneja la búsqueda al presionar Enter"""
+        if self.search_bar.controls and len(self.search_bar.controls) > 0:
+            self.search_bar.close_view(self.search_bar.value)
+        self._handle_search_change(e)  # Reutilizamos la misma lógica
+    
     def _build_view_controls(self):
         """Construye los controles superiores responsive"""
         return ft.ResponsiveRow(
