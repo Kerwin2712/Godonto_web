@@ -66,11 +66,13 @@ class AppointmentFormView:
             divider_color=ft.colors.BLUE_400,
             bar_hint_text="Buscar cliente...",
             view_hint_text="Seleccione un cliente...",
-            bar_leading=ft.Icon(ft.icons.SEARCH),
+            bar_leading=ft.IconButton(
+                icon=ft.icons.SEARCH,
+                on_click=lambda e: self.client_search.open_view()
+            ),
             controls=[],
             expand=True,
             on_change=self.handle_search_change,
-            on_tap=lambda e: self.client_search.open_view(),
             on_submit=lambda e: self.handle_search_submit(e)
         )
 
