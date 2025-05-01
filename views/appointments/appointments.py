@@ -76,9 +76,8 @@ class AppointmentsView:
             view_hint_text="Filtrar citas...",
             bar_leading=ft.Icon(ft.icons.SEARCH),
             controls=[],
-            width=400,
+            width={"sm": "100%", "md": 400, "lg": 400},  # Ajusta el ancho según el tamaño de la pantalla
             on_change=self._handle_search_change,
-            #on_tap=lambda e: self.search_bar.open_view(),
             on_submit=lambda e: self._handle_search_submit(e)
         )
         
