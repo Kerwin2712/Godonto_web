@@ -26,7 +26,7 @@ class ClientsView:
             view_hint_text="Buscar cliente...",
             bar_leading=ft.IconButton(
                 icon=ft.icons.SEARCH,
-                on_click=lambda e: self._open_search_view
+                on_click=lambda e: self._open_search_view(e)
             ),
             controls=[],
             width=300,  # Ancho fijo que se ajustará en móviles
