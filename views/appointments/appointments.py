@@ -72,7 +72,7 @@ class AppointmentsView:
         self.search_bar = ft.SearchBar(
             view_elevation=4,
             divider_color=ft.colors.BLUE_ACCENT,
-            bar_hint_text="Buscar por nombre, cédula o detalles...",
+            bar_hint_text="Buscar por nombre o cédula",
             view_hint_text="Filtrar citas...",
             bar_leading=ft.Icon(ft.icons.SEARCH),
             controls=[],
