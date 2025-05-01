@@ -110,7 +110,7 @@ class AppointmentFormView:
         """Maneja el cambio en la búsqueda de clientes"""
         search_term = e.control.value.strip()
         
-        if len(search_term) < 2:
+        if len(search_term) < 1:
             self.client_search.controls = []
             self.page.update()
             return
