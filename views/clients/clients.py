@@ -24,12 +24,15 @@ class ClientsView:
             divider_color=ft.colors.GREY_300,
             bar_hint_text="Buscar...",
             view_hint_text="Buscar cliente...",
-            bar_leading=ft.Icon(ft.icons.SEARCH),
+            bar_leading=ft.IconButton(
+                icon=ft.icons.SEARCH,
+                on_click=lambda e: self._open_search_view
+            ),
             controls=[],
             width=300,  # Ancho fijo que se ajustará en móviles
             expand=True,  # Permitir que ocupe espacio disponible
             on_change=self._filter_clients,
-            on_tap=self._open_search_view,
+            #on_tap=self._open_search_view,
             on_submit=lambda e: self.update_clients()
         )
         
