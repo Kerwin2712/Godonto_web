@@ -287,7 +287,7 @@ class AppointmentService(Observable):
             query += " AND a.status = %s"
             params.append(filters['status'])
         if filters.get('search_term'):
-            query += " AND (c.name ILIKE %s OR c.cedula ILIKE %s OR a.notes ILIKE %s)"
+            query += " AND (unaccent(c.name) ILIKE %s OR c.cedula ILIKE %s OR a.notes ILIKE %s)"
             params.extend([f"%{filters['search_term']}%"] * 3)
         
         query += " ORDER BY a.date DESC, a.hour DESC LIMIT %s OFFSET %s"

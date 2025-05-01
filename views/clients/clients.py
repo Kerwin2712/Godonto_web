@@ -400,7 +400,7 @@ class ClientsView:
             self.search_bar.controls = []
             self.update_clients()
             return
-            
+        
         filtered = [
             c for c in self.all_clients 
             if search_term in c.name.lower() or 
