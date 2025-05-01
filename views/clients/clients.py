@@ -34,19 +34,15 @@ class ClientsView:
     
     def _handle_search_change(self, e):
         """Maneja el cambio en la búsqueda en tiempo real"""
-        search_term = e.control.value.strip().lower()
+        search_term = e.control.value.strip()
         
         if not search_term:
             # Si no hay término de búsqueda, mostrar todos los clientes
             self.update_clients()
             return
         
-        # Filtrar clientes que coincidan con el término de búsqueda
-        filtered_clients = [
-            c for c in self.all_clients 
-            if (search_term in c.name.lower() or 
-                search_term in (c.cedula or "").lower())
-        ]
+        # Usar el servicio para buscar con unaccent
+        filtered_clients = self.client_service.get_all_clients(search_term)
         
         # Actualizar la lista de clientes mostrados
         self.update_clients(filtered_clients)
