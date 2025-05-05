@@ -308,10 +308,21 @@ class DashboardView:
         )
 
     def _build_section_header(self, title: str, button_text: str, route: str):
+        """
+        Construye un encabezado de sección responsive.
+
+        Args:
+            title (str): El título que se mostrará en el encabezado.
+            button_text (str): El texto que se mostrará en el botón.
+            route (str): La ruta a la que se navegará al hacer clic en el botón.
+
+        Returns:
+            ft.ResponsiveRow: Un contenedor responsive que incluye un título y un botón.
+        """
         """Construye un encabezado de sección responsive"""
         return ft.ResponsiveRow(
             controls=[
-                ft.Text(title, size=18, weight="bold", col={"sm": 12, "md": 8}),
+                ft.Text(title, size=19, weight="bold", col={"sm": 12, "md": 8}, color=ft.colors.BLACK),
                 ft.ElevatedButton(
                     button_text,
                     icon=ft.icons.ADD,
