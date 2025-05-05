@@ -44,13 +44,13 @@ class AppointmentFormView:
             expand=True
         )
         
-        self.date_text = ft.Text("No seleccionada", color=ft.colors.DARK)
-        self.time_text = ft.Text("No seleccionada", color=ft.colors.DARK)
+        self.date_text = ft.Text("No seleccionada", color=ft.colors.BLACK)
+        self.time_text = ft.Text("No seleccionada", color=ft.colors.BLACK)
         self.selected_client_text = ft.Text(
             "Ningún cliente seleccionado", 
             italic=True,
             overflow=ft.TextOverflow.ELLIPSIS,
-            color = ft.colors.DARK,
+            color = ft.colors.BLACK,
         )
         
         # Añadir pickers al overlay de la página
