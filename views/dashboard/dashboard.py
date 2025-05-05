@@ -94,6 +94,28 @@ class DashboardView:
             bgcolor=ft.colors.BLUE_700,
             color=ft.colors.WHITE,
             automatically_imply_leading=False,
+            automatically_imply_leading=False,
+            leading=ft.PopupMenuButton(
+                icon=ft.icons.MENU,
+                tooltip="Menú",
+                items=[
+                    ft.PopupMenuItem(
+                        text="Ajustes",
+                        icon=ft.icons.SETTINGS,
+                        on_click=lambda e: self.page.go("/settings")  # Asume que tendrás una ruta de ajustes
+                    ),
+                    ft.PopupMenuItem(
+                        text="Salir",
+                        icon=ft.icons.LANGUAGE,
+                        on_click=lambda e: self.page.go("/login")
+                    ),
+                    ft.PopupMenuItem(
+                        text="Temas",
+                        icon=ft.icons.COLOR_LENS,
+                        on_click=lambda e: self._show_theme_options()
+                    )
+                ]
+            ),
             actions=[
                 ft.IconButton(
                     icon=ft.icons.LOGOUT,
@@ -103,6 +125,39 @@ class DashboardView:
             ]
         )
 
+    def _show_theme_options(self):
+        """Muestra opciones de tema"""
+        opciones_temas = ft.Dropdown(
+            options=[
+                ft.dropdown.Option(ft.ThemeMode.LIGHT, "Claro"),
+                ft.dropdown.Option(ft.ThemeMode.DARK, "Oscuro"),
+                ft.dropdown.Option(ft.ThemeMode.SYSTEM, "Sistema"),
+            ],
+            value=self.page.theme_mode,
+            width=200
+        )
+        
+        def change_theme(e):
+            self.page.theme_mode = opciones_temas.value
+            self._show_success(f"Tema cambiado a {opciones_temas.value}")
+            theme_dialog.open = False
+            self.page.update()
+
+        theme_dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Seleccionar Tema"),
+            content=ft.Column([
+                opciones_temas,
+            ], tight=True),
+            actions=[
+                ft.TextButton("Cancelar", on_click=lambda e: setattr(theme_dialog, "open", False)),
+                ft.TextButton("Aplicar", on_click=change_theme),
+            ],
+        )
+        self.page.open(theme_dialog)
+        theme_dialog.open = True
+        self.page.update()
+    
     def _build_main_content(self):
         """Construye el contenido principal del dashboard"""
         return ft.Container(
