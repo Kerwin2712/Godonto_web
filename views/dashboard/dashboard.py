@@ -94,7 +94,6 @@ class DashboardView:
             bgcolor=ft.colors.BLUE_700,
             color=ft.colors.WHITE,
             automatically_imply_leading=False,
-            automatically_imply_leading=False,
             leading=ft.PopupMenuButton(
                 icon=ft.icons.MENU,
                 tooltip="Menú",
