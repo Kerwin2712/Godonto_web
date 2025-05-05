@@ -126,27 +126,36 @@ class DashboardView:
 
     def _show_theme_options(self):
         """Muestra opciones de tema"""
-        opciones_temas = ft.Dropdown(
+        # Crear una variable para mantener el estado del tema seleccionado
+        selected_theme = ft.Ref[ft.ThemeMode]()
+        selected_theme.current = self.page.theme_mode
+        
+        def change_theme(e):
+            # Aplicar el tema seleccionado
+            self.page.theme_mode = selected_theme.current
+            self._show_success(f"Tema cambiado a {'Claro' if selected_theme.current == ft.ThemeMode.LIGHT else 'Oscuro'}")
+            theme_dialog.open = False
+            self.page.update()
+        
+        def on_theme_change(e):
+            # Actualizar la referencia cuando cambia la selección
+            selected_theme.current = theme_dropdown.value
+        
+        theme_dropdown = ft.Dropdown(
             options=[
                 ft.dropdown.Option(ft.ThemeMode.LIGHT, "Claro"),
                 ft.dropdown.Option(ft.ThemeMode.DARK, "Oscuro"),
-                ft.dropdown.Option(ft.ThemeMode.SYSTEM, "Sistema"),
             ],
             value=self.page.theme_mode,
-            width=200
+            width=200,
+            on_change=on_theme_change
         )
         
-        def change_theme(e):
-            self.page.theme_mode = opciones_temas.value
-            self._show_success(f"Tema cambiado a {opciones_temas.value}")
-            theme_dialog.open = False
-            self.page.update()
-
         theme_dialog = ft.AlertDialog(
             modal=True,
             title=ft.Text("Seleccionar Tema"),
             content=ft.Column([
-                opciones_temas,
+                theme_dropdown,
             ], tight=True),
             actions=[
                 ft.TextButton("Cancelar", on_click=lambda e: setattr(theme_dialog, "open", False)),
