@@ -158,7 +158,7 @@ class DashboardView:
                 theme_dropdown,
             ], tight=True),
             actions=[
-                ft.TextButton("Cancelar", on_click=lambda e: setattr(theme_dialog, "open", False)),
+                ft.TextButton("Cancelar", on_click=lambda e: self.page.close(theme_dialog)),
                 ft.TextButton("Aplicar", on_click=change_theme),
             ],
         )
