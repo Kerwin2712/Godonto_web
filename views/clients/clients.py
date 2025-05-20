@@ -163,6 +163,12 @@ class ClientsView:
                                                                     icon=ft.icons.HISTORY,
                                                                     on_click=lambda e, c=client: self._show_history(c)
                                                                 ),
+                                                                ft.PopupMenuItem(),
+                                                                ft.PopupMenuItem(
+                                                                    text="Generar Presupuesto",
+                                                                    icon=ft.icons.HISTORY,
+                                                                    on_click=lambda e, c=client: self._create_pdf(c)
+                                                                ),
                                                                 ft.PopupMenuItem(),  # Separador
                                                                 ft.PopupMenuItem(
                                                                     text="Editar",
@@ -464,6 +470,9 @@ class ClientsView:
         self.search_bar.controls = []
         self.update_clients()
         self.page.update()
+    
+    def _create_pdf(self, client: Client):
+        pass
     
     def _edit_client(self, client: Client):
         """Navega al formulario de edición"""
