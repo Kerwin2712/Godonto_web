@@ -43,7 +43,7 @@ def presup_view(page: ft.Page, client_id: int = None):
     )
     page.overlay.append(date_picker_dialog) # Add date picker to page overlay
 
-    date_picker_field.on_focus = lambda e: date_picker_dialog.pick_date()
+    date_picker_field.on_focus = lambda e: page.open(date_picker_dialog) if e.control.focused else None
 
     def add_treatment_item(e=None, treatment="", quantity="1", price="0.00"):
         # Unique key for each item to allow removal
