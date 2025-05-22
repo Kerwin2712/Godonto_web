@@ -33,7 +33,7 @@ def presup_view(page: ft.Page, client_id: int = None):
         label="Fecha",
         width=200,
         read_only=True,
-        value=ft.format_date(ft.datetime.date.today(), format="dd/MM/yyyy")
+        value=ft.format_date(datetime.date.today(), format="dd/MM/yyyy")
     )
     date_picker_dialog = ft.DatePicker(
         on_change=lambda e: setattr(date_picker_field, 'value', ft.format_date(e.control.value, format="dd/MM/yyyy")),
