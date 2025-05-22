@@ -90,8 +90,14 @@ def main(page: ft.Page):
                     page.views.append(client_form_view(page, client_id))
                 elif page.route == "/appointments":
                     page.views.append(appointments_view(page))
-                elif page.route == "/presupuesto":
-                    page.views.append(presup_view(page))
+                elif page.route == "/presupuesto" or page.route.startswith("/presupuesto/"): # Modified
+                    client_id = None
+                    if page.route.startswith("/presupuesto/"):
+                        try:
+                            client_id = int(page.route.split("/")[2])
+                        except (IndexError, ValueError):
+                            pass
+                    page.views.append(presup_view(page, client_id))
                 elif page.route == "/appointment_form" or page.route.startswith("/appointment_form/"):
                     appointment_id = None
                     if page.route.startswith("/appointment_form/"):
