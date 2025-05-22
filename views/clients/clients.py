@@ -167,7 +167,7 @@ class ClientsView:
                                                                 ft.PopupMenuItem(
                                                                     text="Generar Presupuesto",
                                                                     icon=ft.icons.PICTURE_AS_PDF,
-                                                                    on_click=lambda e, c=client: self._create_pdf(c)
+                                                                    on_click=lambda e, c=client: self.page.go(f"/presupuesto/{client.id}")
                                                                 ),
                                                                 ft.PopupMenuItem(),  # Separador
                                                                 ft.PopupMenuItem(

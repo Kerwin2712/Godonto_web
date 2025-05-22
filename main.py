@@ -10,6 +10,7 @@ from views.calendar.calendar import calendar_view
 from views.reports.reports import reports_view
 from views.clients.client_form import client_form_view
 from views.appointments.appointment_form import appointment_form_view
+from views.presupuesto.presup_form import presup_view
 
 # Configuración de logging
 logging.basicConfig(
@@ -89,6 +90,8 @@ def main(page: ft.Page):
                     page.views.append(client_form_view(page, client_id))
                 elif page.route == "/appointments":
                     page.views.append(appointments_view(page))
+                elif page.route == "/presupuesto":
+                    page.views.append(presup_view(page))
                 elif page.route == "/appointment_form" or page.route.startswith("/appointment_form/"):
                     appointment_id = None
                     if page.route.startswith("/appointment_form/"):
