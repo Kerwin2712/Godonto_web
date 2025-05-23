@@ -3,6 +3,7 @@ from services.client_service import ClientService # Import ClientService
 from utils.alerts import show_success, show_error # Assuming you have these utilities
 import datetime # Import datetime for date handling
 import logging # Import logging
+from services.budget_service import BudgetService
 
 logger = logging.getLogger(__name__)
 
@@ -134,7 +135,7 @@ def presup_view(page: ft.Page, client_id: int = None):
                     return
         
         if not budget_data["client_name"] or not budget_data["client_cedula"] or not budget_data["date"]:
-            show_error(page, "Los campos Cliente, Cédula y Fecha son obligatorios.")
+            show_error(page, "Los campos Cliente y Cédula son obligatorios.")
             return
 
         if not budget_data["items"]:
@@ -142,14 +143,36 @@ def presup_view(page: ft.Page, client_id: int = None):
             return
 
         try:
-            # TODO: Call a BudgetService to generate PDF and potentially save the budget
-            # Example: BudgetService.generate_pdf(budget_data)
-            # Example: BudgetService.save_budget(budget_data, client_id)
-            
-            show_success(page, "Presupuesto creado y listo para generar PDF (funcionalidad pendiente).")
-            logger.info(f"Budget data collected: {budget_data}")
-            # Optionally, navigate away or clear form
-            page.go("/clients") # Go back to clients list
+            # Llama al servicio para generar el PDF
+            pdf_filename = f"presupuesto_{budget_data['client_cedula']}_{datetime.now().strftime('%Y%m%d%H%M%S')}.pdf"
+            pdf_path = BudgetService.generate_pdf(budget_data, output_path=pdf_filename)
+
+            show_success(page, f"Presupuesto creado. PDF generado.")
+
+            # Generar enlace de descarga (solo funcionará si el archivo es accesible desde el servidor web)
+            # Suponiendo que el archivo se guarda en una carpeta estática accesible, por ejemplo 'static/presupuestos/'
+            # Ajusta la ruta según tu configuración real
+            download_url = f"/static/presupuestos/{pdf_filename}"
+
+            # Mostrar el enlace de descarga en la página
+            page.dialog = ft.AlertDialog(
+            title=ft.Text("Presupuesto generado"),
+            content=ft.Column([
+                ft.Text("El presupuesto se generó correctamente."),
+                ft.TextButton(
+                "Descargar PDF",
+                url=download_url,
+                icon=ft.icons.DOWNLOAD,
+                style=ft.ButtonStyle(color=ft.colors.BLUE)
+                )
+            ]),
+            open=True
+            )
+            page.update()
+
+            logger.info(f"Budget data collected and PDF generated: {budget_data}")
+
+            # No redirigir automáticamente, dejar que el usuario descargue el PDF
         except Exception as ex:
             show_error(page, f"Error al generar presupuesto: {str(ex)}")
             logger.error(f"Error generating budget: {ex}", exc_info=True)
