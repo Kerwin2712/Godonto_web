@@ -1,11 +1,35 @@
 from core.database import get_db, Database
 from models.client import Client  # Asegúrate de tener este modelo
-from typing import List
+from typing import List, Optional
 import logging
 
 logger = logging.getLogger(__name__)
 
 class ClientService:
+    @staticmethod
+    def get_client_by_id(client_id: int) -> Optional[Client]: # Añadido este método
+        """Obtiene un cliente por su ID."""
+        with get_db() as cursor:
+            cursor.execute(
+                """
+                SELECT id, name, cedula, phone, email, created_at, updated_at
+                FROM clients
+                WHERE id = %s
+                """,
+                (client_id,)
+            )
+            row = cursor.fetchone()
+            if row:
+                return Client(
+                    id=row[0],
+                    name=row[1],
+                    cedula=row[2],
+                    phone=row[3],
+                    email=row[4],
+                    created_at=row[5],
+                    updated_at=row[6]
+                )
+            return None # Retornar None si el cliente no se encuentra
     
     @staticmethod
     def has_payments_or_debts(client_id: int) -> bool:
