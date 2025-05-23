@@ -109,7 +109,7 @@ def presup_view(page: ft.Page, client_id: int = None):
         # or call it after the view is added to the page.
         # For simplicity, we can call it directly, but in a more complex
         # app, you might defer it with page.add_init_handler or similar.
-        page.on_ready = lambda: load_client_data(client_id)
+        load_client_data(client_id)
 
 
     def on_submit(e):
