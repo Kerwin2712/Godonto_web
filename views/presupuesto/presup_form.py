@@ -117,7 +117,6 @@ def presup_view(page: ft.Page, client_id: int = None):
         budget_data = {
             "client_name": client_name_field.value,
             "client_cedula": client_cedula_field.value,
-            "date": date_picker_field.value,
             "items": []
         }
         
@@ -177,7 +176,6 @@ def presup_view(page: ft.Page, client_id: int = None):
                             controls=[
                                 ft.Column(col={"sm":12, "md":6}, controls=[client_name_field]),
                                 ft.Column(col={"sm":12, "md":3}, controls=[client_cedula_field]),
-                                ft.Column(col={"sm":12, "md":3}, controls=[date_picker_field]),
                             ],
                             spacing=10
                         ),
