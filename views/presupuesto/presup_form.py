@@ -27,13 +27,6 @@ def presup_view(page: ft.Page, client_id: int = None):
         read_only=True if client_id else False,
         keyboard_type=ft.KeyboardType.NUMBER
     )
-
-    # Date picker
-    date_picker_field = ft.TextField(
-        label="Fecha",
-        width=200,
-        read_only=True,
-    )
     
 
     def add_treatment_item(e=None, treatment="", quantity="1", price="0.00"):
