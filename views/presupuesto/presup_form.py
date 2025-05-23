@@ -106,7 +106,7 @@ def presup_view(page: ft.Page, client_id: int = None):
             logger.error(f"Error al cargar datos del cliente para el formulario de presupuesto (ID: {client_id}): {e}", exc_info=True)
 
     if client_id:
-        page.on_ready = lambda: load_client_data(client_id)
+        load_client_data(client_id)
 
     async def on_submit(e):
         # Recopilar todos los datos
