@@ -76,8 +76,10 @@ def main(page: ft.Page):
             try:
                 #print(f"Cambiando a ruta: {page.route}")
                 if page.route == "/login":
+                    print(f"Mostrando vista: {current_route}")
                     page.views.append(login_view(page))
                 elif page.route == "/dashboard":
+                    print(f"Mostrando vista: {current_route}")
                     page.views.append(dashboard_view(page))
                 elif page.route == "/clients":
                     page.views.append(clients_view(page))
