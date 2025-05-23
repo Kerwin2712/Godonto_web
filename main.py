@@ -96,6 +96,7 @@ def main(page: ft.Page):
                         try:
                             client_id = int(page.route.split("/")[2])
                         except (IndexError, ValueError):
+                            print(f"Error al obtener el ID del cliente: {str(view_error)}")
                             pass
                     page.views.append(presup_view(page, client_id))
                 elif page.route == "/appointment_form" or page.route.startswith("/appointment_form/"):
