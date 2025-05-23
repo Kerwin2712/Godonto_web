@@ -1,38 +1,38 @@
 import flet as ft
 from services.client_service import ClientService # Import ClientService
 from utils.alerts import show_success, show_error # Assuming you have these utilities
-import datetime # Import datetime for date handling
+from datetime import datetime # Import datetime for date handling
 import logging # Import logging
 from services.budget_service import BudgetService
+import os
 
 logger = logging.getLogger(__name__)
 
 def presup_view(page: ft.Page, client_id: int = None):
     """Vista de presupuesto para la aplicación"""
 
-    # UI Controls for dynamic treatment items
+    # Configurar el FilePicker para la descarga
+    file_picker = ft.FilePicker()
+    page.overlay.append(file_picker) # Añadir el FilePicker al overlay de la página
+
     treatment_items_column = ft.Column()
     total_amount_text = ft.Text("Total: $0.00", size=18, weight=ft.FontWeight.BOLD)
 
-    # TextFields for client information
     client_name_field = ft.TextField(
         label="Cliente",
         width=400,
-        read_only=True if client_id else False, # Make read-only if client_id is present
-        autofocus=True if not client_id else False,
+        autofocus=True,
         keyboard_type=ft.KeyboardType.TEXT
     )
     client_cedula_field = ft.TextField(
         label="Cédula",
         width=200,
-        read_only=True if client_id else False,
         keyboard_type=ft.KeyboardType.NUMBER
     )
     
 
     def add_treatment_item(e=None, treatment="", quantity="1", price="0.00"):
-        # Unique key for each item to allow removal
-        key = f"item_{len(treatment_items_column.controls)}" 
+        key = f"item_{len(treatment_items_column.controls)}_{datetime.now().timestamp()}" # Usar timestamp para mayor unicidad
         
         treatment_field = ft.TextField(label="Tratamiento", expand=True, value=treatment, data=key)
         quantity_field = ft.TextField(
@@ -54,8 +54,9 @@ def presup_view(page: ft.Page, client_id: int = None):
         )
         
         def remove_item(e):
-            for control in treatment_items_column.controls:
-                if isinstance(control, ft.Row) and control.controls[0].data == key:
+            # Buscar el control por el atributo 'data' (key)
+            for control in list(treatment_items_column.controls): # Usar list() para evitar problemas al modificar la lista
+                if isinstance(control, ft.Row) and control.data == key:
                     treatment_items_column.controls.remove(control)
                     break
             update_total()
@@ -66,11 +67,11 @@ def presup_view(page: ft.Page, client_id: int = None):
                 treatment_field,
                 quantity_field,
                 price_field,
-                ft.IconButton(ft.icons.DELETE, on_click=remove_item, tooltip="Eliminar item")
+                ft.IconButton(ft.icons.DELETE, on_click=remove_item, tooltip="Eliminar ítem")
             ],
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
             spacing=10,
-            data=key # Store key in the row itself for easier lookup
+            data=key # Almacenar clave en la fila
         )
         treatment_items_column.controls.append(item_row)
         update_total()
@@ -81,12 +82,12 @@ def presup_view(page: ft.Page, client_id: int = None):
         for item_row in treatment_items_column.controls:
             if isinstance(item_row, ft.Row):
                 try:
+                    # Acceder a los campos de texto directamente
                     quantity = float(item_row.controls[1].value)
-                    price = float(item_row.controls[2].value)
+                    price = float(item_row.controls[2].value.replace('$', '')) # Quitar el '$' antes de convertir a float
                     total += quantity * price
                 except ValueError:
-                    # Ignore invalid numbers for now, or show an error
-                    pass
+                    pass # Ignorar si los campos no son números válidos
         total_amount_text.value = f"Total: ${total:,.2f}"
         page.update()
 
@@ -99,22 +100,16 @@ def presup_view(page: ft.Page, client_id: int = None):
                 page.update()
             else:
                 show_error(page, "Cliente no encontrado.")
-                logger.warning(f"Client with ID {client_id} not found for budget form.")
+                logger.warning(f"No se encontró el cliente con ID {client_id} para el formulario de presupuesto.")
         except Exception as e:
             show_error(page, f"Error al cargar datos del cliente: {e}")
-            logger.error(f"Error loading client data for budget form (ID: {client_id}): {e}")
+            logger.error(f"Error al cargar datos del cliente para el formulario de presupuesto (ID: {client_id}): {e}", exc_info=True)
 
-    # Call load_client_data if client_id is provided
     if client_id:
-        # We need to ensure the page is ready before calling this,
-        # or call it after the view is added to the page.
-        # For simplicity, we can call it directly, but in a more complex
-        # app, you might defer it with page.add_init_handler or similar.
-        load_client_data(client_id)
+        page.on_ready = lambda: load_client_data(client_id)
 
-
-    def on_submit(e):
-        # Gather all data
+    async def on_submit(e):
+        # Recopilar todos los datos
         budget_data = {
             "client_name": client_name_field.value,
             "client_cedula": client_cedula_field.value,
@@ -127,7 +122,7 @@ def presup_view(page: ft.Page, client_id: int = None):
                     item = {
                         "treatment": item_row.controls[0].value,
                         "quantity": float(item_row.controls[1].value),
-                        "price": float(item_row.controls[2].value)
+                        "price": float(item_row.controls[2].value.replace('$', '')) # Asegurarse de quitar el '$'
                     }
                     budget_data["items"].append(item)
                 except ValueError:
@@ -135,7 +130,7 @@ def presup_view(page: ft.Page, client_id: int = None):
                     return
         
         if not budget_data["client_name"] or not budget_data["client_cedula"] or not budget_data["date"]:
-            show_error(page, "Los campos Cliente y Cédula son obligatorios.")
+            show_error(page, "Los campos Cliente, Cédula y Fecha son obligatorios.")
             return
 
         if not budget_data["items"]:
@@ -143,41 +138,35 @@ def presup_view(page: ft.Page, client_id: int = None):
             return
 
         try:
-            # Llama al servicio para generar el PDF
-            pdf_filename = f"presupuesto_{budget_data['client_cedula']}_{datetime.now().strftime('%Y%m%d%H%M%S')}.pdf"
-            pdf_path = BudgetService.generate_pdf(budget_data, output_path=pdf_filename)
+            # Generar el PDF como bytes
+            pdf_bytes = BudgetService.generate_pdf_bytes(budget_data)
+            
+            # Nombre de archivo sugerido para la descarga
+            suggested_filename = f"presupuesto_{budget_data['client_name'].replace(' ', '_')}_{datetime.now().strftime('%Y%m%d%H%M%S')}.pdf"
 
-            show_success(page, f"Presupuesto creado. PDF generado.")
-
-            # Generar enlace de descarga (solo funcionará si el archivo es accesible desde el servidor web)
-            # Suponiendo que el archivo se guarda en una carpeta estática accesible, por ejemplo 'static/presupuestos/'
-            # Ajusta la ruta según tu configuración real
-            download_url = f"/static/presupuestos/{pdf_filename}"
-
-            # Mostrar el enlace de descarga en la página
-            dialog_pre = ft.AlertDialog(
-                title=ft.Text("Presupuesto generado"),
-                content=ft.Column([
-                    ft.Text("El presupuesto se generó correctamente."),
-                    ft.TextButton(
-                    "Descargar PDF",
-                    url=download_url,
-                    icon=ft.icons.DOWNLOAD,
-                    style=ft.ButtonStyle(color=ft.colors.BLUE)
-                    )
-                ])
+            # Llamar al FilePicker para guardar el archivo
+            await file_picker.save_file(
+                suggested_file_name=suggested_filename,
+                allowed_file_extensions=["pdf"],
+                data_bytes=pdf_bytes
             )
-            page.open(dialog_pre)
-            dialog_pre.open = True
-            page.update()
+            
+            show_success(page, "Presupuesto generado. Elija una ubicación para descargar el PDF.")
+            logger.info(f"Budget PDF generated and ready for download: {suggested_filename}")
+            
+            # Opcionalmente, navegar o limpiar el formulario después de la descarga
+            # page.go("/clients") 
+            # page.update() # Asegúrate de actualizar la página si cambias algo
 
-            logger.info(f"Budget data collected and PDF generated: {budget_data}")
-
-            # No redirigir automáticamente, dejar que el usuario descargue el PDF
         except Exception as ex:
             show_error(page, f"Error al generar presupuesto: {str(ex)}")
-            logger.error(f"Error generating budget: {ex}", exc_info=True)
+            logger.error(f"Error al generar presupuesto: {ex}", exc_info=True)
 
+
+    # Añadir un item de tratamiento al inicio para que el formulario no esté vacío
+    # Esto es opcional, pero mejora la UX.
+    if not treatment_items_column.controls:
+        add_treatment_item()
 
     return ft.View(
         "/presupuesto",
@@ -220,9 +209,9 @@ def presup_view(page: ft.Page, client_id: int = None):
                         ),
                         ft.Container(
                             content=ft.FilledButton(
-                                "Generar Presupuesto y PDF",
-                                on_click=on_submit,
-                                icon=ft.icons.PICTURE_AS_PDF,
+                                "Generar Presupuesto y Descargar PDF", # Texto del botón modificado
+                                on_click=on_submit, # Ahora es async
+                                icon=ft.icons.DOWNLOAD, # Icono de descarga
                                 expand=True
                             ),
                             margin=ft.margin.only(top=20),
