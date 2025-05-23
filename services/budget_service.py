@@ -12,18 +12,62 @@ class BudgetService:
         pdf.add_page()
         pdf.set_font("Arial", size=12)
 
-        # Asegúrate de que la ruta de la imagen sea correcta en el entorno de Render
-        # Si 'pictures' está en la raíz de tu repositorio, esto debería funcionar.
-        # Considera usar una ruta absoluta o verificar si el archivo existe.
-        image_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "pictures", "1.png")
-        if not os.path.exists(image_path):
-            logger.warning(f"Imagen no encontrada en: {image_path}. El PDF se generará sin ella.")
-            # Si no quieres que falle, puedes omitir la imagen o usar una imagen de placeholder
-        else:
-            try:
-                pdf.image(image_path, x=0, y=0, w=210, h=297)
-            except Exception as e:
-                logger.error(f"Error al añadir imagen al PDF: {e}")
+        # Intenta una ruta relativa desde la raíz de tu proyecto
+        # Asumiendo que tu script se ejecuta desde algún lugar dentro del proyecto
+        # y 'pictures' está en la raíz del repositorio.
+        # Puedes ajustar 'ruta_base' si tu script está en un subdirectorio.
+
+        # Opción 1: Si 'pictures' está directamente en la raíz de tu repo y el script
+        # se ejecuta desde la raíz o un subdirectorio predecible.
+        # Esto funciona bien si la "raíz" del despliegue es la raíz de tu repo.
+        image_path = "pictures/1.png" # Ruta relativa directa
+
+        # Opción 2: Si el script se ejecuta desde un subdirectorio y 'pictures' está en la raíz del repo.
+        # Necesitarías saber cuántos niveles subir.
+        # Si budget_service.py está en `src/`, y pictures está en la raíz:
+        # project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        # image_path = os.path.join(project_root, "pictures", "1.png")
+
+        # Para tu caso con os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "pictures", "1.png")
+        # Podríamos intentar simplificarlo o hacer la ruta más robusta.
+        # Una forma más segura de obtener la raíz del proyecto si el script está en un subdirectorio:
+        # current_dir = os.path.dirname(os.path.abspath(__file__))
+        # # Suponiendo que 'budget_service.py' está directamente en la raíz o en un subdirectorio conocido como 'app'
+        # # Ajusta 'app' si tu estructura es diferente.
+        # if os.path.basename(current_dir) == "app": # Si tu app principal está en una carpeta 'app'
+        #     project_root = os.path.dirname(current_dir)
+        # else: # Si budget_service.py está en la raíz
+        #     project_root = current_dir
+
+        # Simplificación para el caso más común en Render:
+        # Si 'pictures' está directamente en la raíz de tu repositorio,
+        # y tu aplicación se ejecuta desde un directorio que tiene acceso a esa raíz,
+        # una ruta relativa simple puede funcionar, o una ruta absoluta basada en el directorio de trabajo.
+        # Es más seguro usar `os.getcwd()` para la raíz del proyecto.
+        try:
+            # Intenta encontrar la raíz del proyecto en Render
+            # Render suele clonar tu repo en /opt/render/project/src/
+            # O el directorio de trabajo actual podría ser la raíz de tu repo.
+            project_root = os.getcwd() # Directorio de trabajo actual
+            # Puedes imprimir esto en los logs de Render para verificar: logger.info(f"CWD: {project_root}")
+            image_path = os.path.join(project_root, "pictures", "1.png")
+
+            if not os.path.exists(image_path):
+                logger.warning(f"Imagen no encontrada en: {image_path}. Intentando ruta alternativa...")
+                # Si no la encuentra, intenta una ruta relativa directa
+                image_path = "pictures/1.png" # A veces, una ruta más simple funciona en Render si la raíz es tu repo
+
+            if not os.path.exists(image_path):
+                logger.error(f"Imagen aún no encontrada después de varios intentos: {image_path}. El PDF se generará sin ella.")
+            else:
+                try:
+                    pdf.image(image_path, x=0, y=0, w=210, h=297)
+                except Exception as e:
+                    logger.error(f"Error al añadir imagen al PDF desde {image_path}: {e}")
+
+        except Exception as e:
+            logger.error(f"Error al determinar la ruta de la imagen o al añadirla: {e}")
+
 
         # Datos del cliente
         pdf.text(130, 22, budget_data['client_name'])
