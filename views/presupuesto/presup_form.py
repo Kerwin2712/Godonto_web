@@ -155,19 +155,20 @@ def presup_view(page: ft.Page, client_id: int = None):
             download_url = f"/static/presupuestos/{pdf_filename}"
 
             # Mostrar el enlace de descarga en la página
-            page.dialog = ft.AlertDialog(
-            title=ft.Text("Presupuesto generado"),
-            content=ft.Column([
-                ft.Text("El presupuesto se generó correctamente."),
-                ft.TextButton(
-                "Descargar PDF",
-                url=download_url,
-                icon=ft.icons.DOWNLOAD,
-                style=ft.ButtonStyle(color=ft.colors.BLUE)
-                )
-            ]),
-            open=True
+            dialog_pre = ft.AlertDialog(
+                title=ft.Text("Presupuesto generado"),
+                content=ft.Column([
+                    ft.Text("El presupuesto se generó correctamente."),
+                    ft.TextButton(
+                    "Descargar PDF",
+                    url=download_url,
+                    icon=ft.icons.DOWNLOAD,
+                    style=ft.ButtonStyle(color=ft.colors.BLUE)
+                    )
+                ])
             )
+            page.open(dialog_pre)
+            dialog_pre.open = True
             page.update()
 
             logger.info(f"Budget data collected and PDF generated: {budget_data}")
