@@ -25,7 +25,7 @@ class AlertManager:
         page: ft.Page,
         message: str,
         alert_type: AlertType = AlertType.INFO,
-        duration: int = 3000,
+        duration: int = 7000,
         action: Optional[str] = "OK"
     ) -> None:
         """
