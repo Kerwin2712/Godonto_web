@@ -62,7 +62,7 @@ def main(page: ft.Page):
     def route_change(e):
         """Manejador de rutas síncrono"""
         try:
-            print(f"Cambiando a ruta: {page.route}")  # Debug
+            #print(f"Cambiando a ruta: {page.route}")  # Debug
             # Mantener solo la última vista si es el dashboard
             if page.route == "/dashboard" and page.views:
                 page.views.clear()
@@ -74,6 +74,7 @@ def main(page: ft.Page):
             current_route = page.route
             
             try:
+                print(f"Cambiando a ruta: {page.route}")
                 if page.route == "/login":
                     page.views.append(login_view(page))
                 elif page.route == "/dashboard":
