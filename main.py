@@ -74,7 +74,7 @@ def main(page: ft.Page):
             current_route = page.route
             
             try:
-                print(f"Cambiando a ruta: {page.route}")
+                #print(f"Cambiando a ruta: {page.route}")
                 if page.route == "/login":
                     page.views.append(login_view(page))
                 elif page.route == "/dashboard":
@@ -113,7 +113,7 @@ def main(page: ft.Page):
                 elif page.route == "/reports":
                     page.views.append(reports_view(page))
                 
-                print(f"Vistas después de cambio: {page.views}")  # Debug
+                #print(f"Vistas después de cambio: {page.views}")  # Debug
                 page.update()
                 
             except Exception as view_error:
