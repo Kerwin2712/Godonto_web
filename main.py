@@ -68,8 +68,8 @@ def main(page: ft.Page):
                 page.views.clear()
             
             # Asegurarse de que siempre haya una vista
-            if not page.views:
-                page.views.append(ft.View("/", [ft.ProgressRing()]))
+            #if not page.views:
+                #page.views.append(ft.View("/", [ft.ProgressRing()]))
             
             current_route = page.route
             
@@ -118,6 +118,7 @@ def main(page: ft.Page):
                 
             except Exception as view_error:
                 logger.error(f"Error al cargar la vista: {str(view_error)}")
+                print(f"Error al cargar la vista: {str(view_error)}")  # Debug
                 # Vista de error genérica
                 page.views.append(
                     ft.View(
