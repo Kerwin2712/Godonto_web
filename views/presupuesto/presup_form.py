@@ -33,17 +33,8 @@ def presup_view(page: ft.Page, client_id: int = None):
         label="Fecha",
         width=200,
         read_only=True,
-        value=ft.format_date(datetime.date.today(), format="dd/MM/yyyy")
     )
-    date_picker_dialog = ft.DatePicker(
-        on_change=lambda e: setattr(date_picker_field, 'value', ft.format_date(e.control.value, format="dd/MM/yyyy")),
-        on_dismiss=lambda e: page.update(),
-        first_date=ft.datetime.datetime(2023, 1, 1),
-        last_date=ft.datetime.datetime(2030, 12, 31),
-    )
-    page.overlay.append(date_picker_dialog) # Add date picker to page overlay
-
-    date_picker_field.on_focus = lambda e: page.open(date_picker_dialog) if e.control.focused else None
+    
 
     def add_treatment_item(e=None, treatment="", quantity="1", price="0.00"):
         # Unique key for each item to allow removal
