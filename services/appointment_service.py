@@ -7,6 +7,7 @@ from utils.date_utils import is_working_hours, is_future_datetime
 from .observable import Observable
 import logging
 logger = logging.getLogger(__name__)
+#print
 
 # Define or import the notify_all function
 def notify_all(event_type: str, data: dict):
@@ -209,7 +210,7 @@ class AppointmentService(Observable):
                 """
                 SELECT id, name, cedula 
                 FROM clients 
-                WHERE name ILIKE %s OR cedula ILIKE %s
+                WHERE unaccent(name) ILIKE %s OR cedula ILIKE %s
                 LIMIT 10
                 """,
                 (f"%{search_term}%", f"%{search_term}%")
@@ -287,7 +288,7 @@ class AppointmentService(Observable):
             query += " AND a.status = %s"
             params.append(filters['status'])
         if filters.get('search_term'):
-            query += " AND (c.name ILIKE %s OR c.cedula ILIKE %s OR a.notes ILIKE %s)"
+            query += " AND (unaccent(c.name) ILIKE %s OR c.cedula ILIKE %s OR a.notes ILIKE %s)"
             params.extend([f"%{filters['search_term']}%"] * 3)
         
         query += " ORDER BY a.date DESC, a.hour DESC LIMIT %s OFFSET %s"

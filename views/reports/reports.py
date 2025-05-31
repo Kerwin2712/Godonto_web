@@ -1,3 +1,4 @@
+
 import flet as ft
 from datetime import datetime, timedelta
 from core.database import get_db, Database
@@ -13,9 +14,11 @@ from utils.widgets import (
     build_stat_card,
     build_data_table
 )
+from utils.widgets import WidgetBuilder
 from utils.alerts import show_snackbar
 import logging
 logger = logging.getLogger(__name__)
+
 #documenta todo el codigo
 class ReportsView:
     def __init__(self, page: ft.Page):
@@ -55,6 +58,566 @@ class ReportsView:
         # Escuchar cambios de tamaño de pantalla
         self.page.on_resize = self.handle_resize
 
+        # Inicializar el selector de fechas
+        self.report_selector = self.build_report_selector()
+
+    
+    # En views/reports/reports.py
+class ReportsView:
+    def __init__(self, page: ft.Page):
+        # ... (tu código existente) ...
+
+        # Inicializar el selector de fechas
+        self.report_selector = self.build_report_selector()
+
+    def build_report_selector(self):
+        """Construye los controles para seleccionar el tipo de reporte"""
+        return ft.Column(
+            controls=[
+                ft.ResponsiveRow(
+                    controls=[
+                        ft.Column([
+                            ft.Dropdown(
+                                label="Tipo de Reporte",
+                                options=[
+                                    ft.dropdown.Option("daily", "Diario"),
+                                    ft.dropdown.Option("weekly", "Semanal"),
+                                    ft.dropdown.Option("monthly", "Mensual"),
+                                    ft.dropdown.Option("custom", "Personalizado")
+                                ],
+                                value=self.report_type,
+                                on_change=self.update_report_type,
+                                expand=True
+                            )
+                        ], col={"sm": 12, "md": 6, "lg": 3}),
+                        ft.Column([
+                            ft.Text("Desde:", size=12),
+                            ft.Row([
+                                ft.ElevatedButton(
+                                    "Seleccionar",
+                                    icon=ft.icons.CALENDAR_TODAY,
+                                    on_click=lambda e: self.page.open(self.start_date_picker),
+                                    height=40,
+                                    expand=True
+                                ),
+                                self.start_date_text
+                            ])
+                        ], col={"sm": 12, "md": 6, "lg": 3}),
+                        ft.Column([
+                            ft.Text("Hasta:", size=12),
+                            ft.Row([
+                                ft.ElevatedButton(
+                                    "Seleccionar",
+                                    icon=ft.icons.CALENDAR_TODAY,
+                                    on_click=lambda e: self.page.open(self.end_date_picker),
+                                    height=40,
+                                    expand=True
+                                ),
+                                self.end_date_text
+                            ])
+                        ], col={"sm": 12, "md": 6, "lg": 3}),
+                        ft.Column([
+                            ft.IconButton(
+                                icon=ft.icons.REFRESH,
+                                tooltip="Actualizar reporte",
+                                on_click=lambda e: self.load_data(),
+                                height=40,
+                                width=40
+                            )
+                        ], col={"sm": 12, "md": 6, "lg": 3},
+                          alignment=ft.MainAxisAlignment.CENTER)
+                    ],
+                    spacing=10,
+                    run_spacing=10
+                ),
+                WidgetBuilder.date_range_picker(
+                    self,  # Pasa la instancia de ReportsView
+                    on_date_change=self.handle_date_change,
+                    initial_start=self.start_date,
+                    initial_end=self.end_date
+                )
+            ],
+            spacing=10
+        )
+        
+    # Add these new methods to the ReportsView class
+    def handle_preset_change(self, value):
+        """Maneja el cambio de preset en el selector de fechas."""
+        today = datetime.now().date()
+        if value == "hoy":
+            self.start_date = today
+            self.end_date = today
+        elif value == "semana":
+            self.start_date, self.end_date = get_week_range(today)
+        elif value == "mes":
+            self.start_date = today.replace(day=1)
+            self.end_date = get_last_day_of_month(today)
+        elif value == "personalizado":
+            # Aquí podrías abrir un diálogo para que el usuario seleccione las fechas
+            pass
+
+        self.start_date_picker.value = self.start_date
+        self.end_date_picker.value = self.end_date
+        self.start_date_text.value = format_date(self.start_date)
+        self.end_date_text.value = format_date(self.end_date)
+        self.page.update()
+    
+    # En views/reports/reports.py
+import flet as ft
+from datetime import datetime, timedelta
+from core.database import get_db, Database
+from utils.date_utils import (
+    format_date,
+    get_month_name,
+    get_week_range,
+    get_last_day_of_month
+)
+from utils.widgets import (
+    build_bar_chart,
+    build_pie_chart,
+    build_stat_card,
+    build_data_table
+)
+from utils.alerts import show_snackbar
+import logging
+logger = logging.getLogger(__name__)
+
+class ReportsView:
+    def __init__(self, page: ft.Page):
+        self.page = page
+        self.report_type = 'monthly'
+        self.end_date = datetime.now().date()
+        self.start_date = self.end_date - timedelta(days=30)
+
+        # Componentes UI
+        self.stats_row = ft.ResponsiveRow(spacing=20, run_spacing=20)
+        self.charts_column = ft.Column(spacing=20)
+
+        # Inicializar todas las tablas aquí
+        self.appointments_table = self._create_appointments_table()
+        self.payments_table = self._create_payments_table()
+        self.debts_table = self._create_debts_table()
+
+        # DatePickers
+        self.start_date_picker = ft.DatePicker(
+            first_date=datetime(2020, 1, 1),
+            last_date=datetime(2030, 12, 31),
+            on_change=lambda e: self.handle_date_change(e, is_start_date=True)
+        )
+
+        self.end_date_picker = ft.DatePicker(
+            first_date=datetime(2020, 1, 1),
+            last_date=datetime(2030, 12, 31),
+            on_change=lambda e: self.handle_date_change(e, is_start_date=False)
+        )
+
+        self.page.overlay.extend([self.start_date_picker, self.end_date_picker])
+
+        # Textos para fechas
+        self.start_date_text = ft.Text(format_date(self.start_date))
+        self.end_date_text = ft.Text(format_date(self.end_date))
+
+        # Escuchar cambios de tamaño de pantalla
+        self.page.on_resize = self.handle_resize
+
+    def handle_preset_change(self, value):
+        """Maneja el cambio de preset en el selector de fechas."""
+        today = datetime.now().date()
+        if value == "hoy":
+            self.start_date = today
+            self.end_date = today
+        elif value == "semana":
+            self.start_date, self.end_date = get_week_range(today)
+        elif value == "mes":
+            self.start_date = today.replace(day=1)
+            self.end_date = get_last_day_of_month(today)
+        elif value == "personalizado":
+            self.page.overlay.append(self.create_custom_date_range_dialog())
+            self.page.update()
+
+        self.start_date_picker.value = self.start_date
+        self.end_date_picker.value = self.end_date
+        self.start_date_text.value = format_date(self.start_date)
+        self.end_date_text.value = format_date(self.end_date)
+        self.load_data()
+        self.page.update()
+
+    def create_custom_date_range_dialog(self):
+        """Crea un diálogo para seleccionar un rango de fechas personalizado."""
+        start_date_picker = ft.DatePicker(
+            first_date=datetime(2020, 1, 1),
+            last_date=datetime(2030, 12, 31),
+            on_change=lambda e: self.handle_custom_start_date_change(e)
+        )
+        end_date_picker = ft.DatePicker(
+            first_date=datetime(2020, 1, 1),
+            last_date=datetime(2030, 12, 31),
+            on_change=lambda e: self.handle_custom_end_date_change(e)
+        )
+
+        def close_dialog(e):
+            self.page.overlay.remove(dialog)
+            self.page.update()
+
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Seleccione un rango de fechas personalizado"),
+            content=ft.Column([
+                ft.Text("Fecha de inicio:"),
+                ft.ElevatedButton(
+                    "Seleccionar fecha de inicio",
+                    on_click=lambda _: self.page.open_modal_dialog(start_date_picker)
+                ),
+                ft.Text("Fecha de fin:"),
+                ft.ElevatedButton(
+                    "Seleccionar fecha de fin",
+                    on_click=lambda _: self.page.open_modal_dialog(end_date_picker)
+                ),
+            ]),
+            actions=[
+                ft.TextButton("Cancelar", on_click=close_dialog),
+                ft.TextButton("Aceptar", on_click=lambda e: self.apply_custom_date_range(start_date_picker.value, end_date_picker.value, close_dialog)),
+            ],
+        )
+        return dialog
+
+    def handle_custom_start_date_change(self, e):
+        """Maneja el cambio de fecha de inicio en el diálogo personalizado."""
+        if e.control.value:
+            self.custom_start_date = e.control.value
+            self.page.update()
+
+    def handle_custom_end_date_change(self, e):
+        """Maneja el cambio de fecha de fin en el diálogo personalizado."""
+        if e.control.value:
+            self.custom_end_date = e.control.value
+            self.page.update()
+
+    def apply_custom_date_range(self, start_date, end_date, close_dialog):
+        """Aplica el rango de fechas personalizado."""
+        if start_date and end_date:
+            if end_date < start_date:
+                show_snackbar(self.page, "La fecha final no puede ser anterior a la inicial", "warning")
+                return
+
+            self.start_date = start_date
+            self.end_date = end_date
+            self.start_date_picker.value = self.start_date
+            self.end_date_picker.value = self.end_date
+            self.start_date_text.value = format_date(self.start_date)
+            self.end_date_text.value = format_date(self.end_date)
+            self.load_data()
+            self.page.update()
+            close_dialog(None)
+        else:
+            show_snackbar(self.page, "Por favor, seleccione ambas fechas", "warning")
+    
+    def build_interactive_chart(self, data, chart_type="bar"):
+        """Construye un gráfico interactivo basado en el tipo especificado
+        
+        Args:
+            data: Datos a graficar en formato {label: value} o [(label, value)]
+            chart_type: Tipo de gráfico ("bar", "line", "pie")
+        
+        Returns:
+            ft.Control: Gráfico configurado
+        """
+        if chart_type == "pie":
+            return self._build_interactive_pie_chart(data)
+        elif chart_type == "line":
+            return self._build_interactive_line_chart(data)
+        else:  # bar
+            return self._build_interactive_bar_chart(data)
+
+    def _build_interactive_bar_chart(self, data):
+        """Gráfico de barras interactivo con tooltips"""
+        if isinstance(data, dict):
+            data = list(data.items())
+            
+        max_value = max(v for _, v in data) if data else 0
+        
+        return ft.BarChart(
+            bar_groups=[
+                ft.BarChartGroup(
+                    x=i,
+                    bar_rods=[
+                        ft.BarChartRod(
+                            from_y=0,
+                            to_y=value,
+                            width=20,
+                            color=ft.colors.BLUE_400,
+                            border_radius=4,
+                            tooltip=f"{label}: {value}",
+                            on_click=lambda e: self._handle_chart_click(label)
+                        )
+                    ],
+                ) for i, (label, value) in enumerate(data)
+            ],
+            border=ft.border.all(1, ft.colors.GREY_300),
+            interactive=True,
+            tooltip_bgcolor=ft.colors.with_opacity(0.8, ft.colors.GREY_800),
+            max_y=max_value * 1.2,  # 20% más para espacio
+            left_axis=ft.ChartAxis(
+                labels_size=40,
+                title=ft.Text("Valor", size=12),
+            ),
+            bottom_axis=ft.ChartAxis(
+                labels=[
+                    ft.ChartAxisLabel(
+                        value=i,
+                        label=ft.Text(label[:15], size=10),
+                    ) for i, (label, _) in enumerate(data)
+                ],
+                labels_size=40,
+                title=ft.Text("Categoría", size=12),
+            ),
+        )
+
+    def _build_interactive_line_chart(self, data):
+        """Gráfico de líneas interactivo con zoom"""
+        if isinstance(data, dict):
+            data = list(data.items())
+            
+        points = [ft.LineChartDataPoint(i, value) for i, (label, value) in enumerate(data)]
+        max_value = max(v for _, v in data) if data else 0
+        
+        return ft.LineChart(
+            data_series=[
+                ft.LineChartData(
+                    data_points=points,
+                    color=ft.colors.BLUE,
+                    stroke_width=2,
+                    curved=True,
+                    stroke_cap_round=True,
+                    below_line_bgcolor=ft.colors.with_opacity(0.1, ft.colors.BLUE),
+                )
+            ],
+            border=ft.border.all(1, ft.colors.GREY_300),
+            interactive=True,
+            tooltip_bgcolor=ft.colors.with_opacity(0.8, ft.colors.GREY_800),
+            min_y=0,
+            max_y=max_value * 1.2,
+            left_axis=ft.ChartAxis(
+                labels_size=40,
+                title=ft.Text("Valor", size=12),
+            ),
+            bottom_axis=ft.ChartAxis(
+                labels=[
+                    ft.ChartAxisLabel(
+                        value=i,
+                        label=ft.Text(label[:15], size=10),
+                    ) for i, (label, _) in enumerate(data)
+                ],
+                labels_size=40,
+                title=ft.Text("Período", size=12),
+            ),
+            # Configuración de zoom
+            expand=True,
+            on_chart_event=self._handle_chart_zoom,
+        )
+
+    def _build_interactive_pie_chart(self, data):
+        """Gráfico de pastel interactivo con leyenda"""
+        if not isinstance(data, dict):
+            data = dict(data)
+            
+        total = sum(data.values()) or 1  # Evitar división por cero
+        colors = {
+            'completed': ft.colors.GREEN,
+            'pending': ft.colors.ORANGE,
+            'cancelled': ft.colors.RED
+        }
+        
+        return ft.PieChart(
+            sections=[
+                ft.PieChartSection(
+                    value=value,
+                    color=colors.get(key.lower(), ft.colors.BLUE),
+                    radius=20,
+                    title=f"{key}\n{value/total:.1%}",
+                    title_style=ft.TextStyle(
+                        size=12,
+                        color=ft.colors.WHITE,
+                        weight="bold"
+                    ),
+                    on_click=lambda e, k=key: self._handle_chart_click(k)
+                ) for key, value in data.items()
+            ],
+            sections_space=1,
+            center_space_radius=40,
+            expand=True,
+            interactive=True,
+            on_chart_event=self._handle_pie_chart_interaction,
+        )
+
+    def _handle_chart_click(self, label):
+        """Maneja clics en elementos del gráfico"""
+        show_snackbar(self.page, f"Seleccionado: {label}", "info")
+
+    def _handle_chart_zoom(self, e):
+        """Maneja eventos de zoom en gráficos"""
+        if e.type == "zoom":
+            # Implementar lógica de zoom aquí
+            pass
+
+    def _handle_pie_chart_interaction(self, e: ft.PieChartEvent):
+        """Maneja interacciones con gráfico de pastel"""
+        if e.type == "section_click":
+            section = e.section
+            show_snackbar(self.page, f"Sección seleccionada: {section.title}", "info")
+
+    def build_time_series_chart(self, data, annotations=None):
+        """Construye gráfico de series temporales interactivo
+        
+        Args:
+            data: Lista de puntos (date, value)
+            annotations: Lista de anotaciones especiales
+            
+        Returns:
+            ft.Control: Gráfico configurado
+        """
+        # Convertir datos a formato adecuado
+        points = [
+            ft.LineChartDataPoint(
+                x=i, 
+                y=value,
+                selected=ft.Text(f"{date.strftime('%d/%m/%Y')}: {value}")
+            ) for i, (date, value) in enumerate(data)
+        ]
+        
+        # Crear series
+        series = ft.LineChartData(
+            data_points=points,
+            color=ft.colors.BLUE,
+            stroke_width=3,
+            curved=True
+        )
+        
+        # Configurar anotaciones
+        annotation_widgets = []
+        if annotations:
+            for date, text in annotations:
+                idx = next((i for i, (d, _) in enumerate(data) if d == date), -1)
+                if idx >= 0:
+                    annotation_widgets.append(
+                        ft.ChartPointLine(
+                            x=idx,
+                            color=ft.colors.RED,
+                            width=1,
+                            dash_pattern=[5,5]
+                        )
+                    )
+        
+        return ft.LineChart(
+            data_series=[series],
+            border=ft.border.all(1, ft.colors.GREY_300),
+            interactive=True,
+            tooltip_bgcolor=ft.colors.with_opacity(0.8, ft.colors.GREY_800),
+            max_y=max(v for _, v in data) * 1.2 if data else 100,
+            min_y=0,
+            left_axis=ft.ChartAxis(
+                labels_size=40,
+                title=ft.Text("Valor", size=12)
+            ),
+            bottom_axis=ft.ChartAxis(
+                labels=[
+                    ft.ChartAxisLabel(
+                        value=i,
+                        label=ft.Text(date.strftime('%d/%m'), size=10)
+                    ) for i, (date, _) in enumerate(data) if i % 5 == 0  # Mostrar cada 5 etiquetas
+                ],
+                labels_size=40,
+                title=ft.Text("Fecha", size=12)
+            ),
+            horizontal_grid_lines=ft.ChartGridLines(
+                interval=1, color=ft.colors.GREY_300, width=1
+            ),
+            vertical_grid_lines=ft.ChartGridLines(
+                interval=1, color=ft.colors.GREY_300, width=1
+            ),
+            overlay_bars=annotation_widgets
+        )
+
+    def init_advanced_filters(self):
+        """Inicializa el sistema de filtros avanzados
+        
+        Configura:
+        - Filtros por tipo de procedimiento
+        - Filtros por odontólogo
+        - Filtros por estado de pago
+        - Filtros por ubicación
+        """
+        self.procedure_filter = ft.Dropdown(
+            options=[ft.dropdown.Option("Todos")],
+            label="Tipo de procedimiento",
+            width=200
+        )
+        
+        self.dentist_filter = ft.Dropdown(
+            options=[ft.dropdown.Option("Todos")],
+            label="Odontólogo",
+            width=200
+        )
+        
+        self.payment_filter = ft.Dropdown(
+            options=[
+                ft.dropdown.Option("Todos"),
+                ft.dropdown.Option("Pagado"),
+                ft.dropdown.Option("Pendiente")
+            ],
+            label="Estado de pago",
+            width=200
+        )
+        
+        self.location_filter = ft.Dropdown(
+            options=[ft.dropdown.Option("Todas")],
+            label="Ubicación",
+            width=200
+        )
+        
+        # Cargar opciones reales desde la base de datos
+        self._load_filter_options()
+        
+        return ft.Row([
+            self.procedure_filter,
+            self.dentist_filter,
+            self.payment_filter,
+            self.location_filter,
+            ft.ElevatedButton("Aplicar Filtros", on_click=self._apply_filters)
+        ], wrap=True)
+
+    def _load_filter_options(self):
+        """Carga las opciones de filtro desde la base de datos"""
+        with Database.get_connection() as conn:
+            with conn.cursor() as cursor:
+                # Cargar procedimientos
+                cursor.execute("SELECT DISTINCT procedure_type FROM appointments")
+                self.procedure_filter.options.extend(
+                    ft.dropdown.Option(row[0]) for row in cursor.fetchall()
+                )
+                
+                # Cargar odontólogos
+                cursor.execute("SELECT id, name FROM dentists")
+                self.dentist_filter.options.extend(
+                    ft.dropdown.Option(row[1], key=str(row[0])) for row in cursor.fetchall()
+                )
+                
+                # Cargar ubicaciones
+                cursor.execute("SELECT DISTINCT location FROM appointments")
+                self.location_filter.options.extend(
+                    ft.dropdown.Option(row[0]) for row in cursor.fetchall()
+                )
+
+    def _apply_filters(self, e):
+        """Aplica los filtros seleccionados"""
+        filters = {
+            'procedure': self.procedure_filter.value,
+            'dentist': self.dentist_filter.value,
+            'payment': self.payment_filter.value,
+            'location': self.location_filter.value
+        }
+        self.load_data(filters)
+    
     def _create_appointments_table(self):
         """
         Crea un widget DataTable para mostrar información de citas.
@@ -416,11 +979,11 @@ class ReportsView:
         try:
             if is_start_date:
                 if self.start_date_picker.value:
-                    self.start_date = self.start_date_picker.value
+                    self.start_date = self.start_date_picker.value.date()
                     self.start_date_text.value = format_date(self.start_date)
             else:
                 if self.end_date_picker.value:
-                    self.end_date = self.end_date_picker.value
+                    self.end_date = self.end_date_picker.value.date()
                     self.end_date_text.value = format_date(self.end_date)
             
             # Asegurarse de que end_date no sea menor que start_date

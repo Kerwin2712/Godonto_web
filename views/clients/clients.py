@@ -3,6 +3,7 @@ from services.client_service import ClientService
 from utils.alerts import show_error, show_success
 from models.client import Client
 from services.appointment_service import AppointmentService
+from services.payment_service import PaymentService
 
 class ClientsView:
     def __init__(self, page: ft.Page):
@@ -18,21 +19,53 @@ class ClientsView:
         self.load_clients()
     
     def _build_search_bar(self):
-        """Construye el componente SearchBar responsive"""
+        """Construye el componente SearchBar responsive con búsqueda en tiempo real"""
         return ft.SearchBar(
             view_elevation=4,
             divider_color=ft.colors.GREY_300,
-            bar_hint_text="Buscar...",
-            view_hint_text="Buscar cliente...",
+            bar_hint_text="Buscar por nombre o cédula...",
+            view_hint_text="Filtrar clientes...",
             bar_leading=ft.Icon(ft.icons.SEARCH),
             controls=[],
-            width=300,  # Ancho fijo que se ajustará en móviles
-            expand=True,  # Permitir que ocupe espacio disponible
-            on_change=self._filter_clients,
-            on_tap=self._open_search_view,
-            on_submit=lambda e: self.update_clients()
+            width=300,
+            expand=True,
+            on_change=self._handle_search_change,  # Cambio clave para búsqueda en tiempo real
+            on_submit=lambda e: self._handle_search_submit()
         )
+    
+    def _handle_search_change(self, e):
+        """Maneja el cambio en la búsqueda en tiempo real"""
+        search_term = e.control.value.strip()
         
+        if not search_term:
+            # Si no hay término de búsqueda, mostrar todos los clientes
+            self.update_clients()
+            return
+        
+        # Usar el servicio para buscar con unaccent
+        filtered_clients = self.client_service.get_all_clients(search_term)
+        
+        # Actualizar la lista de clientes mostrados
+        self.update_clients(filtered_clients)
+        
+        # Actualizar las sugerencias del SearchBar
+        self.search_bar.controls = [
+            ft.ListTile(
+                title=ft.Text(c.name),
+                subtitle=ft.Text(f"Cédula: {c.cedula}"),
+                on_click=lambda e, c=c: self._select_client(c),
+                data=c
+            )
+            for c in filtered_clients[:10]  # Limitar a 10 sugerencias
+        ]
+        self.search_bar.update()
+    
+    def _handle_search_submit(self, e):
+        """Maneja la búsqueda al presionar Enter"""
+        if self.search_bar.controls and len(self.search_bar.controls) > 0:
+            self.search_bar.close_view(self.search_bar.value)
+        self._handle_search_change(e)  # Reutilizamos la misma lógica
+    
     def _build_view_controls(self):
         """Construye los controles superiores responsive"""
         return ft.ResponsiveRow(
@@ -131,6 +164,12 @@ class ClientsView:
                                                                     icon=ft.icons.HISTORY,
                                                                     on_click=lambda e, c=client: self._show_history(c)
                                                                 ),
+                                                                ft.PopupMenuItem(),
+                                                                ft.PopupMenuItem(
+                                                                    text="Generar Presupuesto",
+                                                                    icon=ft.icons.PICTURE_AS_PDF,
+                                                                    on_click=lambda e, c=client: self.page.go(f"/presupuesto/{c.id}")
+                                                                ),
                                                                 ft.PopupMenuItem(),  # Separador
                                                                 ft.PopupMenuItem(
                                                                     text="Editar",
@@ -177,7 +216,7 @@ class ClientsView:
     
     def _show_payment_dialog(self, client):
         """Muestra diálogo para registrar un pago"""
-        from godonto.services.payment_service import PaymentService
+        
         
         amount_field = ft.TextField(label="Monto", keyboard_type=ft.KeyboardType.NUMBER)
         method_field = ft.Dropdown(
@@ -250,7 +289,6 @@ class ClientsView:
 
     def _show_debt_dialog(self, client):
         """Muestra diálogo para registrar una deuda"""
-        from godonto.services.payment_service import PaymentService
         
         amount_field = ft.TextField(label="Monto", keyboard_type=ft.KeyboardType.NUMBER)
         description_field = ft.TextField(label="Descripción", multiline=True)
@@ -294,7 +332,6 @@ class ClientsView:
 
     def _show_history(self, client):
         """Muestra el historial de pagos y deudas del cliente"""
-        from godonto.services.payment_service import PaymentService
         
         try:
             # Obtener datos del historial
@@ -391,19 +428,20 @@ class ClientsView:
         self.page.update()
     
     def _filter_clients(self, e):
-        """Filtra clientes según término de búsqueda"""
-        search_term = e.control.value.lower()
+        """Filtra clientes en tiempo real según término de búsqueda"""
+        search_term = e.control.value.strip()
+        
         if not search_term:
-            self.search_bar.controls = []
             self.update_clients()
             return
-            
-        filtered = [
-            c for c in self.all_clients 
-            if search_term in c.name.lower() or 
-               search_term in (c.cedula or "").lower()
-        ]
         
+        # Usar el servicio para buscar con unaccent
+        filtered_clients = self.client_service.get_all_clients(search_term)
+        
+        # Actualizar la lista de clientes mostrados
+        self.update_clients(filtered_clients)
+        
+        # Actualizar las sugerencias del SearchBar
         self.search_bar.controls = [
             ft.ListTile(
                 title=ft.Text(c.name),
@@ -411,7 +449,7 @@ class ClientsView:
                 on_click=lambda e, c=c: self._select_client(c),
                 data=c
             )
-            for c in filtered[:10]
+            for c in filtered_clients[:10]
         ]
         self.search_bar.update()
     
@@ -425,10 +463,15 @@ class ClientsView:
         """Abre la vista de sugerencias del search bar"""
         self.search_bar.open_view()
     
-    def _reset_search(self):
-        """Resetea la búsqueda"""
+    def _reset_search(self, e):
+        """Resetea la búsqueda y muestra todos los clientes"""
         self.search_bar.value = ""
+        self.search_bar.controls = []
         self.update_clients()
+        self.page.update()
+    
+    def _create_pdf(self, client: Client):
+        pass
     
     def _edit_client(self, client: Client):
         """Navega al formulario de edición"""

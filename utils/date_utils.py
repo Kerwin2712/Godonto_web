@@ -2,7 +2,7 @@ from datetime import datetime, time, date, timedelta
 from typing import Optional, Tuple
 import calendar
 import pytz  # Usamos pytz como alternativa compatible
-
+#
 # Configuración de zona horaria para Venezuela
 ZONA_HORARIA = pytz.timezone('America/Caracas')
 

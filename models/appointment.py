@@ -3,7 +3,7 @@ from datetime import date, time, datetime
 from dataclasses import dataclass
 from typing import Optional, Tuple, Literal
 from enum import Enum, auto
-
+#print
 class AppointmentStatus(Enum):
     PENDING = auto()
     COMPLETED = auto()

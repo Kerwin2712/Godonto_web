@@ -2,7 +2,7 @@ from core.database import Database
 from models.user import User
 from core.database import get_db
 import bcrypt
-
+#print
 class AuthService:
     @staticmethod
     def authenticate(email: str, password: str) -> User:
@@ -30,7 +30,7 @@ def authenticate_user(username: str, password: str) -> bool:
     try:
         with get_db() as cursor:
             cursor.execute(
-                "SELECT password FROM users WHERE username = %s",
+                "SELECT password_hash FROM users WHERE email = %s",
                 (username,)
             )
             if result := cursor.fetchone():
@@ -38,7 +38,7 @@ def authenticate_user(username: str, password: str) -> bool:
                 return bcrypt.checkpw(password.encode('utf-8'), stored_hash)
         return False
     except Exception as e:
-        print(f"Error en autenticación: {str(e)}")
+        #print(f"Error en autenticación: {str(e)}")
         return False
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:

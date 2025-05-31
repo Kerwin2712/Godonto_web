@@ -10,6 +10,7 @@ from views.calendar.calendar import calendar_view
 from views.reports.reports import reports_view
 from views.clients.client_form import client_form_view
 from views.appointments.appointment_form import appointment_form_view
+from views.presupuesto.presup_form import presup_view
 
 # Configuración de logging
 logging.basicConfig(
@@ -53,7 +54,7 @@ def main(page: ft.Page):
         )
         
         # Asegurarse de que la página existe
-        if page and not page.destroyed:
+        if page and not page.close:
             page.open(error_dialog)
             error_dialog.open = True
             page.update()
@@ -61,21 +62,24 @@ def main(page: ft.Page):
     def route_change(e):
         """Manejador de rutas síncrono"""
         try:
-            print(f"Cambiando a ruta: {page.route}")  # Debug
+            #print(f"Cambiando a ruta: {page.route}")  # Debug
             # Mantener solo la última vista si es el dashboard
             if page.route == "/dashboard" and page.views:
                 page.views.clear()
             
             # Asegurarse de que siempre haya una vista
-            if not page.views:
-                page.views.append(ft.View("/", [ft.ProgressRing()]))
+            #if not page.views:
+                #page.views.append(ft.View("/", [ft.ProgressRing()]))
             
             current_route = page.route
             
             try:
+                #print(f"Cambiando a ruta: {page.route}")
                 if page.route == "/login":
+                    #print(f"Mostrando vista: {current_route}")
                     page.views.append(login_view(page))
                 elif page.route == "/dashboard":
+                    #print(f"Mostrando vista: {current_route}")
                     page.views.append(dashboard_view(page))
                 elif page.route == "/clients":
                     page.views.append(clients_view(page))
@@ -89,6 +93,14 @@ def main(page: ft.Page):
                     page.views.append(client_form_view(page, client_id))
                 elif page.route == "/appointments":
                     page.views.append(appointments_view(page))
+                elif page.route == "/presupuesto" or page.route.startswith("/presupuesto/"): # Modified
+                    client_id = None
+                    if page.route.startswith("/presupuesto/"):
+                        try:
+                            client_id = int(page.route.split("/")[2])
+                        except (IndexError, ValueError):
+                            pass
+                    page.views.append(presup_view(page, client_id))
                 elif page.route == "/appointment_form" or page.route.startswith("/appointment_form/"):
                     appointment_id = None
                     if page.route.startswith("/appointment_form/"):
@@ -102,11 +114,12 @@ def main(page: ft.Page):
                 elif page.route == "/reports":
                     page.views.append(reports_view(page))
                 
-                print(f"Vistas después de cambio: {page.views}")  # Debug
+                #print(f"Vistas después de cambio: {page.views}")  # Debug
                 page.update()
                 
             except Exception as view_error:
                 logger.error(f"Error al cargar la vista: {str(view_error)}")
+                #print(f"Error al cargar la vista: {str(view_error)}")  # Debug
                 # Vista de error genérica
                 page.views.append(
                     ft.View(
@@ -135,9 +148,7 @@ if __name__ == "__main__":
         Database.initialize()
         
         ft.app(
-            target=main, 
-            view=settings.FLET_VIEW,
-            port=settings.FLET_PORT
+            target=main
         )
     except Exception as e:
         logger.critical(f"Error crítico al iniciar la aplicación: {e}")

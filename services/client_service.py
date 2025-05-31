@@ -1,11 +1,35 @@
 from core.database import get_db, Database
 from models.client import Client  # Asegúrate de tener este modelo
-from typing import List
+from typing import List, Optional
 import logging
-
+#print
 logger = logging.getLogger(__name__)
 
 class ClientService:
+    @staticmethod
+    def get_client_by_id(client_id: int) -> Optional[Client]: # Añadido este método
+        """Obtiene un cliente por su ID."""
+        with get_db() as cursor:
+            cursor.execute(
+                """
+                SELECT id, name, cedula, phone, email, created_at, updated_at
+                FROM clients
+                WHERE id = %s
+                """,
+                (client_id,)
+            )
+            row = cursor.fetchone()
+            if row:
+                return Client(
+                    id=row[0],
+                    name=row[1],
+                    cedula=row[2],
+                    phone=row[3],
+                    email=row[4],
+                    created_at=row[5],
+                    updated_at=row[6]
+                )
+            return None # Retornar None si el cliente no se encuentra
     
     @staticmethod
     def has_payments_or_debts(client_id: int) -> bool:
@@ -113,13 +137,27 @@ class ClientService:
     
     @staticmethod
     def get_all_clients(search_term=None) -> List[Client]:
-        query = "SELECT id, name, cedula, phone, email, created_at, updated_at FROM clients"
-        params = ()
+        query = """
+            SELECT id, name, cedula, phone, email, created_at, updated_at 
+            FROM clients
+            WHERE 1=1
+        """
+        params = []
         
         if search_term:
-            query += " WHERE name ILIKE %s OR cedula ILIKE %s"
-            params = (f"%{search_term}%", f"%{search_term}%")
-            
+            query += """
+                AND (
+                    unaccent(name) ILIKE unaccent(%s) OR 
+                    unaccent(cedula) ILIKE unaccent(%s) OR 
+                    unaccent(phone) ILIKE unaccent(%s) OR 
+                    unaccent(email) ILIKE unaccent(%s)
+                )
+            """
+            search_param = f"%{search_term}%"
+            params = [search_param] * 4  # Mismo término para todos los campos
+        
+        query += " ORDER BY name ASC"  # Orden alfabético por nombre
+        
         with Database.get_cursor() as cursor:
             cursor.execute(query, params)
             return [Client(*row) for row in cursor.fetchall()]

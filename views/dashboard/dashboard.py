@@ -10,6 +10,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 class DashboardView:
     def __init__(self, page: ft.Page):
         self.page = page
@@ -94,6 +95,27 @@ class DashboardView:
             bgcolor=ft.colors.BLUE_700,
             color=ft.colors.WHITE,
             automatically_imply_leading=False,
+            leading=ft.PopupMenuButton(
+                icon=ft.icons.MENU,
+                tooltip="Menú",
+                items=[
+                    ft.PopupMenuItem(
+                        text="Ajustes",
+                        icon=ft.icons.SETTINGS,
+                        on_click=lambda e: self.page.go("/settings")  # Asume que tendrás una ruta de ajustes
+                    ),
+                    ft.PopupMenuItem(
+                        text="Salir",
+                        icon=ft.icons.LANGUAGE,
+                        on_click=lambda e: self.page.go("/login")
+                    ),
+                    ft.PopupMenuItem(
+                        text="Temas",
+                        icon=ft.icons.COLOR_LENS,
+                        on_click=lambda e: self._show_theme_options()
+                    )
+                ]
+            ),
             actions=[
                 ft.IconButton(
                     icon=ft.icons.LOGOUT,
@@ -103,6 +125,48 @@ class DashboardView:
             ]
         )
 
+    def _show_theme_options(self):
+        """Muestra opciones de tema"""
+        # Crear una variable para mantener el estado del tema seleccionado
+        selected_theme = ft.Ref[ft.ThemeMode]()
+        selected_theme.current = self.page.theme_mode
+        
+        def change_theme(e):
+            # Aplicar el tema seleccionado
+            self.page.theme_mode = selected_theme.current
+            self._show_success(f"Tema cambiado a {'Claro' if selected_theme.current == ft.ThemeMode.LIGHT else 'Oscuro'}")
+            theme_dialog.open = False
+            self.page.update()
+        
+        def on_theme_change(e):
+            # Actualizar la referencia cuando cambia la selección
+            selected_theme.current = theme_dropdown.value
+        
+        theme_dropdown = ft.Dropdown(
+            options=[
+                ft.dropdown.Option(ft.ThemeMode.LIGHT, "Claro"),
+                ft.dropdown.Option(ft.ThemeMode.DARK, "Oscuro"),
+            ],
+            value=self.page.theme_mode,
+            width=200,
+            on_change=on_theme_change
+        )
+        
+        theme_dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Seleccionar Tema"),
+            content=ft.Column([
+                theme_dropdown,
+            ], tight=True),
+            actions=[
+                ft.TextButton("Cancelar", on_click=lambda e: self.page.close(theme_dialog)),
+                ft.TextButton("Aplicar", on_click=change_theme),
+            ],
+        )
+        self.page.open(theme_dialog)
+        theme_dialog.open = True
+        self.page.update()
+    
     def _build_main_content(self):
         """Construye el contenido principal del dashboard"""
         return ft.Container(
@@ -254,10 +318,21 @@ class DashboardView:
         )
 
     def _build_section_header(self, title: str, button_text: str, route: str):
+        """
+        Construye un encabezado de sección responsive.
+
+        Args:
+            title (str): El título que se mostrará en el encabezado.
+            button_text (str): El texto que se mostrará en el botón.
+            route (str): La ruta a la que se navegará al hacer clic en el botón.
+
+        Returns:
+            ft.ResponsiveRow: Un contenedor responsive que incluye un título y un botón.
+        """
         """Construye un encabezado de sección responsive"""
         return ft.ResponsiveRow(
             controls=[
-                ft.Text(title, size=18, weight="bold", col={"sm": 12, "md": 8}),
+                ft.Text(title, size=19, weight="bold", col={"sm": 12, "md": 8}, color=ft.colors.BLACK),
                 ft.ElevatedButton(
                     button_text,
                     icon=ft.icons.ADD,

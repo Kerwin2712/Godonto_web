@@ -1,7 +1,7 @@
 from core.database import Database
 from datetime import datetime
 import logging
-
+#print
 logger = logging.getLogger(__name__)
 
 class PaymentService:
@@ -30,7 +30,7 @@ class PaymentService:
                 payment_params = (
                     client_id,
                     appointment_id, 
-                    float(amount),  # Asegurar que es float
+                    float(amount),
                     method, 
                     status, 
                     invoice_number, 
@@ -40,62 +40,48 @@ class PaymentService:
                 cursor.execute(payment_query, payment_params)
                 payment_id = cursor.fetchone()[0]
                 
-                # 2. Obtener deudas pendientes ordenadas por antigüedad (primero las más viejas)
+                # 2. Obtener deudas pendientes
                 debts_query = """
                     SELECT id, amount 
                     FROM debts 
                     WHERE client_id = %s AND status = 'pending'
                     ORDER BY created_at ASC
-                    FOR UPDATE  -- Bloquea los registros para evitar condiciones de carrera
+                    FOR UPDATE
                 """
                 cursor.execute(debts_query, (client_id,))
                 debts = cursor.fetchall()
                 
-                remaining_amount = float(amount)  # Convertir a float explícitamente
+                remaining_amount = float(amount)
                 
-                # 3. Aplicar el pago a las deudas
+                # 3. Aplicar el pago a las deudas (sin usar debt_payments)
                 for debt in debts:
                     if remaining_amount <= 0:
                         break
                         
                     debt_id, debt_amount = debt
-                    # Convertir debt_amount a float si es Decimal
-                    debt_amount_float = float(debt_amount) if hasattr(debt_amount, 'to_eng_string') else debt_amount
+                    debt_amount_float = float(debt_amount)
                     amount_to_apply = min(remaining_amount, debt_amount_float)
                     
-                    # Actualizar la deuda
                     if amount_to_apply == debt_amount_float:
-                        # Pagar la deuda completa
                         update_query = """
                             UPDATE debts 
                             SET status = 'paid', 
                                 paid_amount = %s,
-                                paid_at = %s
+                                paid_at = %s,
+                                amount = 0
                             WHERE id = %s
                         """
                         cursor.execute(update_query, (float(debt_amount_float), datetime.now(), debt_id))
                     else:
-                        # Reducir el monto de la deuda
                         update_query = """
                             UPDATE debts 
                             SET amount = amount - %s,
-                                paid_amount = COALESCE(paid_amount, 0) + %s
+                                paid_amount = paid_amount + %s
                             WHERE id = %s
                         """
                         cursor.execute(update_query, (float(amount_to_apply), float(amount_to_apply), debt_id))
                     
-                    # Registrar la transacción de pago de deuda
-                    debt_payment_query = """
-                        INSERT INTO debt_payments (
-                            payment_id,
-                            debt_id,
-                            amount_applied
-                        )
-                        VALUES (%s, %s, %s)
-                    """
-                    cursor.execute(debt_payment_query, (payment_id, debt_id, float(amount_to_apply)))
-                    
-                    remaining_amount -= float(amount_to_apply)  # Asegurar operación entre floats
+                    remaining_amount -= float(amount_to_apply)
                 
                 return payment_id
                 

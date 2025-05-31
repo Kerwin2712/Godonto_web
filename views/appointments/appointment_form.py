@@ -11,6 +11,7 @@ from services.appointment_service import (
 from utils.alerts import show_error, show_success
 from utils.date_utils import to_local_time
 
+
 class AppointmentFormView:
     def __init__(self, page: ft.Page, appointment_id: Optional[int] = None):
         self.page = page
@@ -44,12 +45,13 @@ class AppointmentFormView:
             expand=True
         )
         
-        self.date_text = ft.Text("No seleccionada")
-        self.time_text = ft.Text("No seleccionada")
+        self.date_text = ft.Text("No seleccionada", color=ft.colors.BLACK)
+        self.time_text = ft.Text("No seleccionada", color=ft.colors.BLACK)
         self.selected_client_text = ft.Text(
             "Ningún cliente seleccionado", 
             italic=True,
-            overflow=ft.TextOverflow.ELLIPSIS
+            overflow=ft.TextOverflow.ELLIPSIS,
+            color = ft.colors.BLACK,
         )
         
         # Añadir pickers al overlay de la página
@@ -66,11 +68,13 @@ class AppointmentFormView:
             divider_color=ft.colors.BLUE_400,
             bar_hint_text="Buscar cliente...",
             view_hint_text="Seleccione un cliente...",
-            bar_leading=ft.Icon(ft.icons.SEARCH),
+            bar_leading=ft.IconButton(
+                icon=ft.icons.SEARCH,
+                on_click=lambda e: self.client_search.open_view()
+            ),
             controls=[],
             expand=True,
             on_change=self.handle_search_change,
-            on_tap=lambda e: self.client_search.open_view(),
             on_submit=lambda e: self.handle_search_submit(e)
         )
 
@@ -108,7 +112,7 @@ class AppointmentFormView:
         """Maneja el cambio en la búsqueda de clientes"""
         search_term = e.control.value.strip()
         
-        if len(search_term) < 2:
+        if len(search_term) < 1:
             self.client_search.controls = []
             self.page.update()
             return
@@ -171,7 +175,7 @@ class AppointmentFormView:
             return
 
         date_value = appointment.date
-        hour_value = appointment.hour
+        hour_value = appointment.time
         
         if isinstance(date_value, str):
             date_value = datetime.strptime(date_value, "%Y-%m-%d").date()
