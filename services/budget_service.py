@@ -35,15 +35,15 @@ class BudgetService:
         pdf.text(130, 32, budget_data['client_cedula'])
         
         # Información estática
-        pdf.text(45, 50, "Ejido")
-        pdf.text(45, 57, "XXXX-XXXXXXXX")
+        pdf.text(45, 50, "Av Centenario Entrada el Piñal Casa #10")
+        pdf.text(45, 57, "0424-7432710")
         
         # Número de factura
-        n_factura = 1000
+        n_factura = 0
         pdf.text(170, 49, str(n_factura))
         
         # Fecha del presupuesto
-        pdf.text(125, 56, str(budget_data.get('date', datetime.now())))
+        pdf.text(150, 56, str(budget_data.get('date', datetime.now())))
 
         # Items del presupuesto
         total_budget = 0.0
@@ -68,11 +68,10 @@ class BudgetService:
         pdf.text(160, 261, f"{total_budget} $")
         
         # Información de banco
-        pdf.text(38, 254, "Banco")
-        pdf.text(30, 261, "XXXX-XXXXXXXX")
-        pdf.text(30, 268, "12345678")
-        pdf.text(50, 275, "Nombre")
-        pdf.text(25, 289, "0108...3091")
+        pdf.text(38, 254, "Provincial")
+        pdf.text(30, 261, "0412-2153091")
+        pdf.text(30, 268, "17130498")
+        pdf.text(50, 275, "María José Quintero H")
 
         try:
             # Generar nombre del archivo
