@@ -57,11 +57,11 @@ class ClientService:
         with Database.get_cursor() as cursor:
             try:
                 # 1. Eliminar registros en debt_payments (si existe esta tabla)
-                cursor.execute(
-                    "DELETE FROM debt_payments WHERE payment_id IN "
-                    "(SELECT id FROM payments WHERE client_id = %s)",
-                    (client_id,)
-                )
+                #cursor.execute(
+                #    "DELETE FROM debt_payments WHERE payment_id IN "
+                #    "(SELECT id FROM payments WHERE client_id = %s)",
+                #    (client_id,)
+                #)
                 
                 # 2. Eliminar deudas
                 cursor.execute(
