@@ -85,25 +85,29 @@ class ReportsView:
             logger.error(f"Error al cambiar fecha: {str(ex)}")
             show_snackbar(self.page, f"Error al cambiar fecha: {str(ex)}", "error")
 
-    def update_date_range(self):
-        """Actualiza el rango de fechas según el tipo de reporte."""
-        today = datetime.now().date()
-        
-        if self.report_type == 'daily':
-            self.start_date = today
-            self.end_date = today
-        elif self.report_type == 'weekly':
-            self.start_date, self.end_date = get_week_range(today)
-        elif self.report_type == 'monthly':
-            self.start_date = today.replace(day=1)
-            self.end_date = get_last_day_of_month(today)
-        # Para 'custom', las fechas se manejan directamente por los DatePickers
-        
-        self.start_date_picker.value = datetime(self.start_date.year, self.start_date.month, self.start_date.day)
-        self.end_date_picker.value = datetime(self.end_date.year, self.end_date.month, self.end_date.day)
-        self.start_date_text.value = format_date(self.start_date)
-        self.end_date_text.value = format_date(self.end_date)
-        self.page.update()
+    def update_date_range(self, init_load=False):
+        """
+        Actualiza el rango de fechas según el tipo de reporte.
+        Agregado 'init_load' para evitar sobreescritura si las fechas vienen de un estado inicial.
+        """
+        if not init_load: # Solo actualiza si no es la carga inicial para preservar fechas personalizadas
+            today = datetime.now().date()
+            
+            if self.report_type == 'daily':
+                self.start_date = today
+                self.end_date = today
+            elif self.report_type == 'weekly':
+                self.start_date, self.end_date = get_week_range(today)
+            elif self.report_type == 'monthly':
+                self.start_date = today.replace(day=1)
+                self.end_date = get_last_day_of_month(today)
+            # Para 'custom', las fechas se manejan directamente por los DatePickers
+            
+            self.start_date_picker.value = datetime(self.start_date.year, self.start_date.month, self.start_date.day)
+            self.end_date_picker.value = datetime(self.end_date.year, self.end_date.month, self.end_date.day)
+            self.start_date_text.value = format_date(self.start_date)
+            self.end_date_text.value = format_date(self.end_date)
+            self.page.update()
 
     def update_report_type(self, e):
         """Actualiza el tipo de reporte seleccionado y el rango de fechas."""
@@ -840,6 +844,29 @@ class ReportsView:
         except Exception as e:
             logger.error(f"Error en cleanup: {str(e)}")
     
+    def _build_appbar(self):
+        """Construye la barra de aplicación responsive para la vista de reportes."""
+        return ft.AppBar(
+            title=ft.Text("Reportes Financieros", weight=ft.FontWeight.BOLD),
+            center_title=False,
+            bgcolor=ft.colors.SURFACE_VARIANT,
+            # Elimina automatically_imply_leading si no quieres la flecha de regreso por defecto
+            automatically_imply_leading=False, 
+            # Si quieres el botón de regresar, descomenta la siguiente sección
+            leading=ft.IconButton(
+                icon=ft.icons.ARROW_BACK,
+                tooltip="Volver al Dashboard",
+                on_click=lambda _: self.page.go("/dashboard")
+            ),
+            actions=[
+                ft.IconButton(
+                    icon=ft.icons.REFRESH,
+                    tooltip="Recargar reportes",
+                    on_click=lambda _: self.load_data()
+                )
+            ]
+        )
+
     def build_view(self):
         """Construye y devuelve la vista completa de reportes."""
         # Limpiar overlays existentes para evitar duplicados
@@ -869,37 +896,23 @@ class ReportsView:
         self.debts_report_container = ft.Container(content=self._build_debts_report_content(), visible=False, data="debts_report_content", expand=True)
 
 
-        content = ft.Column(
-            controls=[
-                ft.ResponsiveRow([
-                    ft.Column([
-                        ft.Text("Reportes Financieros", size=28, weight="bold"),
-                    ], col={"sm": 12, "md": 8}),
-                    ft.Column([
-                        ft.ElevatedButton(
-                            "Volver al Dashboard",
-                            icon=ft.icons.ARROW_BACK,
-                            on_click=lambda e: self.page.go("/dashboard"),
-                            style=ft.ButtonStyle(
-                                padding=20,
-                                shape=ft.RoundedRectangleBorder(radius=10)
-                            ),
-                            expand=True
-                        )
-                    ], col={"sm": 12, "md": 4}, alignment=ft.MainAxisAlignment.END)
-                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                ft.Divider(height=20),
-                self.report_selector, # Selector de tipo de reporte y fechas
-                tabs,
-                # Contenedores para los diferentes reportes
-                self.general_report_container,
-                self.payments_report_container,
-                self.debts_report_container
-            ],
-            scroll=ft.ScrollMode.AUTO,
-            spacing=20,
-            expand=True,
-            # Eliminado padding=20 de aquí
+        # Se envuelve el Column con un Container para aplicar el padding
+        content_with_padding = ft.Container(
+            content=ft.Column(
+                controls=[
+                    self.report_selector, # Selector de tipo de reporte y fechas
+                    tabs,
+                    # Contenedores para los diferentes reportes
+                    self.general_report_container,
+                    self.payments_report_container,
+                    self.debts_report_container
+                ],
+                scroll=ft.ScrollMode.AUTO,
+                spacing=20,
+                expand=True,
+            ),
+            padding=ft.padding.symmetric(horizontal=20, vertical=10), # Aplicar padding aquí
+            expand=True # Asegurar que el contenedor también se expanda
         )
         
         # Cargar datos después de que la vista esté construida
@@ -907,8 +920,11 @@ class ReportsView:
         
         return ft.View(
             "/reports",
-            controls=[content],
-            padding=20 # <-- Añadido padding aquí
+            controls=[
+                self._build_appbar(), # Agregar el AppBar aquí
+                content_with_padding # Usar el contenedor con padding
+            ],
+            padding=0 # Eliminar padding del View para que el AppBar ocupe todo el ancho
         )
 
     def _handle_tab_change(self, e):
