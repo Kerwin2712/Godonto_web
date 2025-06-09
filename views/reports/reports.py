@@ -42,7 +42,7 @@ class ReportsView:
         
         self.page.overlay.extend([self.start_date_picker, self.end_date_picker])
         
-        # Textos para fechas
+        # Textos para fechas (el color se actualizará en _build_report_selector)
         self.start_date_text = ft.Text(format_date(self.start_date))
         self.end_date_text = ft.Text(format_date(self.end_date))
         
@@ -76,7 +76,7 @@ class ReportsView:
             # Asegurarse de que end_date no sea menor que start_date
             if self.end_date < self.start_date:
                 self.end_date = self.start_date
-                self.end_date_picker.value = self.start_date_picker.value # Sincroniza el DatePicker
+                self.end_date_picker.value = datetime(self.start_date.year, self.start_date.month, self.start_date.day) # Sincroniza el DatePicker
                 self.end_date_text.value = format_date(self.start_date)
                 show_snackbar(self.page, "La fecha final no puede ser anterior a la inicial", "warning")
             
@@ -171,26 +171,27 @@ class ReportsView:
 
     def update_payments_table(self, payments):
         """Actualiza la tabla de pagos con datos financieros."""
+        # Colores para el texto de la tabla
+        text_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
+
         try:
-            # Recrear la tabla para asegurar que se actualicen las propiedades
-            # self.payments_table = self._create_payments_table() # Descomentar si hay problemas de renderizado
-                
             self.payments_table.rows = [
                 ft.DataRow(
                     cells=[
-                        ft.DataCell(ft.Text(payment[1].strftime("%d/%m/%Y") if payment[1] else "N/A")),
-                        ft.DataCell(ft.Text(payment[2] if payment[2] else "N/A")), # client_name
-                        ft.DataCell(ft.Text(payment[3] if payment[3] else "N/A")), # method
-                        ft.DataCell(ft.Text(f"${float(payment[4]):,.2f}" if payment[4] else "$0.00")), # amount
+                        ft.DataCell(ft.Text(payment[1].strftime("%d/%m/%Y") if payment[1] else "N/A", color=text_color)),
+                        ft.DataCell(ft.Text(payment[2] if payment[2] else "N/A", color=text_color)), # client_name
+                        ft.DataCell(ft.Text(payment[3] if payment[3] else "N/A", color=text_color)), # method
+                        ft.DataCell(ft.Text(f"${float(payment[4]):,.2f}" if payment[4] else "$0.00", color=text_color)), # amount
                         ft.DataCell(
                             ft.Container(
-                                content=ft.Text(str(payment[5]).capitalize() if payment[5] else "N/A"), # status
+                                content=ft.Text(str(payment[5]).capitalize() if payment[5] else "N/A", color=ft.colors.WHITE), # status
                                 padding=5,
-                                bgcolor=ft.colors.GREEN_100 if str(payment[5]).lower() == 'completed' else ft.colors.ORANGE_100,
+                                # Ajustar colores de estado para modo oscuro
+                                bgcolor=ft.colors.GREEN_700 if str(payment[5]).lower() == 'completed' else ft.colors.ORANGE_700,
                                 border_radius=5
                             )
                         ),
-                        ft.DataCell(ft.Text(payment[6] if payment[6] else "N/A")) # invoice_number
+                        ft.DataCell(ft.Text(payment[6] if payment[6] else "N/A", color=text_color)) # invoice_number
                     ]
                 ) for payment in payments
             ]
@@ -225,22 +226,26 @@ class ReportsView:
 
     def update_debts_table(self, debts):
         """Actualiza la tabla de deudas."""
+        # Colores para el texto de la tabla
+        text_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
+
         self.debts_table.rows = [
             ft.DataRow(
                 cells=[
-                    ft.DataCell(ft.Text(debt[1])), # client_name
-                    ft.DataCell(ft.Text(debt[2].strftime("%d/%m/%Y"))), # created_at
-                    ft.DataCell(ft.Text(f"${debt[3]:,.2f}")), # amount
-                    ft.DataCell(ft.Text(debt[4] or "N/A")), # description
+                    ft.DataCell(ft.Text(debt[1], color=text_color)), # client_name
+                    ft.DataCell(ft.Text(debt[2].strftime("%d/%m/%Y"), color=text_color)), # created_at
+                    ft.DataCell(ft.Text(f"${debt[3]:,.2f}", color=text_color)), # amount
+                    ft.DataCell(ft.Text(debt[4] or "N/A", color=text_color)), # description
                     ft.DataCell(
                         ft.Container(
-                            content=ft.Text("Vencida" if debt[5] == 'pending' and (datetime.now().date() - debt[2].date()).days > 30 else "Pendiente"),
+                            content=ft.Text("Vencida" if debt[5] == 'pending' and (datetime.now().date() - debt[2].date()).days > 30 else "Pendiente", color=ft.colors.WHITE),
                             padding=5,
-                            bgcolor=ft.colors.RED_100 if debt[5] == 'pending' and (datetime.now().date() - debt[2].date()).days > 30 else ft.colors.ORANGE_100,
+                            # Ajustar colores de estado para modo oscuro
+                            bgcolor=ft.colors.RED_700 if debt[5] == 'pending' and (datetime.now().date() - debt[2].date()).days > 30 else ft.colors.ORANGE_700,
                             border_radius=5
                         )
                     ),
-                    ft.DataCell(ft.Text(str((datetime.now().date() - debt[2].date()).days) if debt[5] == 'pending' else "-"))
+                    ft.DataCell(ft.Text(str((datetime.now().date() - debt[2].date()).days) if debt[5] == 'pending' else "-", color=text_color))
                 ]
             ) for debt in debts
         ]
@@ -353,6 +358,7 @@ class ReportsView:
         """Actualiza la fila de estadísticas con datos financieros."""
         self.stats_row.controls = [
             ft.ResponsiveRow([
+                # Ajustar colores de las tarjetas de estadísticas para modo oscuro
                 self._build_stat_card("Citas Totales", stats['total_appointments'], 
                                 ft.icons.CALENDAR_TODAY, ft.colors.BLUE_400),
                 self._build_stat_card("Completadas", stats['completed_appointments'], 
@@ -374,11 +380,17 @@ class ReportsView:
                                 ft.icons.WARNING, ft.colors.DEEP_ORANGE_400)
             ])
         ]
+        self.page.update() # Asegurar que la fila de estadísticas se actualice
 
     def _build_stat_card(self, title: str, value: any, icon: ft.icons, color: str):
         """
         Helper para construir una tarjeta de estadística consistente.
+        Los colores de fondo y texto se ajustan según el theme_mode.
         """
+        card_bg_color = ft.colors.WHITE if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_700
+        title_color = ft.colors.GREY_700 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_200
+        value_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
+
         return ft.Column([
             ft.Card(
                 content=ft.Container(
@@ -387,8 +399,8 @@ class ReportsView:
                             ft.Icon(icon, color=color, size=30),
                             ft.Column(
                                 [
-                                    ft.Text(title, size=14, weight="bold", color=ft.colors.GREY_700),
-                                    ft.Text(str(value), size=24, weight="bold", color=ft.colors.BLACK)
+                                    ft.Text(title, size=14, weight="bold", color=title_color),
+                                    ft.Text(str(value), size=24, weight="bold", color=value_color)
                                 ],
                                 spacing=0,
                                 horizontal_alignment=ft.CrossAxisAlignment.START,
@@ -400,8 +412,12 @@ class ReportsView:
                         spacing=15
                     ),
                     padding=15,
-                    width=250, # Ancho fijo para las tarjetas, se ajustará con ResponsiveRow
-                    height=100
+                    # Para asegurar que las tarjetas se adapten en pantallas pequeñas,
+                    # se elimina el ancho fijo y se confía en el ResponsiveRow
+                    # width=250, 
+                    height=100,
+                    bgcolor=card_bg_color, # Color de fondo del container dentro de la tarjeta
+                    border_radius=10 # Bordes más redondeados
                 ),
                 elevation=2,
                 margin=ft.margin.symmetric(vertical=5)
@@ -540,13 +556,16 @@ class ReportsView:
             }
         )
 
+        # Colores para el contenedor de los gráficos
+        chart_container_border_color = ft.colors.GREY_300 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_600
+        
         self.charts_column.controls.extend([
             ft.ResponsiveRow([
                 ft.Column([
                     ft.Container(
                         content=revenue_over_time_chart,
                         padding=10,
-                        border=ft.border.all(1, ft.colors.GREY_300),
+                        border=ft.border.all(1, chart_container_border_color),
                         border_radius=5,
                         expand=True,
                         height=300
@@ -556,7 +575,7 @@ class ReportsView:
                     ft.Container(
                         content=appointments_status_chart,
                         padding=10,
-                        border=ft.border.all(1, ft.colors.GREY_300),
+                        border=ft.border.all(1, chart_container_border_color),
                         border_radius=5,
                         expand=True,
                         height=300
@@ -568,7 +587,7 @@ class ReportsView:
                     ft.Container(
                         content=payment_methods_chart,
                         padding=10,
-                        border=ft.border.all(1, ft.colors.GREY_300),
+                        border=ft.border.all(1, chart_container_border_color),
                         border_radius=5,
                         expand=True,
                         height=300
@@ -578,7 +597,7 @@ class ReportsView:
                     ft.Container(
                         content=debts_status_chart,
                         padding=10,
-                        border=ft.border.all(1, ft.colors.GREY_300),
+                        border=ft.border.all(1, chart_container_border_color),
                         border_radius=5,
                         expand=True,
                         height=300
@@ -590,16 +609,23 @@ class ReportsView:
 
     def _build_bar_chart(self, title: str, data: list, x_label: str, y_label: str, color: str = None):
         """Construye un gráfico de barras mejorado."""
-        if not data:
-            return ft.Column([ft.Text(title, size=16, weight="bold"), ft.Text("No hay datos disponibles para este período.", italic=True)])
+        chart_title_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
+        axis_label_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
+        grid_line_color = ft.colors.GREY_300 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_500
+        tooltip_bgcolor = ft.colors.with_opacity(0.8, ft.colors.GREY_800) if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.with_opacity(0.9, ft.colors.BLUE_GREY_900)
 
-        # Asegurarse de que data sea una lista de tuplas (label, value)
+        if not data:
+            return ft.Column([
+                ft.Text(title, size=16, weight="bold", color=chart_title_color), 
+                ft.Text("No hay datos disponibles para este período.", italic=True, color=chart_title_color)
+            ])
+
         processed_data = []
         for item in data:
             if isinstance(item, tuple) and len(item) == 2:
                 processed_data.append((str(item[0]), float(item[1])))
             else:
-                processed_data.append((str(item), float(item))) # Si es un solo valor o algo inesperado
+                processed_data.append((str(item), float(item)))
 
         bars = [
             ft.BarChartGroup(
@@ -609,7 +635,7 @@ class ReportsView:
                         from_y=0,
                         to_y=value,
                         width=20,
-                        color=color or ft.colors.BLUE_400,
+                        color=color or (ft.colors.BLUE_400 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_600),
                         tooltip=f"{label}: ${value:,.2f}" if "Monto" in y_label else f"{label}: {value}",
                         border_radius=4,
                     )
@@ -621,29 +647,30 @@ class ReportsView:
         max_y_val = max(value for _, value in processed_data) if processed_data else 100
         
         return ft.Column([
-            ft.Text(title, size=16, weight="bold"),
+            ft.Text(title, size=16, weight="bold", color=chart_title_color),
             ft.BarChart(
                 bar_groups=bars,
-                border=ft.border.all(1, ft.colors.GREY_300),
+                border=ft.border.all(1, ft.colors.GREY_300 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_600),
                 left_axis=ft.ChartAxis(
                     labels_size=40,
-                    title=ft.Text(y_label, size=12),
+                    title=ft.Text(y_label, size=12, color=axis_label_color),
+                    labels_style=ft.TextStyle(color=axis_label_color) # Color de los valores en el eje
                 ),
                 bottom_axis=ft.ChartAxis(
                     labels=[
                         ft.ChartAxisLabel(
                             value=i,
-                            label=ft.Text(label, size=10)
+                            label=ft.Text(label, size=10, color=axis_label_color)
                         )
                         for i, (label, _) in enumerate(processed_data)
                     ],
                     labels_size=40,
-                    title=ft.Text(x_label, size=12)
+                    title=ft.Text(x_label, size=12, color=axis_label_color)
                 ),
                 horizontal_grid_lines=ft.ChartGridLines(
-                    color=ft.colors.GREY_300, width=1, dash_pattern=[3, 3]
+                    color=grid_line_color, width=1, dash_pattern=[3, 3]
                 ),
-                tooltip_bgcolor=ft.colors.with_opacity(0.8, ft.colors.GREY_800),
+                tooltip_bgcolor=tooltip_bgcolor,
                 interactive=True,
                 expand=True,
                 max_y=max_y_val * 1.2 # Añade un poco de espacio en la parte superior
@@ -652,37 +679,58 @@ class ReportsView:
 
     def _build_pie_chart(self, title: str, data: dict, colors: dict = None):
         """Construye un gráfico de pastel mejorado."""
+        chart_title_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
+        legend_text_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
+
         if not data or sum(data.values()) == 0:
-            return ft.Column([ft.Text(title, size=16, weight="bold"), ft.Text("No hay datos disponibles para este período.", italic=True)])
+            return ft.Column([
+                ft.Text(title, size=16, weight="bold", color=chart_title_color), 
+                ft.Text("No hay datos disponibles para este período.", italic=True, color=chart_title_color)
+            ])
         
         total = sum(data.values())
         
         sections = []
+        # Definir colores más suaves para modo oscuro, si no están ya en 'colors'
+        default_dark_colors = [
+            ft.colors.BLUE_GREY_400, ft.colors.DEEP_ORANGE_400, ft.colors.TEAL_400,
+            ft.colors.CYAN_400, ft.colors.INDIGO_400, ft.colors.LIME_400
+        ]
+        color_index = 0
+        
         for key, value in data.items():
             percentage = value / total * 100
+            
+            # Asignar colores, priorizando los pasados, luego los adaptativos
+            section_color = colors.get(key.capitalize(), 
+                                       default_dark_colors[color_index % len(default_dark_colors)]) if colors and self.page.theme_mode == ft.ThemeMode.DARK else \
+                            colors.get(key.capitalize(), ft.colors.BLUE_GREY_400) # Default para modo claro
+            
+            # Incrementar índice para usar el siguiente color por defecto
+            if key not in colors or self.page.theme_mode == ft.ThemeMode.DARK:
+                color_index += 1
+
             sections.append(
                 ft.PieChartSection(
                     value=value,
                     title=f"{percentage:.1f}%",
-                    color=colors.get(key.capitalize(), ft.colors.BLUE_GREY_400) if colors else ft.colors.BLUE_GREY_400,
+                    color=section_color,
                     radius=80, # Tamaño del radio
                     title_style=ft.TextStyle(
                         size=14,
-                        color=ft.colors.WHITE,
+                        color=ft.colors.WHITE, # Texto del porcentaje siempre blanco para contraste
                         weight="bold"
                     ),
-                    #on_click=lambda e, k=key: show_snackbar(self.page, f"Sección seleccionada: {k}")
                 )
             )
         
         return ft.Column([
-            ft.Text(title, size=16, weight="bold"),
+            ft.Text(title, size=16, weight="bold", color=chart_title_color),
             ft.PieChart(
                 sections=sections,
                 sections_space=1,
                 center_space_radius=0, # Elimina el espacio central para un pastel completo
                 expand=True,
-                # Removido interactive=True de aquí, ya que no es un argumento válido para ft.PieChart
             ),
             ft.Column( # Leyenda
                 controls=[
@@ -690,11 +738,12 @@ class ReportsView:
                         ft.Container(
                             width=16,
                             height=16,
-                            bgcolor=colors.get(key.capitalize(), ft.colors.BLUE_GREY_400) if colors else ft.colors.BLUE_GREY_400,
+                            bgcolor=colors.get(key.capitalize(), ft.colors.BLUE_GREY_400) if colors else ft.colors.BLUE_GREY_400, # Color del cuadrado en la leyenda
                             border_radius=8,
                             margin=ft.margin.only(right=5)
                         ),
-                        ft.Text(f"{key}: {value} (${value:,.2f})" if "Ingresos" in title or "Deudas" in title else f"{key}: {value}"),
+                        ft.Text(f"{key}: {value} (${value:,.2f})" if "Ingresos" in title or "Deudas" in title else f"{key}: {value}",
+                                color=legend_text_color), # Color del texto de la leyenda
                     ])
                     for key, value in data.items()
                 ],
@@ -723,17 +772,20 @@ class ReportsView:
 
     def update_appointments_table(self, appointments):
         """Actualiza la tabla de citas."""
+        # Colores para el texto de la tabla
+        text_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
+
         self.appointments_table.rows = [
             ft.DataRow(
                 cells=[
-                    ft.DataCell(ft.Text(appt[2].strftime("%d/%m/%Y"))), # date
-                    ft.DataCell(ft.Text(appt[1])), # client_name
-                    ft.DataCell(ft.Text(appt[3].strftime("%H:%M"))), # time
+                    ft.DataCell(ft.Text(appt[2].strftime("%d/%m/%Y"), color=text_color)), # date
+                    ft.DataCell(ft.Text(appt[1], color=text_color)), # client_name
+                    ft.DataCell(ft.Text(appt[3].strftime("%H:%M"), color=text_color)), # time
                     ft.DataCell(
-                        ft.Text(appt[4].capitalize()), # status
+                        ft.Text(appt[4].capitalize(), color=text_color), # status
                         on_tap=lambda e, a_id=appt[0]: self.show_appointment_detail(a_id)
                     ),
-                    ft.DataCell(ft.Text(f"${appt[5]:,.2f}")) # amount_paid
+                    ft.DataCell(ft.Text(f"${appt[5]:,.2f}", color=text_color)) # amount_paid
                 ]
             ) for appt in appointments
         ]
@@ -753,24 +805,30 @@ class ReportsView:
     def _create_appointments_table(self):
         """
         Crea un widget DataTable para mostrar información de citas.
+        Los colores se ajustan según el theme_mode.
         """
+        header_text_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
+        heading_row_bgcolor = ft.colors.GREY_200 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_700
+        border_color = ft.colors.GREY_300 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_600
+        line_color = ft.colors.GREY_200 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_700
+
         return ft.DataTable(
             columns=[
-                ft.DataColumn(ft.Text("Fecha")),
-                ft.DataColumn(ft.Text("Cliente")),
-                ft.DataColumn(ft.Text("Hora")),
-                ft.DataColumn(ft.Text("Estado")),
-                ft.DataColumn(ft.Text("Monto Pagado"), numeric=True)
+                ft.DataColumn(ft.Text("Fecha", color=header_text_color)),
+                ft.DataColumn(ft.Text("Cliente", color=header_text_color)),
+                ft.DataColumn(ft.Text("Hora", color=header_text_color)),
+                ft.DataColumn(ft.Text("Estado", color=header_text_color)),
+                ft.DataColumn(ft.Text("Monto Pagado", color=header_text_color), numeric=True)
             ],
             rows=[],
-            border=ft.border.all(1, ft.colors.GREY_300),
+            border=ft.border.all(1, border_color),
             border_radius=5,
-            heading_row_color=ft.colors.GREY_200,
+            heading_row_color=heading_row_bgcolor,
             heading_row_height=40,
             data_row_min_height=40,
             data_row_max_height=60,
-            horizontal_lines=ft.border.BorderSide(1, ft.colors.GREY_200),
-            vertical_lines=ft.border.BorderSide(1, ft.colors.GREY_200),
+            horizontal_lines=ft.border.BorderSide(1, line_color),
+            vertical_lines=ft.border.BorderSide(1, line_color),
             column_spacing=20,
             divider_thickness=1,
             show_checkbox_column=False,
@@ -780,25 +838,31 @@ class ReportsView:
     def _create_payments_table(self):
         """
         Crea un widget DataTable para mostrar información de pagos.
+        Los colores se ajustan según el theme_mode.
         """
+        header_text_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
+        heading_row_bgcolor = ft.colors.GREY_200 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_700
+        border_color = ft.colors.GREY_300 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_600
+        line_color = ft.colors.GREY_200 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_700
+
         return ft.DataTable(
             columns=[
-                ft.DataColumn(ft.Text("Fecha")),
-                ft.DataColumn(ft.Text("Cliente")),
-                ft.DataColumn(ft.Text("Método")),
-                ft.DataColumn(ft.Text("Monto"), numeric=True),
-                ft.DataColumn(ft.Text("Estado")),
-                ft.DataColumn(ft.Text("Factura"))
+                ft.DataColumn(ft.Text("Fecha", color=header_text_color)),
+                ft.DataColumn(ft.Text("Cliente", color=header_text_color)),
+                ft.DataColumn(ft.Text("Método", color=header_text_color)),
+                ft.DataColumn(ft.Text("Monto", color=header_text_color), numeric=True),
+                ft.DataColumn(ft.Text("Estado", color=header_text_color)),
+                ft.DataColumn(ft.Text("Factura", color=header_text_color))
             ],
             rows=[],
-            border=ft.border.all(1, ft.colors.GREY_300),
+            border=ft.border.all(1, border_color),
             border_radius=5,
-            heading_row_color=ft.colors.GREY_200,
+            heading_row_color=heading_row_bgcolor,
             heading_row_height=40,
             data_row_min_height=40,
             data_row_max_height=60,
-            horizontal_lines=ft.border.BorderSide(1, ft.colors.GREY_200),
-            vertical_lines=ft.border.BorderSide(1, ft.colors.GREY_200),
+            horizontal_lines=ft.border.BorderSide(1, line_color),
+            vertical_lines=ft.border.BorderSide(1, line_color),
             column_spacing=20,
             divider_thickness=1,
             show_checkbox_column=False,
@@ -808,25 +872,31 @@ class ReportsView:
     def _create_debts_table(self):
         """
         Crea un widget DataTable para mostrar información de deudas.
+        Los colores se ajustan según el theme_mode.
         """
+        header_text_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
+        heading_row_bgcolor = ft.colors.GREY_200 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_700
+        border_color = ft.colors.GREY_300 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_600
+        line_color = ft.colors.GREY_200 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_700
+
         return ft.DataTable(
             columns=[
-                ft.DataColumn(ft.Text("Cliente")),
-                ft.DataColumn(ft.Text("Fecha Deuda")),
-                ft.DataColumn(ft.Text("Monto"), numeric=True),
-                ft.DataColumn(ft.Text("Descripción")),
-                ft.DataColumn(ft.Text("Estado")),
-                ft.DataColumn(ft.Text("Días Vencida"), numeric=True)
+                ft.DataColumn(ft.Text("Cliente", color=header_text_color)),
+                ft.DataColumn(ft.Text("Fecha Deuda", color=header_text_color)),
+                ft.DataColumn(ft.Text("Monto", color=header_text_color), numeric=True),
+                ft.DataColumn(ft.Text("Descripción", color=header_text_color)),
+                ft.DataColumn(ft.Text("Estado", color=header_text_color)),
+                ft.DataColumn(ft.Text("Días Vencida", color=header_text_color), numeric=True)
             ],
             rows=[],
-            border=ft.border.all(1, ft.colors.GREY_300),
+            border=ft.border.all(1, border_color),
             border_radius=5,
-            heading_row_color=ft.colors.GREY_200,
+            heading_row_color=heading_row_bgcolor,
             heading_row_height=40,
             data_row_min_height=40,
             data_row_max_height=60,
-            horizontal_lines=ft.border.BorderSide(1, ft.colors.GREY_200),
-            vertical_lines=ft.border.BorderSide(1, ft.colors.GREY_200),
+            horizontal_lines=ft.border.BorderSide(1, line_color),
+            vertical_lines=ft.border.BorderSide(1, line_color),
             column_spacing=20,
             divider_thickness=1,
             show_checkbox_column=False,
@@ -846,23 +916,26 @@ class ReportsView:
     
     def _build_appbar(self):
         """Construye la barra de aplicación responsive para la vista de reportes."""
+        appbar_bgcolor = ft.colors.BLUE_700 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_900
+        appbar_text_color = ft.colors.WHITE
+
         return ft.AppBar(
-            title=ft.Text("Reportes Financieros", weight=ft.FontWeight.BOLD),
+            title=ft.Text("Reportes Financieros", weight=ft.FontWeight.BOLD, color=appbar_text_color),
             center_title=False,
-            bgcolor=ft.colors.SURFACE_VARIANT,
-            # Elimina automatically_imply_leading si no quieres la flecha de regreso por defecto
+            bgcolor=appbar_bgcolor,
             automatically_imply_leading=False, 
-            # Si quieres el botón de regresar, descomenta la siguiente sección
             leading=ft.IconButton(
                 icon=ft.icons.ARROW_BACK,
                 tooltip="Volver al Dashboard",
-                on_click=lambda _: self.page.go("/dashboard")
+                on_click=lambda _: self.page.go("/dashboard"),
+                icon_color=appbar_text_color
             ),
             actions=[
                 ft.IconButton(
                     icon=ft.icons.REFRESH,
                     tooltip="Recargar reportes",
-                    on_click=lambda _: self.load_data()
+                    on_click=lambda _: self.load_data(),
+                    icon_color=appbar_text_color
                 )
             ]
         )
@@ -877,11 +950,17 @@ class ReportsView:
         
         # Volver a agregar los datepickers
         self.page.overlay.extend([self.start_date_picker, self.end_date_picker])
-        
+
+        # Colores para el contenido principal
+        main_content_bgcolor = ft.colors.WHITE if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_800
+        section_title_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
+        divider_color = ft.colors.GREY_300 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_600
+
         tabs = ft.Tabs(
             selected_index=0,
             animation_duration=300,
             tabs=[
+                # Los colores de las pestañas se ajustan con el tema, no necesitan cambio explícito aquí
                 ft.Tab(text="Resumen General", icon=ft.icons.DASHBOARD),
                 ft.Tab(text="Pagos", icon=ft.icons.PAYMENT),
                 ft.Tab(text="Deudas", icon=ft.icons.MONEY_OFF),
@@ -912,7 +991,8 @@ class ReportsView:
                 expand=True,
             ),
             padding=ft.padding.symmetric(horizontal=20, vertical=10), # Aplicar padding aquí
-            expand=True # Asegurar que el contenedor también se expanda
+            expand=True, # Asegurar que el contenedor también se expanda
+            bgcolor=main_content_bgcolor # Aplicar color de fondo al contenido principal
         )
         
         # Cargar datos después de que la vista esté construida
@@ -945,51 +1025,90 @@ class ReportsView:
 
     def _build_general_report_content(self):
         """Construye el contenido del reporte general."""
+        section_title_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
+        divider_color = ft.colors.GREY_300 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_600
+        table_border_color = ft.colors.GREY_300 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_600
+        table_container_bgcolor = ft.colors.WHITE if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_700
+
+        # Al construir las tablas aquí, se re-crean y se asegura que tomen el tema actual
+        self.appointments_table = self._create_appointments_table()
+        # Las tablas se actualizarán con datos al llamar a load_data() en build_view
+        
         return ft.Column([
-            ft.Text("Resumen Estadístico", size=20, weight="bold"),
+            ft.Text("Resumen Estadístico", size=20, weight="bold", color=section_title_color),
             self.stats_row, # Ya es un ResponsiveRow
-            ft.Divider(),
-            ft.Text("Visualización de Datos", size=20, weight="bold"),
+            ft.Divider(color=divider_color),
+            ft.Text("Visualización de Datos", size=20, weight="bold", color=section_title_color),
             self.charts_column, # Ya es un Column
-            ft.Divider(),
-            ft.Text("Detalle de Citas Recientes", size=20, weight="bold"),
+            ft.Divider(color=divider_color),
+            ft.Text("Detalle de Citas Recientes", size=20, weight="bold", color=section_title_color),
             ft.Container(
                 content=self.appointments_table,
-                border=ft.border.all(1, ft.colors.GREY_300),
+                border=ft.border.all(1, table_border_color),
                 border_radius=5,
                 height=300, # Altura fija o flexible según necesidad
-                expand=True
+                expand=True,
+                bgcolor=table_container_bgcolor # Fondo para el contenedor de la tabla
             )
         ], spacing=15, expand=True)
 
     def _build_payments_report_content(self):
         """Construye el contenido del reporte de pagos."""
+        section_title_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
+        table_border_color = ft.colors.GREY_300 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_600
+        table_container_bgcolor = ft.colors.WHITE if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_700
+
+        # Al construir las tablas aquí, se re-crean y se asegura que tomen el tema actual
+        self.payments_table = self._create_payments_table()
+
         return ft.Column([
-            ft.Text("Reporte de Pagos", size=20, weight="bold"),
+            ft.Text("Reporte de Pagos", size=20, weight="bold", color=section_title_color),
             ft.Container(
                 content=self.payments_table,
-                border=ft.border.all(1, ft.colors.GREY_300),
+                border=ft.border.all(1, table_border_color),
                 border_radius=5,
                 height=500, # Altura fija o flexible
-                expand=True
+                expand=True,
+                bgcolor=table_container_bgcolor # Fondo para el contenedor de la tabla
             )
         ], spacing=15, expand=True)
 
     def _build_debts_report_content(self):
         """Construye el contenido del reporte de deudas."""
+        section_title_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
+        table_border_color = ft.colors.GREY_300 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_600
+        table_container_bgcolor = ft.colors.WHITE if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_700
+
+        # Al construir las tablas aquí, se re-crean y se asegura que tomen el tema actual
+        self.debts_table = self._create_debts_table()
+
         return ft.Column([
-            ft.Text("Reporte de Deudas", size=20, weight="bold"),
+            ft.Text("Reporte de Deudas", size=20, weight="bold", color=section_title_color),
             ft.Container(
                 content=self.debts_table,
-                border=ft.border.all(1, ft.colors.GREY_300),
+                border=ft.border.all(1, table_border_color),
                 border_radius=5,
                 height=500, # Altura fija o flexible
-                expand=True
+                expand=True,
+                bgcolor=table_container_bgcolor # Fondo para el contenedor de la tabla
             )
         ], spacing=15, expand=True)
 
     def _build_report_selector(self):
         """Construye los controles para seleccionar el tipo de reporte y rango de fechas."""
+        # Colores para los elementos del selector de reportes
+        dropdown_label_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
+        text_color_date_label = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
+        date_text_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
+        date_container_bg = ft.colors.GREY_100 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_700
+        button_bgcolor = ft.colors.BLUE_500 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_800
+        button_color = ft.colors.WHITE
+        icon_button_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
+
+        # Actualiza el color del texto de las fechas al construir los controles
+        self.start_date_text.color = date_text_color
+        self.end_date_text.color = date_text_color
+
         return ft.Column(
             controls=[
                 ft.ResponsiveRow(
@@ -1005,33 +1124,48 @@ class ReportsView:
                                 ],
                                 value=self.report_type,
                                 on_change=self.update_report_type,
-                                expand=True
+                                expand=True,
+                                label_style=ft.TextStyle(color=dropdown_label_color) # Color de la etiqueta del Dropdown
                             )
                         ], col={"sm": 12, "md": 6, "lg": 3}),
                         ft.Column([
-                            ft.Text("Desde:", size=12),
+                            ft.Text("Desde:", size=12, color=text_color_date_label),
                             ft.Row([
                                 ft.ElevatedButton(
                                     "Seleccionar",
                                     icon=ft.icons.CALENDAR_TODAY,
-                                    on_click=lambda e: self.page.open(self.start_date_picker), # Uso correcto de pick_date
+                                    on_click=lambda e: self.page.open(self.start_date_picker),
                                     height=40,
-                                    expand=True
+                                    expand=True,
+                                    style=ft.ButtonStyle(bgcolor=button_bgcolor, color=button_color)
                                 ),
-                                self.start_date_text
+                                ft.Container(
+                                    content=self.start_date_text,
+                                    padding=10,
+                                    bgcolor=date_container_bg,
+                                    border_radius=5,
+                                    expand=True
+                                )
                             ])
                         ], col={"sm": 12, "md": 6, "lg": 3}),
                         ft.Column([
-                            ft.Text("Hasta:", size=12),
+                            ft.Text("Hasta:", size=12, color=text_color_date_label),
                             ft.Row([
                                 ft.ElevatedButton(
                                     "Seleccionar",
                                     icon=ft.icons.CALENDAR_TODAY,
-                                    on_click=lambda e: self.page.open(self.end_date_picker), # Uso correcto de pick_date
+                                    on_click=lambda e: self.page.open(self.end_date_picker),
                                     height=40,
-                                    expand=True
+                                    expand=True,
+                                    style=ft.ButtonStyle(bgcolor=button_bgcolor, color=button_color)
                                 ),
-                                self.end_date_text
+                                ft.Container(
+                                    content=self.end_date_text,
+                                    padding=10,
+                                    bgcolor=date_container_bg,
+                                    border_radius=5,
+                                    expand=True
+                                )
                             ])
                         ], col={"sm": 12, "md": 6, "lg": 3}),
                         ft.Column([
@@ -1040,7 +1174,8 @@ class ReportsView:
                                 tooltip="Actualizar reporte",
                                 on_click=lambda e: self.load_data(),
                                 height=40,
-                                width=40
+                                width=40,
+                                icon_color=icon_button_color
                             )
                         ], col={"sm": 12, "md": 6, "lg": 3}, 
                           alignment=ft.MainAxisAlignment.CENTER)
