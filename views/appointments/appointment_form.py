@@ -1,12 +1,16 @@
 import flet as ft
 from datetime import datetime, time
-from typing import Optional
+from typing import Optional, List
 from services.appointment_service import (
     get_appointment_by_id,
     create_appointment,
     update_appointment,
     validate_appointment_time,
-    search_clients  
+    search_clients,
+    get_appointment_treatments # Importar para cargar tratamientos existentes
+)
+from services.treatment_service import (
+    search_treatment
 )
 from utils.alerts import show_error, show_success
 from utils.date_utils import to_local_time
@@ -21,8 +25,14 @@ class AppointmentFormView:
             'date': None,
             'hour': None,
             'notes': None,
-            'status': 'pending'
+            'status': 'pending',
+            'treatments': [] # Lista para almacenar tratamientos seleccionados
         }
+        
+        self.selected_treatments = [] # Lista para objetos de tratamiento completos (id, name, price)
+        self.treatments_column = ft.Column() # Columna para mostrar los tratamientos seleccionados
+
+        self.treatment_search = self._build_treatment_search()
         
         # Componentes UI mejorados para búsqueda de clientes
         self.client_search = self._build_client_search()
@@ -47,11 +57,18 @@ class AppointmentFormView:
         
         self.date_text = ft.Text("No seleccionada", color=ft.colors.BLACK)
         self.time_text = ft.Text("No seleccionada", color=ft.colors.BLACK)
+        
         self.selected_client_text = ft.Text(
             "Ningún cliente seleccionado", 
             italic=True,
             overflow=ft.TextOverflow.ELLIPSIS,
             color = ft.colors.BLACK,
+        )
+        self.selected_treatments_text = ft.Text(
+            "Ningún tratamiento seleccionado",
+            italic=True,
+            overflow=ft.TextOverflow.ELLIPSIS,
+            color=ft.colors.BLACK,
         )
         
         # Añadir pickers al overlay de la página
@@ -61,6 +78,154 @@ class AppointmentFormView:
         if self.appointment_id:
             self.load_appointment_data()
 
+    """Metodos para la barra de busqueda de tratamientos"""
+    
+    def _build_treatment_search(self):
+        """Componente para buscar tratamientos"""
+        return ft.SearchBar(
+            view_elevation=4,
+            divider_color=ft.colors.GREEN_400,
+            bar_hint_text="Buscar tratamientos...",
+            view_hint_text="Seleccione un tratamiento...",
+            bar_leading=ft.IconButton(
+                icon=ft.icons.SEARCH,
+                on_click=lambda e: self.treatment_search.open_view()
+            ),
+            controls=[],
+            expand=True,
+            on_change=self.handle_treatment_search_change,
+            on_submit=lambda e: self.handle_treatment_search_submit(e)
+        )
+    
+    
+    def _build_search_treatment_row(self):
+        """Fila de búsqueda responsive con botones de acción"""
+        return ft.ResponsiveRow(
+            controls=[
+                ft.Column([
+                    ft.Row([
+                        self.treatment_search,
+                        ft.IconButton(
+                            icon=ft.icons.CLEAR,
+                            tooltip="Limpiar búsqueda",
+                            on_click=lambda e: self._reset_treatment_search(),
+                            icon_color=ft.colors.GREY_600
+                        )
+                    ], spacing=5)
+                ], col={"sm": 12, "md": 12}), # Ocupar todo el ancho para la búsqueda de tratamientos
+                # ft.Column([ # Ya no necesitamos este contenedor de texto aquí
+                #     ft.Container(
+                #         content=self.selected_treatments_text,
+                #         padding=10,
+                #         bgcolor=ft.colors.GREY_100,
+                #         border_radius=5,
+                #         expand=True
+                #     )
+                # ], col={"sm": 12, "md": 4})
+            ],
+            spacing=10,
+            run_spacing=10,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER
+        )
+    
+    def handle_treatment_search_change(self, e):
+        """Maneja la búsqueda de tratamientos"""
+        search_term = e.control.value.strip()
+        
+        if len(search_term) < 1:
+            self.treatment_search.controls = []
+            self.page.update()
+            return
+
+        try:
+            treatments = search_treatment(search_term)
+            self.treatment_search.controls = [
+                ft.ListTile(
+                    title=ft.Text(f"{name}"),
+                    subtitle=ft.Text(f"Precio: {price}"),
+                    on_click=lambda e, id=id, name=name, price=price: self.select_treatment(id, name, price),
+                    data={'id': id, 'name': name, 'price': price} # Pasar como diccionario
+                ) for (id, name, price) in treatments
+            ]
+            self.page.update()
+        except Exception as e:
+            show_error(self.page, f"Error en búsqueda de tratamientos: {str(e)}")
+    
+    def select_treatment(self, treatment_id: int, name: str, price: float):
+        """Añade un tratamiento seleccionado a la lista"""
+        # Verificar si el tratamiento ya está seleccionado
+        if any(t['id'] == treatment_id for t in self.selected_treatments):
+            show_error(self.page, "Este tratamiento ya ha sido añadido.")
+            self.treatment_search.close_view()
+            self.page.update()
+            return
+
+        selected_treatment_data = {'id': treatment_id, 'name': name, 'price': price}
+        self.selected_treatments.append(selected_treatment_data)
+        self.form_data['treatments'].append(selected_treatment_data) # Añadir a form_data
+
+        self._update_treatments_display() # Actualizar la visualización de tratamientos
+        self.treatment_search.value = "" # Limpiar el campo de búsqueda
+        self.treatment_search.controls = [] # Limpiar los resultados de búsqueda
+        self.treatment_search.close_view()
+        self.page.update()
+
+    def _remove_treatment(self, treatment_id: int):
+        """Elimina un tratamiento de la lista de seleccionados"""
+        self.selected_treatments = [t for t in self.selected_treatments if t['id'] != treatment_id]
+        self.form_data['treatments'] = [t for t in self.form_data['treatments'] if t['id'] != treatment_id]
+        self._update_treatments_display()
+        self.page.update()
+
+    def _update_treatments_display(self):
+        """Actualiza la visualización de los tratamientos seleccionados"""
+        if not self.selected_treatments:
+            self.treatments_column.controls = [
+                ft.Text(
+                    "Ningún tratamiento seleccionado",
+                    italic=True,
+                    overflow=ft.TextOverflow.ELLIPSIS,
+                    color=ft.colors.BLACK,
+                )
+            ]
+        else:
+            self.treatments_column.controls = [
+                ft.Card(
+                    content=ft.Container(
+                        content=ft.Row([
+                            ft.Text(f"{t['name']} - ${t['price']:.2f}", expand=True),
+                            ft.IconButton(
+                                icon=ft.icons.CLOSE,
+                                icon_color=ft.colors.RED_500,
+                                on_click=lambda e, tid=t['id']: self._remove_treatment(tid),
+                                tooltip="Eliminar tratamiento"
+                            )
+                        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                        padding=10
+                    ),
+                    margin=ft.margin.only(bottom=5)
+                ) for t in self.selected_treatments
+            ]
+        self.page.update()
+    
+    def _reset_treatment_search(self):
+        """Resetea la búsqueda de tratamientos y la lista de seleccionados"""
+        self.treatment_search.value = ""
+        self.treatment_search.controls = []
+        self.selected_treatments = []
+        self.form_data['treatments'] = [] # Limpiar también en form_data
+        self._update_treatments_display() # Asegurarse de que la UI se actualice
+        self.treatment_search.close_view()
+        self.page.update()
+    
+    def handle_treatment_search_submit(self, e):
+        """Maneja la selección directa con Enter"""
+        if self.treatment_search.controls and len(self.treatment_search.controls) > 0:
+            selected_data = self.treatment_search.controls[0].data
+            self.select_treatment(selected_data['id'], selected_data['name'], selected_data['price'])
+    
+    """Metodos para la barra de busqueda de clientes"""
+    
     def _build_client_search(self):
         """Construye el componente de búsqueda de clientes responsive"""
         return ft.SearchBar(
@@ -129,7 +294,7 @@ class AppointmentFormView:
             ]
             self.page.update()
         except Exception as e:
-            show_error(self.page, f"Error en búsqueda: {str(e)}")
+            show_error(self.page, f"Error en búsqueda de clientes: {str(e)}")
 
     def handle_search_submit(self, e):
         """Maneja la selección directa con Enter"""
@@ -208,6 +373,13 @@ class AppointmentFormView:
             self.selected_client_text.value = f"{appointment.client_name} (Cédula: {appointment.client_cedula})"
             self.selected_client_text.style = None
         
+        # Cargar tratamientos asociados a la cita
+        appointment_treatments = get_appointment_treatments(self.appointment_id)
+        if appointment_treatments:
+            self.selected_treatments = appointment_treatments
+            self.form_data['treatments'] = appointment_treatments
+            self._update_treatments_display() # Renderizar los tratamientos cargados
+
         self.page.update()
     
     def handle_save(self, e):
@@ -239,7 +411,8 @@ class AppointmentFormView:
                     date=self.form_data['date'],
                     time=self.form_data['hour'],
                     notes=self.form_data['notes'],
-                    status=self.form_data['status']
+                    status=self.form_data['status'],
+                    treatments=self.form_data['treatments'] # Pasar tratamientos al actualizar
                 )
                 if success:
                     show_success(self.page, "Cita actualizada exitosamente")
@@ -251,6 +424,7 @@ class AppointmentFormView:
                     self.form_data['client_id'],
                     self.form_data['date'],
                     self.form_data['hour'],
+                    self.form_data['treatments'], # Pasar tratamientos al crear
                     self.form_data['notes']
                 )
                 if success:
@@ -338,6 +512,9 @@ class AppointmentFormView:
     
     def build_view(self):
         """Construye y devuelve la vista del formulario responsive"""
+        # Asegurarse de que la visualización de tratamientos inicial se renderice
+        self._update_treatments_display() 
+
         return ft.View(
             "/appointment_form" if not self.appointment_id else f"/appointment_form/{self.appointment_id}",
             controls=[
@@ -358,6 +535,10 @@ class AppointmentFormView:
                         self._build_date_time_controls(),
                         ft.Text("Notas:", weight="bold"),
                         self.notes_field,
+                        ft.Divider(),
+                        ft.Text("Tratamientos", weight="bold"),
+                        self._build_search_treatment_row(),
+                        self.treatments_column, # Aquí se mostrarán los tratamientos seleccionados
                         self._build_action_buttons()
                     ], 
                     spacing=20,

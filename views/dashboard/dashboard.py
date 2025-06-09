@@ -1,9 +1,10 @@
 import flet as ft
 from datetime import datetime
 from core.database import Database
-from services.appointment_service import AppointmentService
+from services.appointment_service import AppointmentService, get_appointment_treatments, get_appointment_by_id # Importar get_appointment_by_id
 from services.client_service import ClientService
 from services.stats_service import StatsService
+from services.payment_service import PaymentService # Importar PaymentService
 from utils.date_utils import format_date
 from utils.widgets import build_stat_card
 import logging
@@ -25,6 +26,7 @@ class DashboardView:
         self.appointment_service = AppointmentService()
         self.client_service = ClientService()
         self.stats_service = StatsService()
+        self.payment_service = PaymentService() # Inicializar PaymentService
         
         # Cargar datos iniciales
         self.load_data()
@@ -241,13 +243,13 @@ class DashboardView:
         return ft.Container(
             content=ft.Column(
                 controls=[
-                    self._build_section_header(
+                    ft.Container(content=self._build_section_header( # Envuelto en Container
                         "Próximas Citas", 
                         "Agregar Cita", 
                         "/appointment_form"
-                    ),
+                    )),
                     ft.Divider(height=10),
-                    self._build_appointment_actions(),
+                    ft.Container(content=self._build_appointment_actions()), # Envuelto en Container
                     ft.Divider(height=10),
                     *[self._build_appointment_card(appt) for appt in self.upcoming_appointments]
                 ],
@@ -290,13 +292,13 @@ class DashboardView:
         return ft.Container(
             content=ft.Column(
                 controls=[
-                    self._build_section_header(
+                    ft.Container(content=self._build_section_header( # Envuelto en Container
                         "Clientes Recientes", 
                         "Agregar Cliente", 
                         "/client_form"
-                    ),
+                    )),
                     ft.Divider(height=10),
-                    self._build_client_actions(),
+                    self._build_client_actions(), # ft.Row es compatible, no necesita Container adicional aquí.
                     ft.Divider(height=5),
                     ft.Container(
                         content=ft.Row(
@@ -329,7 +331,6 @@ class DashboardView:
         Returns:
             ft.ResponsiveRow: Un contenedor responsive que incluye un título y un botón.
         """
-        """Construye un encabezado de sección responsive"""
         return ft.ResponsiveRow(
             controls=[
                 ft.Text(title, size=19, weight="bold", col={"sm": 12, "md": 8}, color=ft.colors.BLACK),
@@ -387,12 +388,21 @@ class DashboardView:
         )
 
     def _build_client_actions(self):
-        """Construye los botones de acción para clientes"""
+        """Construye los botones de acción para clientes, incluyendo el de tratamientos"""
         return ft.Row([
             ft.ElevatedButton(
                 "Ver Todos los Clientes",
                 icon=ft.icons.PEOPLE,
                 on_click=lambda e: self.page.go("/clients"),
+                style=ft.ButtonStyle(
+                    padding=15,
+                    shape=ft.RoundedRectangleBorder(radius=10)
+                )
+            ),
+            ft.ElevatedButton(
+                "Ver Tratamientos",
+                icon=ft.icons.MEDICAL_SERVICES,
+                on_click=lambda e: self.page.go("/treatments"),
                 style=ft.ButtonStyle(
                     padding=15,
                     shape=ft.RoundedRectangleBorder(radius=10)
@@ -413,13 +423,41 @@ class DashboardView:
             
             time_str = appointment.time.strftime("%H:%M") if hasattr(appointment, 'time') else "--:--"
             
+            treatments = get_appointment_treatments(appointment.id)
+            
+            treatments_controls = []
+            if treatments:
+                treatments_controls.append(ft.Divider(height=1))
+                treatments_controls.append(ft.Text("Tratamientos:", size=12, weight=ft.FontWeight.BOLD))
+                for t in treatments:
+                    treatments_controls.append(
+                        ft.Text(f"- {t['name']} (${t['price']:.2f})", size=12)
+                    )
+            else:
+                treatments_controls.append(ft.Text("Sin tratamientos", size=12, italic=True))
+
             return ft.Card(
-                content=ft.ListTile(
-                    leading=ft.Icon(ft.icons.ACCESS_TIME, color=status_color),
-                    title=ft.Text(appointment.client_name or "Cliente no disponible"),
-                    subtitle=ft.Text(f"{time_str} - {appointment.status.capitalize() if appointment.status else 'Sin estado'}"),
-                    trailing=self._build_appointment_menu(appointment) if hasattr(self, '_build_appointment_menu') else None
-                ),
+                content=ft.Column([
+                    ft.ListTile(
+                        leading=ft.Icon(ft.icons.ACCESS_TIME, color=status_color),
+                        title=ft.Text(appointment.client_name or "Cliente no disponible"),
+                        subtitle=ft.Text(f"{time_str} - {appointment.status.capitalize() if appointment.status else 'Sin estado'}"),
+                    ),
+                    ft.Container(
+                        content=ft.Column(treatments_controls, spacing=2),
+                        padding=ft.padding.only(left=16, right=16, bottom=10)
+                    ),
+                    ft.Container(
+                        content=ft.Row(
+                            controls=[
+                                self._build_appointment_menu(appointment)
+                            ],
+                            alignment=ft.MainAxisAlignment.END,
+                            expand=True,
+                        ),
+                        padding=ft.padding.only(top=5, right=10, bottom=5),
+                    ),
+                ]),
                 elevation=1
             )
         except Exception as e:
@@ -444,6 +482,12 @@ class DashboardView:
                 ft.PopupMenuItem(
                     text="Editar",
                     on_click=lambda e: self.page.go(f"/appointment_form/{appointment.id}")
+                ),
+                ft.PopupMenuItem(
+                    text="Eliminar",
+                    icon=ft.icons.DELETE,
+                    # Eliminado icon_color, ya que no es un argumento válido para PopupMenuItem
+                    on_click=lambda e: self._confirm_delete_appointment(appointment.id, appointment.client_name)
                 )
             ]
         )
@@ -452,28 +496,19 @@ class DashboardView:
         """Muestra confirmación para cambiar estado de cita"""
         def handle_confirm(e):
             self._change_appointment_status(appointment_id, new_status)
-            dlg.open = False
-            
-            # Actualizar la vista actual si es necesario
-            current_route = self.page.views[-1].route if self.page.views else ""
-            if current_route == "/calendar":
-                # Recargar la vista del calendario
-                self.page.go("/reload")  # Ruta temporal para forzar recarga
-                self.page.go("/calendar")
-            
-            self.page.update()
+            e.control.page.dialog.open = False # Acceso directo al diálogo de la página
+            e.control.page.update()
         
-        dlg = ft.AlertDialog(
+        self.page.dialog = ft.AlertDialog( # Asegura que el diálogo esté en el overlay de la página
             modal=True,
             title=ft.Text("Confirmar acción"),
             content=ft.Text(f"¿Marcar cita con {client_name} como {new_status}?"),
             actions=[
-                ft.TextButton("Cancelar", on_click=lambda e: setattr(dlg, "open", False)),
+                ft.TextButton("Cancelar", on_click=lambda e: setattr(e.control.page.dialog, "open", False)),
                 ft.TextButton("Confirmar", on_click=handle_confirm),
             ],
         )
-        self.page.open(dlg)
-        dlg.open = True
+        self.page.open(self.page.dialog) # Abre el diálogo desde la página
         self.page.update()
 
     def _change_appointment_status(self, appointment_id, new_status):
@@ -481,6 +516,23 @@ class DashboardView:
         try:
             success = self.appointment_service.update_appointment_status(appointment_id, new_status)
             if success:
+                # Si la cita fue cancelada, intentar borrar la deuda asociada
+                if new_status == 'cancelled':
+                    appointment_details = get_appointment_by_id(appointment_id) # Obtener detalles completos
+                    if appointment_details and hasattr(appointment_details, 'client_id'):
+                        client_id = appointment_details.client_id
+                        treatments = get_appointment_treatments(appointment_id)
+                        for t in treatments:
+                            debt_description_prefix = f"Tratamiento: {t['name']}"
+                            debt_deleted = self.payment_service.delete_debt_by_description_and_client(client_id, debt_description_prefix)
+                            if debt_deleted:
+                                logger.info(f"Deuda '{debt_description_prefix}' para cliente {client_id} eliminada al cancelar cita {appointment_id}.")
+                            else:
+                                logger.warning(f"No se encontró deuda '{debt_description_prefix}' para eliminar o falló la eliminación para cliente {client_id} al cancelar cita {appointment_id}.")
+                    else:
+                        logger.warning(f"No se pudo obtener client_id para la cita {appointment_id} al intentar borrar la deuda.")
+
+
                 # Recargar datos y actualizar vista
                 self.load_data()
                 # Forzar actualización de todas las vistas relevantes
@@ -494,7 +546,47 @@ class DashboardView:
             else:
                 self._show_error("No se pudo actualizar el estado")
         except Exception as e:
+            logger.error(f"Error al actualizar: {str(e)}")
             self._show_error(f"Error al actualizar: {str(e)}")
+
+    def _confirm_delete_appointment(self, appointment_id: int, client_name: str):
+        """Muestra un diálogo de confirmación antes de eliminar una cita."""
+        def delete_confirmed(e):
+            if e.control.data: # Si el botón "Sí" fue presionado
+                self._delete_appointment(appointment_id)
+            e.control.page.dialog.open = False # Acceso directo al diálogo de la página
+            e.control.page.update()
+
+        self.page.dialog = ft.AlertDialog( # Asegura que el diálogo esté en el overlay de la página
+            modal=True,
+            title=ft.Text("Confirmar Eliminación de Cita"),
+            content=ft.Text(f"¿Está seguro de que desea eliminar la cita de {client_name}? Esta acción no se puede deshacer."),
+            actions=[
+                ft.TextButton("No", on_click=delete_confirmed, data=False),
+                ft.FilledButton("Sí", on_click=delete_confirmed, data=True, style=ft.ButtonStyle(bgcolor=ft.colors.RED_500)),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        self.page.open(self.page.dialog) # Abre el diálogo desde la página
+        self.page.update()
+
+    def _delete_appointment(self, appointment_id: int):
+        """Elimina una cita."""
+        try:
+            success, message = self.appointment_service.delete_appointment(appointment_id)
+            if success:
+                self.load_data() # Recargar los datos del dashboard
+                current_route = self.page.views[-1].route if self.page.views else ""
+                if current_route == "/dashboard":
+                    self.page.views[-1] = self.build_view() # Actualizar la vista del dashboard
+                self.page.update()
+                self._show_success(message)
+            else:
+                self._show_error(message)
+        except Exception as e:
+            logger.error(f"Error al eliminar cita: {e}")
+            self._show_error(f"Error al eliminar cita: {e}")
+
 
     def _show_success(self, message):
         """Muestra un mensaje de éxito"""
@@ -510,7 +602,8 @@ class DashboardView:
         dlg = ft.AlertDialog(
             title=ft.Text("Error"),
             content=ft.Text(message),
-            actions=[ft.TextButton("OK", on_click=lambda e: setattr(dlg, "open", False))],
+            actions=[ft.TextButton("OK", on_click=lambda e: setattr(dlg, "open", False))
+],
         )
         self.page.open(dlg)
         dlg.open = True

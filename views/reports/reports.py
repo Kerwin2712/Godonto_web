@@ -1,4 +1,3 @@
-
 import flet as ft
 from datetime import datetime, timedelta
 from core.database import get_db, Database
@@ -8,33 +7,25 @@ from utils.date_utils import (
     get_week_range,
     get_last_day_of_month
 )
-from utils.widgets import (
-    build_bar_chart,
-    build_pie_chart,
-    build_stat_card,
-    build_data_table
-)
-from utils.widgets import WidgetBuilder
 from utils.alerts import show_snackbar
 import logging
+
 logger = logging.getLogger(__name__)
 
-#documenta todo el codigo
+# NOTA: build_bar_chart, build_pie_chart y build_stat_card
+# se asume que están definidos en utils.widgets y se importan implícitamente
+# o directamente. Para este código, los referiremos como si estuvieran disponibles.
+
 class ReportsView:
     def __init__(self, page: ft.Page):
         self.page = page
         self.report_type = 'monthly'
-        self.end_date = datetime.now()
-        self.start_date = self.end_date - timedelta(days=30)
+        self.end_date = datetime.now().date() + timedelta(days=30)
+        self.start_date = self.end_date - timedelta(days=60) 
         
-        # Componentes UI
+        # Componentes UI principales
         self.stats_row = ft.ResponsiveRow(spacing=20, run_spacing=20)
         self.charts_column = ft.Column(spacing=20)
-        
-        # Inicializar todas las tablas aquí
-        self.appointments_table = self._create_appointments_table()
-        self.payments_table = self._create_payments_table()
-        self.debts_table = self._create_debts_table()
         
         # DatePickers
         self.start_date_picker = ft.DatePicker(
@@ -59,923 +50,19 @@ class ReportsView:
         self.page.on_resize = self.handle_resize
 
         # Inicializar el selector de fechas
-        self.report_selector = self.build_report_selector()
+        self.report_selector = self._build_report_selector()
 
-    
-    # En views/reports/reports.py
-class ReportsView:
-    def __init__(self, page: ft.Page):
-        # ... (tu código existente) ...
-
-        # Inicializar el selector de fechas
-        self.report_selector = self.build_report_selector()
-
-    def build_report_selector(self):
-        """Construye los controles para seleccionar el tipo de reporte"""
-        return ft.Column(
-            controls=[
-                ft.ResponsiveRow(
-                    controls=[
-                        ft.Column([
-                            ft.Dropdown(
-                                label="Tipo de Reporte",
-                                options=[
-                                    ft.dropdown.Option("daily", "Diario"),
-                                    ft.dropdown.Option("weekly", "Semanal"),
-                                    ft.dropdown.Option("monthly", "Mensual"),
-                                    ft.dropdown.Option("custom", "Personalizado")
-                                ],
-                                value=self.report_type,
-                                on_change=self.update_report_type,
-                                expand=True
-                            )
-                        ], col={"sm": 12, "md": 6, "lg": 3}),
-                        ft.Column([
-                            ft.Text("Desde:", size=12),
-                            ft.Row([
-                                ft.ElevatedButton(
-                                    "Seleccionar",
-                                    icon=ft.icons.CALENDAR_TODAY,
-                                    on_click=lambda e: self.page.open(self.start_date_picker),
-                                    height=40,
-                                    expand=True
-                                ),
-                                self.start_date_text
-                            ])
-                        ], col={"sm": 12, "md": 6, "lg": 3}),
-                        ft.Column([
-                            ft.Text("Hasta:", size=12),
-                            ft.Row([
-                                ft.ElevatedButton(
-                                    "Seleccionar",
-                                    icon=ft.icons.CALENDAR_TODAY,
-                                    on_click=lambda e: self.page.open(self.end_date_picker),
-                                    height=40,
-                                    expand=True
-                                ),
-                                self.end_date_text
-                            ])
-                        ], col={"sm": 12, "md": 6, "lg": 3}),
-                        ft.Column([
-                            ft.IconButton(
-                                icon=ft.icons.REFRESH,
-                                tooltip="Actualizar reporte",
-                                on_click=lambda e: self.load_data(),
-                                height=40,
-                                width=40
-                            )
-                        ], col={"sm": 12, "md": 6, "lg": 3},
-                          alignment=ft.MainAxisAlignment.CENTER)
-                    ],
-                    spacing=10,
-                    run_spacing=10
-                ),
-                WidgetBuilder.date_range_picker(
-                    self,  # Pasa la instancia de ReportsView
-                    on_date_change=self.handle_date_change,
-                    initial_start=self.start_date,
-                    initial_end=self.end_date
-                )
-            ],
-            spacing=10
-        )
-        
-    # Add these new methods to the ReportsView class
-    def handle_preset_change(self, value):
-        """Maneja el cambio de preset en el selector de fechas."""
-        today = datetime.now().date()
-        if value == "hoy":
-            self.start_date = today
-            self.end_date = today
-        elif value == "semana":
-            self.start_date, self.end_date = get_week_range(today)
-        elif value == "mes":
-            self.start_date = today.replace(day=1)
-            self.end_date = get_last_day_of_month(today)
-        elif value == "personalizado":
-            # Aquí podrías abrir un diálogo para que el usuario seleccione las fechas
-            pass
-
-        self.start_date_picker.value = self.start_date
-        self.end_date_picker.value = self.end_date
-        self.start_date_text.value = format_date(self.start_date)
-        self.end_date_text.value = format_date(self.end_date)
-        self.page.update()
-    
-    # En views/reports/reports.py
-import flet as ft
-from datetime import datetime, timedelta
-from core.database import get_db, Database
-from utils.date_utils import (
-    format_date,
-    get_month_name,
-    get_week_range,
-    get_last_day_of_month
-)
-from utils.widgets import (
-    build_bar_chart,
-    build_pie_chart,
-    build_stat_card,
-    build_data_table
-)
-from utils.alerts import show_snackbar
-import logging
-logger = logging.getLogger(__name__)
-
-class ReportsView:
-    def __init__(self, page: ft.Page):
-        self.page = page
-        self.report_type = 'monthly'
-        self.end_date = datetime.now().date()
-        self.start_date = self.end_date - timedelta(days=30)
-
-        # Componentes UI
-        self.stats_row = ft.ResponsiveRow(spacing=20, run_spacing=20)
-        self.charts_column = ft.Column(spacing=20)
-
-        # Inicializar todas las tablas aquí
+        # Inicializar tablas (ahora como métodos de instancia)
         self.appointments_table = self._create_appointments_table()
         self.payments_table = self._create_payments_table()
         self.debts_table = self._create_debts_table()
-
-        # DatePickers
-        self.start_date_picker = ft.DatePicker(
-            first_date=datetime(2020, 1, 1),
-            last_date=datetime(2030, 12, 31),
-            on_change=lambda e: self.handle_date_change(e, is_start_date=True)
-        )
-
-        self.end_date_picker = ft.DatePicker(
-            first_date=datetime(2020, 1, 1),
-            last_date=datetime(2030, 12, 31),
-            on_change=lambda e: self.handle_date_change(e, is_start_date=False)
-        )
-
-        self.page.overlay.extend([self.start_date_picker, self.end_date_picker])
-
-        # Textos para fechas
-        self.start_date_text = ft.Text(format_date(self.start_date))
-        self.end_date_text = ft.Text(format_date(self.end_date))
-
-        # Escuchar cambios de tamaño de pantalla
-        self.page.on_resize = self.handle_resize
-
-    def handle_preset_change(self, value):
-        """Maneja el cambio de preset en el selector de fechas."""
-        today = datetime.now().date()
-        if value == "hoy":
-            self.start_date = today
-            self.end_date = today
-        elif value == "semana":
-            self.start_date, self.end_date = get_week_range(today)
-        elif value == "mes":
-            self.start_date = today.replace(day=1)
-            self.end_date = get_last_day_of_month(today)
-        elif value == "personalizado":
-            self.page.overlay.append(self.create_custom_date_range_dialog())
-            self.page.update()
-
-        self.start_date_picker.value = self.start_date
-        self.end_date_picker.value = self.end_date
-        self.start_date_text.value = format_date(self.start_date)
-        self.end_date_text.value = format_date(self.end_date)
-        self.load_data()
-        self.page.update()
-
-    def create_custom_date_range_dialog(self):
-        """Crea un diálogo para seleccionar un rango de fechas personalizado."""
-        start_date_picker = ft.DatePicker(
-            first_date=datetime(2020, 1, 1),
-            last_date=datetime(2030, 12, 31),
-            on_change=lambda e: self.handle_custom_start_date_change(e)
-        )
-        end_date_picker = ft.DatePicker(
-            first_date=datetime(2020, 1, 1),
-            last_date=datetime(2030, 12, 31),
-            on_change=lambda e: self.handle_custom_end_date_change(e)
-        )
-
-        def close_dialog(e):
-            self.page.overlay.remove(dialog)
-            self.page.update()
-
-        dialog = ft.AlertDialog(
-            modal=True,
-            title=ft.Text("Seleccione un rango de fechas personalizado"),
-            content=ft.Column([
-                ft.Text("Fecha de inicio:"),
-                ft.ElevatedButton(
-                    "Seleccionar fecha de inicio",
-                    on_click=lambda _: self.page.open_modal_dialog(start_date_picker)
-                ),
-                ft.Text("Fecha de fin:"),
-                ft.ElevatedButton(
-                    "Seleccionar fecha de fin",
-                    on_click=lambda _: self.page.open_modal_dialog(end_date_picker)
-                ),
-            ]),
-            actions=[
-                ft.TextButton("Cancelar", on_click=close_dialog),
-                ft.TextButton("Aceptar", on_click=lambda e: self.apply_custom_date_range(start_date_picker.value, end_date_picker.value, close_dialog)),
-            ],
-        )
-        return dialog
-
-    def handle_custom_start_date_change(self, e):
-        """Maneja el cambio de fecha de inicio en el diálogo personalizado."""
-        if e.control.value:
-            self.custom_start_date = e.control.value
-            self.page.update()
-
-    def handle_custom_end_date_change(self, e):
-        """Maneja el cambio de fecha de fin en el diálogo personalizado."""
-        if e.control.value:
-            self.custom_end_date = e.control.value
-            self.page.update()
-
-    def apply_custom_date_range(self, start_date, end_date, close_dialog):
-        """Aplica el rango de fechas personalizado."""
-        if start_date and end_date:
-            if end_date < start_date:
-                show_snackbar(self.page, "La fecha final no puede ser anterior a la inicial", "warning")
-                return
-
-            self.start_date = start_date
-            self.end_date = end_date
-            self.start_date_picker.value = self.start_date
-            self.end_date_picker.value = self.end_date
-            self.start_date_text.value = format_date(self.start_date)
-            self.end_date_text.value = format_date(self.end_date)
-            self.load_data()
-            self.page.update()
-            close_dialog(None)
-        else:
-            show_snackbar(self.page, "Por favor, seleccione ambas fechas", "warning")
-    
-    def build_interactive_chart(self, data, chart_type="bar"):
-        """Construye un gráfico interactivo basado en el tipo especificado
-        
-        Args:
-            data: Datos a graficar en formato {label: value} o [(label, value)]
-            chart_type: Tipo de gráfico ("bar", "line", "pie")
-        
-        Returns:
-            ft.Control: Gráfico configurado
-        """
-        if chart_type == "pie":
-            return self._build_interactive_pie_chart(data)
-        elif chart_type == "line":
-            return self._build_interactive_line_chart(data)
-        else:  # bar
-            return self._build_interactive_bar_chart(data)
-
-    def _build_interactive_bar_chart(self, data):
-        """Gráfico de barras interactivo con tooltips"""
-        if isinstance(data, dict):
-            data = list(data.items())
-            
-        max_value = max(v for _, v in data) if data else 0
-        
-        return ft.BarChart(
-            bar_groups=[
-                ft.BarChartGroup(
-                    x=i,
-                    bar_rods=[
-                        ft.BarChartRod(
-                            from_y=0,
-                            to_y=value,
-                            width=20,
-                            color=ft.colors.BLUE_400,
-                            border_radius=4,
-                            tooltip=f"{label}: {value}",
-                            on_click=lambda e: self._handle_chart_click(label)
-                        )
-                    ],
-                ) for i, (label, value) in enumerate(data)
-            ],
-            border=ft.border.all(1, ft.colors.GREY_300),
-            interactive=True,
-            tooltip_bgcolor=ft.colors.with_opacity(0.8, ft.colors.GREY_800),
-            max_y=max_value * 1.2,  # 20% más para espacio
-            left_axis=ft.ChartAxis(
-                labels_size=40,
-                title=ft.Text("Valor", size=12),
-            ),
-            bottom_axis=ft.ChartAxis(
-                labels=[
-                    ft.ChartAxisLabel(
-                        value=i,
-                        label=ft.Text(label[:15], size=10),
-                    ) for i, (label, _) in enumerate(data)
-                ],
-                labels_size=40,
-                title=ft.Text("Categoría", size=12),
-            ),
-        )
-
-    def _build_interactive_line_chart(self, data):
-        """Gráfico de líneas interactivo con zoom"""
-        if isinstance(data, dict):
-            data = list(data.items())
-            
-        points = [ft.LineChartDataPoint(i, value) for i, (label, value) in enumerate(data)]
-        max_value = max(v for _, v in data) if data else 0
-        
-        return ft.LineChart(
-            data_series=[
-                ft.LineChartData(
-                    data_points=points,
-                    color=ft.colors.BLUE,
-                    stroke_width=2,
-                    curved=True,
-                    stroke_cap_round=True,
-                    below_line_bgcolor=ft.colors.with_opacity(0.1, ft.colors.BLUE),
-                )
-            ],
-            border=ft.border.all(1, ft.colors.GREY_300),
-            interactive=True,
-            tooltip_bgcolor=ft.colors.with_opacity(0.8, ft.colors.GREY_800),
-            min_y=0,
-            max_y=max_value * 1.2,
-            left_axis=ft.ChartAxis(
-                labels_size=40,
-                title=ft.Text("Valor", size=12),
-            ),
-            bottom_axis=ft.ChartAxis(
-                labels=[
-                    ft.ChartAxisLabel(
-                        value=i,
-                        label=ft.Text(label[:15], size=10),
-                    ) for i, (label, _) in enumerate(data)
-                ],
-                labels_size=40,
-                title=ft.Text("Período", size=12),
-            ),
-            # Configuración de zoom
-            expand=True,
-            on_chart_event=self._handle_chart_zoom,
-        )
-
-    def _build_interactive_pie_chart(self, data):
-        """Gráfico de pastel interactivo con leyenda"""
-        if not isinstance(data, dict):
-            data = dict(data)
-            
-        total = sum(data.values()) or 1  # Evitar división por cero
-        colors = {
-            'completed': ft.colors.GREEN,
-            'pending': ft.colors.ORANGE,
-            'cancelled': ft.colors.RED
-        }
-        
-        return ft.PieChart(
-            sections=[
-                ft.PieChartSection(
-                    value=value,
-                    color=colors.get(key.lower(), ft.colors.BLUE),
-                    radius=20,
-                    title=f"{key}\n{value/total:.1%}",
-                    title_style=ft.TextStyle(
-                        size=12,
-                        color=ft.colors.WHITE,
-                        weight="bold"
-                    ),
-                    on_click=lambda e, k=key: self._handle_chart_click(k)
-                ) for key, value in data.items()
-            ],
-            sections_space=1,
-            center_space_radius=40,
-            expand=True,
-            interactive=True,
-            on_chart_event=self._handle_pie_chart_interaction,
-        )
-
-    def _handle_chart_click(self, label):
-        """Maneja clics en elementos del gráfico"""
-        show_snackbar(self.page, f"Seleccionado: {label}", "info")
-
-    def _handle_chart_zoom(self, e):
-        """Maneja eventos de zoom en gráficos"""
-        if e.type == "zoom":
-            # Implementar lógica de zoom aquí
-            pass
-
-    def _handle_pie_chart_interaction(self, e: ft.PieChartEvent):
-        """Maneja interacciones con gráfico de pastel"""
-        if e.type == "section_click":
-            section = e.section
-            show_snackbar(self.page, f"Sección seleccionada: {section.title}", "info")
-
-    def build_time_series_chart(self, data, annotations=None):
-        """Construye gráfico de series temporales interactivo
-        
-        Args:
-            data: Lista de puntos (date, value)
-            annotations: Lista de anotaciones especiales
-            
-        Returns:
-            ft.Control: Gráfico configurado
-        """
-        # Convertir datos a formato adecuado
-        points = [
-            ft.LineChartDataPoint(
-                x=i, 
-                y=value,
-                selected=ft.Text(f"{date.strftime('%d/%m/%Y')}: {value}")
-            ) for i, (date, value) in enumerate(data)
-        ]
-        
-        # Crear series
-        series = ft.LineChartData(
-            data_points=points,
-            color=ft.colors.BLUE,
-            stroke_width=3,
-            curved=True
-        )
-        
-        # Configurar anotaciones
-        annotation_widgets = []
-        if annotations:
-            for date, text in annotations:
-                idx = next((i for i, (d, _) in enumerate(data) if d == date), -1)
-                if idx >= 0:
-                    annotation_widgets.append(
-                        ft.ChartPointLine(
-                            x=idx,
-                            color=ft.colors.RED,
-                            width=1,
-                            dash_pattern=[5,5]
-                        )
-                    )
-        
-        return ft.LineChart(
-            data_series=[series],
-            border=ft.border.all(1, ft.colors.GREY_300),
-            interactive=True,
-            tooltip_bgcolor=ft.colors.with_opacity(0.8, ft.colors.GREY_800),
-            max_y=max(v for _, v in data) * 1.2 if data else 100,
-            min_y=0,
-            left_axis=ft.ChartAxis(
-                labels_size=40,
-                title=ft.Text("Valor", size=12)
-            ),
-            bottom_axis=ft.ChartAxis(
-                labels=[
-                    ft.ChartAxisLabel(
-                        value=i,
-                        label=ft.Text(date.strftime('%d/%m'), size=10)
-                    ) for i, (date, _) in enumerate(data) if i % 5 == 0  # Mostrar cada 5 etiquetas
-                ],
-                labels_size=40,
-                title=ft.Text("Fecha", size=12)
-            ),
-            horizontal_grid_lines=ft.ChartGridLines(
-                interval=1, color=ft.colors.GREY_300, width=1
-            ),
-            vertical_grid_lines=ft.ChartGridLines(
-                interval=1, color=ft.colors.GREY_300, width=1
-            ),
-            overlay_bars=annotation_widgets
-        )
-
-    def init_advanced_filters(self):
-        """Inicializa el sistema de filtros avanzados
-        
-        Configura:
-        - Filtros por tipo de procedimiento
-        - Filtros por odontólogo
-        - Filtros por estado de pago
-        - Filtros por ubicación
-        """
-        self.procedure_filter = ft.Dropdown(
-            options=[ft.dropdown.Option("Todos")],
-            label="Tipo de procedimiento",
-            width=200
-        )
-        
-        self.dentist_filter = ft.Dropdown(
-            options=[ft.dropdown.Option("Todos")],
-            label="Odontólogo",
-            width=200
-        )
-        
-        self.payment_filter = ft.Dropdown(
-            options=[
-                ft.dropdown.Option("Todos"),
-                ft.dropdown.Option("Pagado"),
-                ft.dropdown.Option("Pendiente")
-            ],
-            label="Estado de pago",
-            width=200
-        )
-        
-        self.location_filter = ft.Dropdown(
-            options=[ft.dropdown.Option("Todas")],
-            label="Ubicación",
-            width=200
-        )
-        
-        # Cargar opciones reales desde la base de datos
-        self._load_filter_options()
-        
-        return ft.Row([
-            self.procedure_filter,
-            self.dentist_filter,
-            self.payment_filter,
-            self.location_filter,
-            ft.ElevatedButton("Aplicar Filtros", on_click=self._apply_filters)
-        ], wrap=True)
-
-    def _load_filter_options(self):
-        """Carga las opciones de filtro desde la base de datos"""
-        with Database.get_connection() as conn:
-            with conn.cursor() as cursor:
-                # Cargar procedimientos
-                cursor.execute("SELECT DISTINCT procedure_type FROM appointments")
-                self.procedure_filter.options.extend(
-                    ft.dropdown.Option(row[0]) for row in cursor.fetchall()
-                )
-                
-                # Cargar odontólogos
-                cursor.execute("SELECT id, name FROM dentists")
-                self.dentist_filter.options.extend(
-                    ft.dropdown.Option(row[1], key=str(row[0])) for row in cursor.fetchall()
-                )
-                
-                # Cargar ubicaciones
-                cursor.execute("SELECT DISTINCT location FROM appointments")
-                self.location_filter.options.extend(
-                    ft.dropdown.Option(row[0]) for row in cursor.fetchall()
-                )
-
-    def _apply_filters(self, e):
-        """Aplica los filtros seleccionados"""
-        filters = {
-            'procedure': self.procedure_filter.value,
-            'dentist': self.dentist_filter.value,
-            'payment': self.payment_filter.value,
-            'location': self.location_filter.value
-        }
-        self.load_data(filters)
-    
-    def _create_appointments_table(self):
-        """
-        Crea un widget DataTable para mostrar información de citas.
-
-        La tabla incluye las siguientes columnas:
-        - Fecha: La fecha de la cita.
-        - Cliente: El nombre del cliente.
-        - Hora: La hora de la cita.
-        - Estado: El estado de la cita.
-        - Monto: El monto asociado con la cita (numérico).
-
-        La tabla está estilizada con bordes, esquinas redondeadas y colores personalizados
-        para la fila de encabezado y las líneas. También admite alturas ajustables para las
-        filas y espaciado entre columnas.
-
-        Retorna:
-            ft.DataTable: Un widget DataTable configurado para mostrar citas.
-        """
-        return ft.DataTable(
-            columns=[
-                ft.DataColumn(ft.Text("Fecha")),
-                ft.DataColumn(ft.Text("Cliente")),
-                ft.DataColumn(ft.Text("Hora")),
-                ft.DataColumn(ft.Text("Estado")),
-                ft.DataColumn(ft.Text("Monto"), numeric=True)
-            ],
-            rows=[],
-            border=ft.border.all(1, ft.colors.GREY_300),
-            border_radius=5,
-            heading_row_color=ft.colors.GREY_200,
-            heading_row_height=40,
-            data_row_min_height=40,
-            data_row_max_height=60,
-            horizontal_lines=ft.border.BorderSide(1, ft.colors.GREY_200),
-            vertical_lines=ft.border.BorderSide(1, ft.colors.GREY_200),
-            column_spacing=20,
-            divider_thickness=1,
-            show_checkbox_column=False,
-            expand=True
-        )
-
-    def _create_payments_table(self):
-        return ft.DataTable(
-            columns=[
-                ft.DataColumn(ft.Text("Fecha")),
-                ft.DataColumn(ft.Text("Cliente")),
-                ft.DataColumn(ft.Text("Método")),
-                ft.DataColumn(ft.Text("Monto"), numeric=True),
-                ft.DataColumn(ft.Text("Estado")),
-                ft.DataColumn(ft.Text("Factura"))
-            ],
-            rows=[],
-            border=ft.border.all(1, ft.colors.GREY_300),
-            border_radius=5,
-            heading_row_color=ft.colors.GREY_200,
-            heading_row_height=40,
-            data_row_min_height=40,
-            data_row_max_height=60,
-            horizontal_lines=ft.border.BorderSide(1, ft.colors.GREY_200),
-            vertical_lines=ft.border.BorderSide(1, ft.colors.GREY_200),
-            column_spacing=20,
-            divider_thickness=1,
-            show_checkbox_column=False,
-            expand=True
-        )
-
-    def _create_debts_table(self):
-        return ft.DataTable(
-            columns=[
-                ft.DataColumn(ft.Text("Cliente")),
-                ft.DataColumn(ft.Text("Fecha")),
-                ft.DataColumn(ft.Text("Monto"), numeric=True),
-                ft.DataColumn(ft.Text("Descripción")),
-                ft.DataColumn(ft.Text("Estado")),
-                ft.DataColumn(ft.Text("Días Vencida"), numeric=True)
-            ],
-            rows=[],
-            border=ft.border.all(1, ft.colors.GREY_300),
-            border_radius=5,
-            heading_row_color=ft.colors.GREY_200,
-            heading_row_height=40,
-            data_row_min_height=40,
-            data_row_max_height=60,
-            horizontal_lines=ft.border.BorderSide(1, ft.colors.GREY_200),
-            vertical_lines=ft.border.BorderSide(1, ft.colors.GREY_200),
-            column_spacing=20,
-            divider_thickness=1,
-            show_checkbox_column=False,
-            expand=True
-        )
-    
-    def cleanup(self):
-        """Limpia recursos antes de salir de la vista"""
-        try:
-            if self.start_date_picker in self.page.overlay:
-                self.page.overlay.remove(self.start_date_picker)
-            if self.end_date_picker in self.page.overlay:
-                self.page.overlay.remove(self.end_date_picker)
-            self.page.update()
-        except Exception as e:
-            logger.error(f"Error en cleanup: {str(e)}")
-    
-    def build_view(self):
-        """Construye y devuelve la vista completa de reportes"""
-        # Limpiar overlays existentes para evitar duplicados
-        if self.start_date_picker in self.page.overlay:
-            self.page.overlay.remove(self.start_date_picker)
-        if self.end_date_picker in self.page.overlay:
-            self.page.overlay.remove(self.end_date_picker)
-        
-        # Volver a agregar los datepickers
-        self.page.overlay.extend([self.start_date_picker, self.end_date_picker])
-        
-        tabs = ft.Tabs(
-            selected_index=0,
-            tabs=[
-                ft.Tab(text="Resumen General"),
-                ft.Tab(text="Pagos"),
-                ft.Tab(text="Deudas"),
-            ],
-            expand=1
-        )
-        
-        content = ft.Column(
-            controls=[
-                ft.ResponsiveRow([
-                    ft.Column([
-                        ft.Text("Reportes Financieros", size=24, weight="bold"),
-                    ], col={"sm": 12, "md": 6}),
-                    ft.Column([
-                        ft.ElevatedButton(
-                            "Volver al Dashboard",
-                            icon=ft.icons.ARROW_BACK,
-                            on_click=lambda e: self.page.go("/dashboard"),
-                            style=ft.ButtonStyle(
-                                padding=20,
-                                shape=ft.RoundedRectangleBorder(radius=10)
-                            ),
-                            expand=True
-                        )
-                    ], col={"sm": 12, "md": 6}, alignment=ft.MainAxisAlignment.END)
-                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                ft.Divider(),
-                self.build_report_selector(),
-                tabs,
-                # Contenedores modificados
-                self._create_report_container(self.build_general_report(), True, "general_report"),
-                self._create_report_container(self.build_payments_report(), False, "payments_report"),
-                self._create_report_container(self.build_debts_report(), False, "debts_report")
-            ],
-            scroll=ft.ScrollMode.AUTO,
-            spacing=20,
-            expand=True
-        )
-        
-        # Manejar cambio de pestañas
-        def handle_tab_change(e):
-            # Obtener todos los contenedores de reportes
-            general_report = next(c for c in content.controls if hasattr(c, 'id') and c.id == "general_report")
-            payments_report = next(c for c in content.controls if hasattr(c, 'id') and c.id == "payments_report")
-            debts_report = next(c for c in content.controls if hasattr(c, 'id') and c.id == "debts_report")
-            
-            # Ocultar todos los reportes primero
-            general_report.visible = False
-            payments_report.visible = False
-            debts_report.visible = False
-            
-            # Mostrar solo el reporte seleccionado
-            if e.control.selected_index == 0:
-                general_report.visible = True
-            elif e.control.selected_index == 1:
-                payments_report.visible = True
-            elif e.control.selected_index == 2:
-                debts_report.visible = True
-                
-            content.update()
-        
-        tabs.on_change = handle_tab_change
-        
-        # Cargar datos después de que la vista esté construida
-        self.load_data()
-        
-        return ft.View(
-            "/reports",
-            controls=[content],
-            padding=20
-        )
-
-    def _create_report_container(self, content, visible, id_name):
-        """Helper para crear contenedores de reportes con id"""
-        container = ft.Container(
-            content=content,
-            visible=visible
-        )
-        container.id = id_name
-        return container
-    
-    def build_general_report(self):
-        """Construye el reporte general"""
-        return ft.Column([
-            ft.Text("Resumen Estadístico", size=18, weight="bold"),
-            self.stats_row,
-            ft.Text("Visualización de Datos", size=18, weight="bold"),
-            self.charts_column,
-            ft.Text("Detalle de Citas", size=18, weight="bold"),
-            ft.Container(
-                content=self.appointments_table,
-                border=ft.border.all(1, ft.colors.GREY_300),
-                border_radius=5,
-                height=300,
-                expand=True
-            )
-        ], spacing=15)
-
-    def build_payments_report(self):
-        """Construye el reporte de pagos"""
-        self.payments_table = ft.DataTable(
-            columns=[
-                ft.DataColumn(ft.Text("Fecha")),
-                ft.DataColumn(ft.Text("Cliente")),
-                ft.DataColumn(ft.Text("Método")),
-                ft.DataColumn(ft.Text("Monto"), numeric=True),
-                ft.DataColumn(ft.Text("Estado")),
-                ft.DataColumn(ft.Text("Factura"))
-            ],
-            rows=[],
-            border=ft.border.all(1, ft.colors.GREY_300),
-            border_radius=5,
-            heading_row_color=ft.colors.GREY_200,
-            heading_row_height=40,
-            data_row_min_height=40,
-            data_row_max_height=60,
-            horizontal_lines=ft.border.BorderSide(1, ft.colors.GREY_200),
-            vertical_lines=ft.border.BorderSide(1, ft.colors.GREY_200),
-            column_spacing=20,
-            divider_thickness=1,
-            show_checkbox_column=False,
-            expand=True
-        )
-        
-        return ft.Column([
-            ft.Text("Reporte de Pagos", size=18, weight="bold"),
-            ft.Container(
-                content=self.payments_table,
-                border=ft.border.all(1, ft.colors.GREY_300),
-                border_radius=5,
-                height=400,
-                expand=True
-            )
-        ], spacing=15)
-
-    def build_debts_report(self):
-        """Construye el reporte de deudas"""
-        self.debts_table = ft.DataTable(
-            columns=[
-                ft.DataColumn(ft.Text("Cliente")),
-                ft.DataColumn(ft.Text("Fecha")),
-                ft.DataColumn(ft.Text("Monto"), numeric=True),
-                ft.DataColumn(ft.Text("Descripción")),
-                ft.DataColumn(ft.Text("Estado")),
-                ft.DataColumn(ft.Text("Días Vencida"), numeric=True)
-            ],
-            rows=[],
-            border=ft.border.all(1, ft.colors.GREY_300),
-            border_radius=5,
-            heading_row_color=ft.colors.GREY_200,
-            heading_row_height=40,
-            data_row_min_height=40,
-            data_row_max_height=60,
-            horizontal_lines=ft.border.BorderSide(1, ft.colors.GREY_200),
-            vertical_lines=ft.border.BorderSide(1, ft.colors.GREY_200),
-            column_spacing=20,
-            divider_thickness=1,
-            show_checkbox_column=False,
-            expand=True
-        )
-        
-        return ft.Column([
-            ft.Text("Reporte de Deudas", size=18, weight="bold"),
-            ft.Container(
-                content=self.debts_table,
-                border=ft.border.all(1, ft.colors.GREY_300),
-                border_radius=5,
-                height=400,
-                expand=True
-            )
-        ], spacing=15)
-    
-    def build_report_selector(self):
-        """Construye los controles para seleccionar el tipo de reporte"""
-        return ft.Column(
-            controls=[
-                ft.ResponsiveRow(
-                    controls=[
-                        ft.Column([
-                            ft.Dropdown(
-                                label="Tipo de Reporte",
-                                options=[
-                                    ft.dropdown.Option("daily", "Diario"),
-                                    ft.dropdown.Option("weekly", "Semanal"),
-                                    ft.dropdown.Option("monthly", "Mensual"),
-                                    ft.dropdown.Option("custom", "Personalizado")
-                                ],
-                                value=self.report_type,
-                                on_change=self.update_report_type,
-                                expand=True
-                            )
-                        ], col={"sm": 12, "md": 6, "lg": 3}),
-                        ft.Column([
-                            ft.Text("Desde:", size=12),
-                            ft.Row([
-                                ft.ElevatedButton(
-                                    "Seleccionar",
-                                    icon=ft.icons.CALENDAR_TODAY,
-                                    on_click=lambda e: self.page.open(self.start_date_picker),
-                                    height=40,
-                                    expand=True
-                                ),
-                                self.start_date_text
-                            ])
-                        ], col={"sm": 12, "md": 6, "lg": 3}),
-                        ft.Column([
-                            ft.Text("Hasta:", size=12),
-                            ft.Row([
-                                ft.ElevatedButton(
-                                    "Seleccionar",
-                                    icon=ft.icons.CALENDAR_TODAY,
-                                    on_click=lambda e: self.page.open(self.end_date_picker),
-                                    height=40,
-                                    expand=True
-                                ),
-                                self.end_date_text
-                            ])
-                        ], col={"sm": 12, "md": 6, "lg": 3}),
-                        ft.Column([
-                            ft.IconButton(
-                                icon=ft.icons.REFRESH,
-                                tooltip="Actualizar reporte",
-                                on_click=lambda e: self.load_data(),
-                                height=40,
-                                width=40
-                            )
-                        ], col={"sm": 12, "md": 6, "lg": 3}, 
-                          alignment=ft.MainAxisAlignment.CENTER)
-                    ],
-                    spacing=10,
-                    run_spacing=10
-                )
-            ],
-            spacing=10
-        )
 
     def handle_resize(self, e):
-        """Maneja el cambio de tamaño de la pantalla"""
+        """Maneja el cambio de tamaño de la pantalla."""
         self.page.update()
 
     def handle_date_change(self, e, is_start_date):
-        """Maneja el cambio de fecha en los DatePickers"""
+        """Maneja el cambio de fecha en los DatePickers."""
         try:
             if is_start_date:
                 if self.start_date_picker.value:
@@ -989,7 +76,7 @@ class ReportsView:
             # Asegurarse de que end_date no sea menor que start_date
             if self.end_date < self.start_date:
                 self.end_date = self.start_date
-                self.end_date_picker.value = self.start_date
+                self.end_date_picker.value = self.start_date_picker.value # Sincroniza el DatePicker
                 self.end_date_text.value = format_date(self.start_date)
                 show_snackbar(self.page, "La fecha final no puede ser anterior a la inicial", "warning")
             
@@ -999,7 +86,7 @@ class ReportsView:
             show_snackbar(self.page, f"Error al cambiar fecha: {str(ex)}", "error")
 
     def update_date_range(self):
-        """Actualiza el rango de fechas según el tipo de reporte"""
+        """Actualiza el rango de fechas según el tipo de reporte."""
         today = datetime.now().date()
         
         if self.report_type == 'daily':
@@ -1010,21 +97,22 @@ class ReportsView:
         elif self.report_type == 'monthly':
             self.start_date = today.replace(day=1)
             self.end_date = get_last_day_of_month(today)
+        # Para 'custom', las fechas se manejan directamente por los DatePickers
         
-        self.start_date_picker.value = self.start_date
-        self.end_date_picker.value = self.end_date
+        self.start_date_picker.value = datetime(self.start_date.year, self.start_date.month, self.start_date.day)
+        self.end_date_picker.value = datetime(self.end_date.year, self.end_date.month, self.end_date.day)
         self.start_date_text.value = format_date(self.start_date)
         self.end_date_text.value = format_date(self.end_date)
         self.page.update()
 
     def update_report_type(self, e):
-        """Actualiza el tipo de reporte seleccionado"""
+        """Actualiza el tipo de reporte seleccionado y el rango de fechas."""
         self.report_type = e.control.value
         self.update_date_range()
         self.load_data()
 
     def load_data(self):
-        """Carga todos los datos para los reportes"""
+        """Carga todos los datos para los reportes."""
         try:
             stats = self.load_statistics()
             self.update_stats_row(stats)
@@ -1035,9 +123,7 @@ class ReportsView:
             appointments = self.load_recent_appointments()
             self.update_appointments_table(appointments)
             
-            # Forzar recarga de pagos
             payments = self.load_payments()
-            self.payments_table = self._create_payments_table()  # Recrear la tabla
             self.update_payments_table(payments)
             
             debts = self.load_debts()
@@ -1049,10 +135,13 @@ class ReportsView:
             show_snackbar(self.page, f"Error al cargar datos: {str(e)}", "error")
 
     def load_payments(self):
-        """Carga los pagos para mostrar en la tabla"""
+        """Carga los pagos para mostrar en la tabla."""
         try:
             with Database.get_connection() as conn:
                 with conn.cursor() as cursor:
+                    # NOTA: Asegúrate de que la tabla 'payments' tenga 'appointment_id'
+                    # y que 'clients' tenga 'name' para que esta consulta funcione.
+                    # Asumo que la relación es payments -> appointments -> clients.
                     cursor.execute("""
                         SELECT 
                             p.id,
@@ -1063,8 +152,8 @@ class ReportsView:
                             p.status,
                             p.invoice_number
                         FROM payments p
-                        JOIN appointments a ON p.appointment_id = a.id
-                        JOIN clients c ON a.client_id = c.id
+                        LEFT JOIN appointments a ON p.appointment_id = a.id
+                        LEFT JOIN clients c ON a.client_id = c.id
                         WHERE p.payment_date BETWEEN %s AND %s
                         ORDER BY p.payment_date DESC
                         LIMIT 100
@@ -1077,31 +166,32 @@ class ReportsView:
             return []
 
     def update_payments_table(self, payments):
-        """Actualiza la tabla de pagos con datos financieros"""
+        """Actualiza la tabla de pagos con datos financieros."""
         try:
-            if not hasattr(self, 'payments_table'):
-                self.payments_table = self._create_payments_table()
+            # Recrear la tabla para asegurar que se actualicen las propiedades
+            # self.payments_table = self._create_payments_table() # Descomentar si hay problemas de renderizado
                 
             self.payments_table.rows = [
                 ft.DataRow(
                     cells=[
                         ft.DataCell(ft.Text(payment[1].strftime("%d/%m/%Y") if payment[1] else "N/A")),
-                        ft.DataCell(ft.Text(payment[2] if payment[2] else "N/A")),
-                        ft.DataCell(ft.Text(payment[3] if payment[3] else "N/A")),
-                        ft.DataCell(ft.Text(f"${float(payment[4]):,.2f}" if payment[4] else "$0.00")),
+                        ft.DataCell(ft.Text(payment[2] if payment[2] else "N/A")), # client_name
+                        ft.DataCell(ft.Text(payment[3] if payment[3] else "N/A")), # method
+                        ft.DataCell(ft.Text(f"${float(payment[4]):,.2f}" if payment[4] else "$0.00")), # amount
                         ft.DataCell(
                             ft.Container(
-                                content=ft.Text(str(payment[5]).capitalize() if payment[5] else "N/A"),
+                                content=ft.Text(str(payment[5]).capitalize() if payment[5] else "N/A"), # status
                                 padding=5,
                                 bgcolor=ft.colors.GREEN_100 if str(payment[5]).lower() == 'completed' else ft.colors.ORANGE_100,
                                 border_radius=5
                             )
                         ),
-                        ft.DataCell(ft.Text(payment[6] if payment[6] else "N/A"))
+                        ft.DataCell(ft.Text(payment[6] if payment[6] else "N/A")) # invoice_number
                     ]
                 ) for payment in payments
             ]
             
+            # Solo actualizar si la tabla ya está en el árbol de controles
             if hasattr(self.payments_table, 'page') and self.payments_table.page:
                 self.payments_table.update()
         except Exception as e:
@@ -1109,7 +199,7 @@ class ReportsView:
             show_snackbar(self.page, f"Error al mostrar pagos: {str(e)}", "error")
 
     def load_debts(self):
-        """Carga las deudas para mostrar en la tabla"""
+        """Carga las deudas para mostrar en la tabla."""
         with Database.get_connection() as conn:
             with conn.cursor() as cursor:
                 cursor.execute("""
@@ -1130,29 +220,31 @@ class ReportsView:
                 return cursor.fetchall()
 
     def update_debts_table(self, debts):
-        """Actualiza la tabla de deudas"""
+        """Actualiza la tabla de deudas."""
         self.debts_table.rows = [
             ft.DataRow(
                 cells=[
-                    ft.DataCell(ft.Text(debt[1])),
-                    ft.DataCell(ft.Text(debt[2].strftime("%d/%m/%Y"))),
-                    ft.DataCell(ft.Text(f"${debt[3]:,.2f}")),
-                    ft.DataCell(ft.Text(debt[4] or "N/A")),
+                    ft.DataCell(ft.Text(debt[1])), # client_name
+                    ft.DataCell(ft.Text(debt[2].strftime("%d/%m/%Y"))), # created_at
+                    ft.DataCell(ft.Text(f"${debt[3]:,.2f}")), # amount
+                    ft.DataCell(ft.Text(debt[4] or "N/A")), # description
                     ft.DataCell(
                         ft.Container(
-                            content=ft.Text("Vencida" if debt[5] == 'pending' and debt[6] > 30 else "Pendiente"),
+                            content=ft.Text("Vencida" if debt[5] == 'pending' and (datetime.now().date() - debt[2].date()).days > 30 else "Pendiente"),
                             padding=5,
-                            bgcolor=ft.colors.RED_100 if debt[5] == 'pending' and debt[6] > 30 else ft.colors.ORANGE_100,
+                            bgcolor=ft.colors.RED_100 if debt[5] == 'pending' and (datetime.now().date() - debt[2].date()).days > 30 else ft.colors.ORANGE_100,
                             border_radius=5
                         )
                     ),
-                    ft.DataCell(ft.Text(str(debt[6]) if debt[5] == 'pending' else "-"))
+                    ft.DataCell(ft.Text(str((datetime.now().date() - debt[2].date()).days) if debt[5] == 'pending' else "-"))
                 ]
             ) for debt in debts
         ]
+        if hasattr(self.debts_table, 'page') and self.debts_table.page:
+            self.debts_table.update()
     
     def load_statistics(self):
-        """Carga estadísticas generales desde la base de datos"""
+        """Carga estadísticas generales desde la base de datos."""
         stats = {}
         
         with Database.get_connection() as conn:
@@ -1175,20 +267,29 @@ class ReportsView:
                     'pending_appointments': appointment_stats[3] or 0
                 })
                 
-                # Estadísticas financieras
+                # Estadísticas financieras (pagos completados)
                 cursor.execute("""
                     SELECT 
                         COALESCE(SUM(amount), 0) as total_revenue,
-                        COUNT(*) as total_payments,
-                        COALESCE(SUM(CASE WHEN status = 'pending' THEN amount ELSE 0 END), 0) as pending_payments
+                        COUNT(*) as total_payments
                     FROM payments
-                    WHERE payment_date BETWEEN %s AND %s
+                    WHERE status = 'completed' AND payment_date BETWEEN %s AND %s
                 """, (self.start_date, self.end_date))
                 payment_stats = cursor.fetchone()
                 stats.update({
                     'total_revenue': payment_stats[0],
-                    'total_payments': payment_stats[1],
-                    'pending_payments': payment_stats[2]
+                    'total_payments': payment_stats[1]
+                })
+
+                # Pagos pendientes (total de deudas marcadas como pendientes)
+                cursor.execute("""
+                    SELECT COALESCE(SUM(amount), 0) as pending_payments_amount
+                    FROM debts
+                    WHERE status = 'pending' AND due_date <= %s
+                """, (self.end_date,)) # Deudas pendientes hasta la fecha de fin
+                pending_payments_stats = cursor.fetchone()
+                stats.update({
+                    'pending_payments': pending_payments_stats[0]
                 })
                 
                 # Métodos de pago más usados
@@ -1204,14 +305,13 @@ class ReportsView:
                 popular_method = cursor.fetchone()
                 stats['popular_payment_method'] = popular_method[0] if popular_method else "N/A"
                 
-                # Deudas pendientes
+                # Deudas totales y número de deudas
                 cursor.execute("""
                     SELECT 
                         COALESCE(SUM(amount), 0) as total_debts,
                         COUNT(*) as count_debts
                     FROM debts
-                    WHERE status = 'pending'
-                    AND created_at BETWEEN %s AND %s
+                    WHERE created_at BETWEEN %s AND %s
                 """, (self.start_date, self.end_date))
                 debt_stats = cursor.fetchone()
                 stats.update({
@@ -1219,7 +319,7 @@ class ReportsView:
                     'count_debts': debt_stats[1]
                 })
                 
-                # Deudas vencidas
+                # Deudas vencidas (que su created_at está antes de hoy menos 30 días Y status es 'pending')
                 cursor.execute("""
                     SELECT 
                         COALESCE(SUM(amount), 0) as overdue_amount,
@@ -1246,59 +346,71 @@ class ReportsView:
         return stats
 
     def update_stats_row(self, stats):
-        """Actualiza la fila de estadísticas con datos financieros"""
-        # Asegurarse de que los valores no sean None
-        stats['completed_appointments'] = stats.get('completed_appointments', 0) or 0
-        
+        """Actualiza la fila de estadísticas con datos financieros."""
         self.stats_row.controls = [
-            # Primera fila de estadísticas
             ft.ResponsiveRow([
-                ft.Column([
-                    build_stat_card("Citas Totales", stats['total_appointments'], 
-                                ft.icons.CALENDAR_TODAY, ft.colors.BLUE_400)
-                ], col={"xs": 12, "sm": 6, "md": 3}),
-                ft.Column([
-                    build_stat_card("Completadas", stats['completed_appointments'], 
-                                ft.icons.CHECK_CIRCLE, ft.colors.GREEN_400)
-                ], col={"xs": 12, "sm": 6, "md": 3}),
-                ft.Column([
-                    build_stat_card("Ingresos", f"${stats['total_revenue']:,.2f}", 
-                                ft.icons.ATTACH_MONEY, ft.colors.PURPLE_400)
-                ], col={"xs": 12, "sm": 6, "md": 3}),
-                ft.Column([
-                    build_stat_card("Clientes Nuevos", stats['new_clients'], 
+                self._build_stat_card("Citas Totales", stats['total_appointments'], 
+                                ft.icons.CALENDAR_TODAY, ft.colors.BLUE_400),
+                self._build_stat_card("Completadas", stats['completed_appointments'], 
+                                ft.icons.CHECK_CIRCLE, ft.colors.GREEN_400),
+                self._build_stat_card("Ingresos Total", f"${stats['total_revenue']:,.2f}", 
+                                ft.icons.ATTACH_MONEY, ft.colors.PURPLE_400),
+                self._build_stat_card("Clientes Nuevos", stats['new_clients'], 
                                 ft.icons.PERSON_ADD, ft.colors.ORANGE_400)
-                ], col={"xs": 12, "sm": 6, "md": 3})
             ]),
             
-            # Segunda fila de estadísticas financieras
             ft.ResponsiveRow([
-                ft.Column([
-                    build_stat_card("Pagos Registrados", stats['total_payments'], 
-                                ft.icons.PAYMENT, ft.colors.TEAL_400)
-                ], col={"xs": 12, "sm": 6, "md": 3}),
-                ft.Column([
-                    build_stat_card("Pagos Pendientes", f"${stats['pending_payments']:,.2f}", 
-                                ft.icons.PENDING, ft.colors.AMBER_400)
-                ], col={"xs": 12, "sm": 6, "md": 3}),
-                ft.Column([
-                    build_stat_card("Deudas Totales", f"${stats['total_debts']:,.2f}", 
-                                ft.icons.MONEY_OFF, ft.colors.RED_400)
-                ], col={"xs": 12, "sm": 6, "md": 3}),
-                ft.Column([
-                    build_stat_card("Deudas Vencidas", stats['overdue_count'], 
+                self._build_stat_card("Pagos Registrados", stats['total_payments'], 
+                                ft.icons.PAYMENT, ft.colors.TEAL_400),
+                self._build_stat_card("Deudas Pendientes", f"${stats['pending_payments']:,.2f}", 
+                                ft.icons.PENDING, ft.colors.AMBER_400),
+                self._build_stat_card("Deudas Totales", f"${stats['total_debts']:,.2f}", 
+                                ft.icons.MONEY_OFF, ft.colors.RED_400),
+                self._build_stat_card("Deudas Vencidas", stats['overdue_count'], 
                                 ft.icons.WARNING, ft.colors.DEEP_ORANGE_400)
-                ], col={"xs": 12, "sm": 6, "md": 3})
             ])
         ]
 
+    def _build_stat_card(self, title: str, value: any, icon: ft.icons, color: str):
+        """
+        Helper para construir una tarjeta de estadística consistente.
+        """
+        return ft.Column([
+            ft.Card(
+                content=ft.Container(
+                    content=ft.Row(
+                        [
+                            ft.Icon(icon, color=color, size=30),
+                            ft.Column(
+                                [
+                                    ft.Text(title, size=14, weight="bold", color=ft.colors.GREY_700),
+                                    ft.Text(str(value), size=24, weight="bold", color=ft.colors.BLACK)
+                                ],
+                                spacing=0,
+                                horizontal_alignment=ft.CrossAxisAlignment.START,
+                                expand=True
+                            )
+                        ],
+                        alignment=ft.MainAxisAlignment.START,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        spacing=15
+                    ),
+                    padding=15,
+                    width=250, # Ancho fijo para las tarjetas, se ajustará con ResponsiveRow
+                    height=100
+                ),
+                elevation=2,
+                margin=ft.margin.symmetric(vertical=5)
+            )
+        ], col={"xs": 12, "sm": 6, "md": 3}) # Column para ResponsiveRow
+
     def load_chart_data(self):
-        """Carga datos para gráficos incluyendo información financiera"""
+        """Carga datos para gráficos incluyendo información financiera."""
         chart_data = {}
         
         with Database.get_connection() as conn:
             with conn.cursor() as cursor:
-                # Datos de citas por estado
+                # Datos de citas por estado (Pie Chart)
                 cursor.execute("""
                     SELECT status, COUNT(*) 
                     FROM appointments 
@@ -1307,7 +419,7 @@ class ReportsView:
                 """, (self.start_date, self.end_date))
                 chart_data['appointments_by_status'] = dict(cursor.fetchall())
                 
-                # Datos de ingresos por método de pago
+                # Datos de ingresos por método de pago (Pie Chart)
                 cursor.execute("""
                     SELECT method, SUM(amount)
                     FROM payments
@@ -1317,26 +429,26 @@ class ReportsView:
                 """, (self.start_date, self.end_date))
                 chart_data['revenue_by_method'] = dict(cursor.fetchall())
                 
-                # Datos de deudas por estado
+                # Datos de deudas por estado (Pie Chart)
                 cursor.execute("""
                     SELECT 
                         CASE 
-                            WHEN d.created_at < CURRENT_DATE - INTERVAL '30 days' THEN 'Vencidas'
+                            WHEN created_at < CURRENT_DATE - INTERVAL '30 days' THEN 'Vencidas'
                             ELSE 'Pendientes'
                         END as status,
-                        SUM(d.amount) as total_amount
-                    FROM debts d
-                    WHERE d.status = 'pending'
-                    AND d.created_at BETWEEN %s AND %s
+                        COALESCE(SUM(amount), 0) as total_amount
+                    FROM debts
+                    WHERE status = 'pending'
+                    AND created_at BETWEEN %s AND %s
                     GROUP BY 
                         CASE 
-                            WHEN d.created_at < CURRENT_DATE - INTERVAL '30 days' THEN 'Vencidas'
+                            WHEN created_at < CURRENT_DATE - INTERVAL '30 days' THEN 'Vencidas'
                             ELSE 'Pendientes'
                         END
                 """, (self.start_date, self.end_date))
                 chart_data['debts_by_status'] = dict(cursor.fetchall())
                 
-                # Datos temporales según el tipo de reporte
+                # Datos temporales de ingresos (Bar Chart)
                 if self.report_type == 'daily':
                     cursor.execute("""
                         SELECT DATE(payment_date), SUM(amount)
@@ -1346,7 +458,7 @@ class ReportsView:
                         GROUP BY DATE(payment_date)
                         ORDER BY DATE(payment_date)
                     """, (self.start_date, self.end_date))
-                    chart_data['revenue_over_time'] = cursor.fetchall()
+                    chart_data['revenue_over_time'] = [(date, float(amount)) for date, amount in cursor.fetchall()]
                 elif self.report_type == 'weekly':
                     cursor.execute("""
                         SELECT EXTRACT(YEAR FROM payment_date)::int, 
@@ -1378,25 +490,131 @@ class ReportsView:
         
         return chart_data
 
-    def build_bar_chart(title: str, data: list, x_label: str, y_label: str, color: str = None):
-        """Construye un gráfico de barras mejorado"""
+    def update_charts(self, chart_data):
+        """Actualiza los gráficos con datos financieros."""
+        self.charts_column.controls.clear()
+
+        # Gráfico de ingresos por período (Bar Chart)
+        revenue_over_time_chart = self._build_bar_chart(
+            title="Ingresos por Período",
+            data=chart_data.get('revenue_over_time', []),
+            x_label="Período",
+            y_label="Monto ($)",
+            color=ft.colors.GREEN_400
+        )
+        
+        # Gráfico de distribución de métodos de pago (Pie Chart)
+        payment_methods_chart = self._build_pie_chart(
+            title="Ingresos por Método de Pago",
+            data=chart_data.get('revenue_by_method', {}),
+            colors={
+                'Efectivo': ft.colors.GREEN_500,
+                'Tarjeta': ft.colors.BLUE_500,
+                'Transferencia': ft.colors.PURPLE_500,
+                'Otro': ft.colors.ORANGE_500
+            }
+        )
+        
+        # Gráfico de estado de deudas (Pie Chart)
+        debts_status_chart = self._build_pie_chart(
+            title="Distribución de Deudas",
+            data=chart_data.get('debts_by_status', {}),
+            colors={
+                'Vencidas': ft.colors.RED_500,
+                'Pendientes': ft.colors.AMBER_500
+            }
+        )
+        
+        # Gráfico de citas por estado (Pie Chart)
+        appointments_status_chart = self._build_pie_chart(
+            title="Citas por Estado",
+            data=chart_data.get('appointments_by_status', {}),
+            colors={
+                'completed': ft.colors.GREEN_500,
+                'pending': ft.colors.ORANGE_500,
+                'cancelled': ft.colors.RED_500
+            }
+        )
+
+        self.charts_column.controls.extend([
+            ft.ResponsiveRow([
+                ft.Column([
+                    ft.Container(
+                        content=revenue_over_time_chart,
+                        padding=10,
+                        border=ft.border.all(1, ft.colors.GREY_300),
+                        border_radius=5,
+                        expand=True,
+                        height=300
+                    )
+                ], col={"sm": 12, "lg": 6}),
+                ft.Column([
+                    ft.Container(
+                        content=appointments_status_chart,
+                        padding=10,
+                        border=ft.border.all(1, ft.colors.GREY_300),
+                        border_radius=5,
+                        expand=True,
+                        height=300
+                    )
+                ], col={"sm": 12, "lg": 6})
+            ]),
+            ft.ResponsiveRow([
+                ft.Column([
+                    ft.Container(
+                        content=payment_methods_chart,
+                        padding=10,
+                        border=ft.border.all(1, ft.colors.GREY_300),
+                        border_radius=5,
+                        expand=True,
+                        height=300
+                    )
+                ], col={"sm": 12, "lg": 6}),
+                ft.Column([
+                    ft.Container(
+                        content=debts_status_chart,
+                        padding=10,
+                        border=ft.border.all(1, ft.colors.GREY_300),
+                        border_radius=5,
+                        expand=True,
+                        height=300
+                    )
+                ], col={"sm": 12, "lg": 6})
+            ])
+        ])
+        self.page.update()
+
+    def _build_bar_chart(self, title: str, data: list, x_label: str, y_label: str, color: str = None):
+        """Construye un gráfico de barras mejorado."""
+        if not data:
+            return ft.Column([ft.Text(title, size=16, weight="bold"), ft.Text("No hay datos disponibles para este período.", italic=True)])
+
+        # Asegurarse de que data sea una lista de tuplas (label, value)
+        processed_data = []
+        for item in data:
+            if isinstance(item, tuple) and len(item) == 2:
+                processed_data.append((str(item[0]), float(item[1])))
+            else:
+                processed_data.append((str(item), float(item))) # Si es un solo valor o algo inesperado
+
         bars = [
             ft.BarChartGroup(
                 x=i,
                 bar_rods=[
                     ft.BarChartRod(
                         from_y=0,
-                        to_y=value[1] if isinstance(value, tuple) else value,
+                        to_y=value,
                         width=20,
                         color=color or ft.colors.BLUE_400,
-                        tooltip=f"${value[1]:,.2f}" if "Ingresos" in title and isinstance(value, tuple) else str(value[1] if isinstance(value, tuple) else value),
-                        border_radius=0,
+                        tooltip=f"{label}: ${value:,.2f}" if "Monto" in y_label else f"{label}: {value}",
+                        border_radius=4,
                     )
                 ],
-                tooltip=value[0] if isinstance(value, tuple) else str(value),
             )
-            for i, value in enumerate(data)
+            for i, (label, value) in enumerate(processed_data)
         ]
+        
+        max_y_val = max(value for _, value in processed_data) if processed_data else 100
         
         return ft.Column([
             ft.Text(title, size=16, weight="bold"),
@@ -1404,213 +622,114 @@ class ReportsView:
                 bar_groups=bars,
                 border=ft.border.all(1, ft.colors.GREY_300),
                 left_axis=ft.ChartAxis(
-                    labels=[
-                        ft.ChartAxisLabel(
-                            value=0,
-                            label=ft.Text("0")
-                        ),
-                        ft.ChartAxisLabel(
-                            value=max(value[1] if isinstance(value, tuple) else value for value in data) * 0.5,
-                            label=ft.Text(f"{max(value[1] if isinstance(value, tuple) else value for value in data) * 0.5:,.2f}" if "Ingresos" in title else f"{max(value[1] if isinstance(value, tuple) else value for value in data) * 0.5:,.0f}")
-                        ),
-                        ft.ChartAxisLabel(
-                            value=max(value[1] if isinstance(value, tuple) else value for value in data),
-                            label=ft.Text(f"{max(value[1] if isinstance(value, tuple) else value for value in data):,.2f}" if "Ingresos" in title else f"{max(value[1] if isinstance(value, tuple) else value for value in data):,.0f}")
-                        )
-                    ],
-                    labels_size=40
+                    labels_size=40,
+                    title=ft.Text(y_label, size=12),
                 ),
                 bottom_axis=ft.ChartAxis(
                     labels=[
                         ft.ChartAxisLabel(
                             value=i,
-                            label=ft.Text(value[0] if isinstance(value, tuple) else str(value), size=12)
+                            label=ft.Text(label, size=10)
                         )
-                        for i, value in enumerate(data)
+                        for i, (label, _) in enumerate(processed_data)
                     ],
-                    labels_size=40
+                    labels_size=40,
+                    title=ft.Text(x_label, size=12)
                 ),
                 horizontal_grid_lines=ft.ChartGridLines(
                     color=ft.colors.GREY_300, width=1, dash_pattern=[3, 3]
                 ),
                 tooltip_bgcolor=ft.colors.with_opacity(0.8, ft.colors.GREY_800),
                 interactive=True,
-                expand=True
+                expand=True,
+                max_y=max_y_val * 1.2 # Añade un poco de espacio en la parte superior
             ),
-            ft.Row([
-                ft.Text(x_label, size=12, color=ft.colors.GREY),
-                ft.Text(y_label, size=12, color=ft.colors.GREY)
-            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
-        ], spacing=10)
+        ], spacing=10, expand=True) # expand=True para que el gráfico se adapte a su columna
 
-    def build_pie_chart(title: str, data: dict, colors: dict = None):
-        """Construye un gráfico de pastel mejorado"""
-        if not data:
-            return ft.Text("No hay datos disponibles", size=14, color=ft.colors.GREY)
+    def _build_pie_chart(self, title: str, data: dict, colors: dict = None):
+        """Construye un gráfico de pastel mejorado."""
+        if not data or sum(data.values()) == 0:
+            return ft.Column([ft.Text(title, size=16, weight="bold"), ft.Text("No hay datos disponibles para este período.", italic=True)])
         
         total = sum(data.values())
-        color_fn = lambda k: colors.get(k, ft.colors.GREY) if colors else ft.colors.BLUE
-        is_money = "Ingresos" in title or "Deudas" in title
+        
+        sections = []
+        for key, value in data.items():
+            percentage = value / total * 100
+            sections.append(
+                ft.PieChartSection(
+                    value=value,
+                    title=f"{percentage:.1f}%",
+                    color=colors.get(key.capitalize(), ft.colors.BLUE_GREY_400) if colors else ft.colors.BLUE_GREY_400,
+                    radius=80, # Tamaño del radio
+                    title_style=ft.TextStyle(
+                        size=14,
+                        color=ft.colors.WHITE,
+                        weight="bold"
+                    ),
+                    #on_click=lambda e, k=key: show_snackbar(self.page, f"Sección seleccionada: {k}")
+                )
+            )
         
         return ft.Column([
             ft.Text(title, size=16, weight="bold"),
             ft.PieChart(
-                sections=[
-                    ft.PieChartSection(
-                        value=value,
-                        title=f"{value/total*100:.1f}%",
-                        color=color_fn(key),
-                        radius=20,
-                        title_style=ft.TextStyle(
-                            size=12,
-                            color=ft.colors.WHITE,
-                            weight="bold"
-                        )
-                    )
-                    for key, value in data.items()
-                ],
+                sections=sections,
                 sections_space=1,
-                center_space_radius=40,
-                expand=True
+                center_space_radius=0, # Elimina el espacio central para un pastel completo
+                expand=True,
+                # Removido interactive=True de aquí, ya que no es un argumento válido para ft.PieChart
             ),
-            ft.Column(
+            ft.Column( # Leyenda
                 controls=[
                     ft.Row([
                         ft.Container(
-                            width=12,
-                            height=12,
-                            bgcolor=color_fn(key),
-                            border_radius=6,
+                            width=16,
+                            height=16,
+                            bgcolor=colors.get(key.capitalize(), ft.colors.BLUE_GREY_400) if colors else ft.colors.BLUE_GREY_400,
+                            border_radius=8,
                             margin=ft.margin.only(right=5)
                         ),
-                        ft.Text(f"{key} (${value:,.2f})" if is_money else f"{key} ({value})")
+                        ft.Text(f"{key}: {value} (${value:,.2f})" if "Ingresos" in title or "Deudas" in title else f"{key}: {value}"),
                     ])
                     for key, value in data.items()
                 ],
-                wrap=True
+                wrap=True,
+                spacing=5
             )
-        ], spacing=10)
-    '''
-    def build_payments_report(self):
-        """Construye el reporte de pagos"""
-        return ft.Column([
-            ft.Text("Reporte de Pagos", size=18, weight="bold"),
-            ft.Container(
-                content=self.payments_table,
-                border=ft.border.all(1, ft.colors.GREY_300),
-                border_radius=5,
-                height=400,
-                expand=True
-            )
-        ], spacing=15)
-
-    def build_debts_report(self):
-        """Construye el reporte de deudas"""
-        return ft.Column([
-            ft.Text("Reporte de Deudas", size=18, weight="bold"),
-            ft.Container(
-                content=self.debts_table,
-                border=ft.border.all(1, ft.colors.GREY_300),
-                border_radius=5,
-                height=400,
-                expand=True
-            )
-        ], spacing=15)'''
-    
-    def update_charts(self, chart_data):
-        """Actualiza los gráficos con datos financieros"""
-        # Gráfico de ingresos por período
-        revenue_chart = build_bar_chart(
-            title="Ingresos por Período",
-            data=chart_data.get('revenue_over_time', []),
-            x_label="Período",
-            y_label="Monto ($)",
-            bar_color=ft.colors.GREEN_400
-        )
-        
-        # Gráfico de distribución de métodos de pago
-        payment_methods_chart = build_pie_chart(
-            title="Ingresos por Método",
-            data=chart_data.get('revenue_by_method', {}),
-            colors={
-                'Efectivo': ft.colors.GREEN,
-                'Tarjeta de Crédito': ft.colors.BLUE,
-                'Transferencia': ft.colors.PURPLE,
-                'Cheque': ft.colors.ORANGE
-            }
-        )
-        
-        # Gráfico de estado de deudas
-        debts_chart = build_pie_chart(
-            title="Distribución de Deudas",
-            data=chart_data.get('debts_by_status', {}),
-            colors={
-                'Vencidas': ft.colors.RED,
-                'Pendientes': ft.colors.ORANGE
-            }
-        )
-        
-        self.charts_column.controls = [
-            ft.ResponsiveRow([
-                ft.Column([
-                    ft.Container(
-                        content=revenue_chart,
-                        padding=10,
-                        border=ft.border.all(1, ft.colors.GREY_300),
-                        border_radius=5
-                    )
-                ], col={"sm": 12, "lg": 6}),
-                ft.Column([
-                    ft.Container(
-                        content=payment_methods_chart,
-                        padding=10,
-                        border=ft.border.all(1, ft.colors.GREY_300),
-                        border_radius=5
-                    )
-                ], col={"sm": 12, "lg": 6})
-            ]),
-            ft.ResponsiveRow([
-                ft.Column([
-                    ft.Container(
-                        content=debts_chart,
-                        padding=10,
-                        border=ft.border.all(1, ft.colors.GREY_300),
-                        border_radius=5
-                    )
-                ], col={"sm": 12})
-            ])
-        ]
+        ], spacing=10, expand=True) # expand=True para que el gráfico se adapte a su columna
 
     def load_recent_appointments(self):
-        """Carga las citas para mostrar en la tabla"""
+        """Carga las citas para mostrar en la tabla."""
         with Database.get_connection() as conn:
             with conn.cursor() as cursor:
                 cursor.execute("""
-                    SELECT a.id, c.name, c.cedula, a.date, a.hour, a.status, 
-                        COALESCE(SUM(p.amount), 0) as amount
+                    SELECT a.id, c.name, a.date, a.time, a.status, 
+                        COALESCE(SUM(p.amount), 0) as amount_paid,
+                        a.notes
                     FROM appointments a
                     JOIN clients c ON a.client_id = c.id
                     LEFT JOIN payments p ON a.id = p.appointment_id
                     WHERE a.date BETWEEN %s AND %s
-                    GROUP BY a.id, c.name, c.cedula, a.date, a.hour, a.status
-                    ORDER BY a.date DESC, a.hour DESC
+                    GROUP BY a.id, c.name, a.date, a.time, a.status, a.notes
+                    ORDER BY a.date DESC, a.time DESC
                     LIMIT 50
                 """, (self.start_date, self.end_date))
                 return cursor.fetchall()
 
     def update_appointments_table(self, appointments):
-        """Actualiza la tabla de citas"""
+        """Actualiza la tabla de citas."""
         self.appointments_table.rows = [
             ft.DataRow(
                 cells=[
-                    ft.DataCell(ft.Text(appt[3].strftime("%d/%m/%Y"))),
-                    ft.DataCell(ft.Text(appt[1])),
-                    ft.DataCell(ft.Text(appt[4])),
+                    ft.DataCell(ft.Text(appt[2].strftime("%d/%m/%Y"))), # date
+                    ft.DataCell(ft.Text(appt[1])), # client_name
+                    ft.DataCell(ft.Text(appt[3].strftime("%H:%M"))), # time
                     ft.DataCell(
-                        ft.Text(appt[5].capitalize()),
-                        on_tap=lambda e, a=appt: self.show_appointment_detail(a[0])
+                        ft.Text(appt[4].capitalize()), # status
+                        on_tap=lambda e, a_id=appt[0]: self.show_appointment_detail(a_id)
                     ),
-                    ft.DataCell(ft.Text(f"${appt[6]:,.2f}"))
+                    ft.DataCell(ft.Text(f"${appt[5]:,.2f}")) # amount_paid
                 ]
             ) for appt in appointments
         ]
@@ -1618,28 +737,322 @@ class ReportsView:
             self.appointments_table.update()
 
     def show_appointment_detail(self, appointment_id):
-        """Muestra el detalle de una cita específica"""
-        pass
+        """Muestra el detalle de una cita específica."""
+        # Puedes navegar a una vista de detalle de cita o mostrar un diálogo
+        # Por ahora, solo muestra un snackbar.
+        show_snackbar(self.page, f"Ver detalle de cita ID: {appointment_id}", "info")
 
     def export_to_pdf(self):
-        """Exporta el reporte actual a PDF"""
-        pass
+        """Exporta el reporte actual a PDF."""
+        show_snackbar(self.page, "Funcionalidad de exportar a PDF no implementada aún.", "info")
+
+    def _create_appointments_table(self):
+        """
+        Crea un widget DataTable para mostrar información de citas.
+        """
+        return ft.DataTable(
+            columns=[
+                ft.DataColumn(ft.Text("Fecha")),
+                ft.DataColumn(ft.Text("Cliente")),
+                ft.DataColumn(ft.Text("Hora")),
+                ft.DataColumn(ft.Text("Estado")),
+                ft.DataColumn(ft.Text("Monto Pagado"), numeric=True)
+            ],
+            rows=[],
+            border=ft.border.all(1, ft.colors.GREY_300),
+            border_radius=5,
+            heading_row_color=ft.colors.GREY_200,
+            heading_row_height=40,
+            data_row_min_height=40,
+            data_row_max_height=60,
+            horizontal_lines=ft.border.BorderSide(1, ft.colors.GREY_200),
+            vertical_lines=ft.border.BorderSide(1, ft.colors.GREY_200),
+            column_spacing=20,
+            divider_thickness=1,
+            show_checkbox_column=False,
+            expand=True
+        )
+
+    def _create_payments_table(self):
+        """
+        Crea un widget DataTable para mostrar información de pagos.
+        """
+        return ft.DataTable(
+            columns=[
+                ft.DataColumn(ft.Text("Fecha")),
+                ft.DataColumn(ft.Text("Cliente")),
+                ft.DataColumn(ft.Text("Método")),
+                ft.DataColumn(ft.Text("Monto"), numeric=True),
+                ft.DataColumn(ft.Text("Estado")),
+                ft.DataColumn(ft.Text("Factura"))
+            ],
+            rows=[],
+            border=ft.border.all(1, ft.colors.GREY_300),
+            border_radius=5,
+            heading_row_color=ft.colors.GREY_200,
+            heading_row_height=40,
+            data_row_min_height=40,
+            data_row_max_height=60,
+            horizontal_lines=ft.border.BorderSide(1, ft.colors.GREY_200),
+            vertical_lines=ft.border.BorderSide(1, ft.colors.GREY_200),
+            column_spacing=20,
+            divider_thickness=1,
+            show_checkbox_column=False,
+            expand=True
+        )
+
+    def _create_debts_table(self):
+        """
+        Crea un widget DataTable para mostrar información de deudas.
+        """
+        return ft.DataTable(
+            columns=[
+                ft.DataColumn(ft.Text("Cliente")),
+                ft.DataColumn(ft.Text("Fecha Deuda")),
+                ft.DataColumn(ft.Text("Monto"), numeric=True),
+                ft.DataColumn(ft.Text("Descripción")),
+                ft.DataColumn(ft.Text("Estado")),
+                ft.DataColumn(ft.Text("Días Vencida"), numeric=True)
+            ],
+            rows=[],
+            border=ft.border.all(1, ft.colors.GREY_300),
+            border_radius=5,
+            heading_row_color=ft.colors.GREY_200,
+            heading_row_height=40,
+            data_row_min_height=40,
+            data_row_max_height=60,
+            horizontal_lines=ft.border.BorderSide(1, ft.colors.GREY_200),
+            vertical_lines=ft.border.BorderSide(1, ft.colors.GREY_200),
+            column_spacing=20,
+            divider_thickness=1,
+            show_checkbox_column=False,
+            expand=True
+        )
+    
+    def cleanup(self):
+        """Limpia recursos antes de salir de la vista."""
+        try:
+            if self.start_date_picker in self.page.overlay:
+                self.page.overlay.remove(self.start_date_picker)
+            if self.end_date_picker in self.page.overlay:
+                self.page.overlay.remove(self.end_date_picker)
+            self.page.update()
+        except Exception as e:
+            logger.error(f"Error en cleanup: {str(e)}")
+    
+    def build_view(self):
+        """Construye y devuelve la vista completa de reportes."""
+        # Limpiar overlays existentes para evitar duplicados
+        if self.start_date_picker in self.page.overlay:
+            self.page.overlay.remove(self.start_date_picker)
+        if self.end_date_picker in self.page.overlay:
+            self.page.overlay.remove(self.end_date_picker)
+        
+        # Volver a agregar los datepickers
+        self.page.overlay.extend([self.start_date_picker, self.end_date_picker])
+        
+        tabs = ft.Tabs(
+            selected_index=0,
+            animation_duration=300,
+            tabs=[
+                ft.Tab(text="Resumen General", icon=ft.icons.DASHBOARD),
+                ft.Tab(text="Pagos", icon=ft.icons.PAYMENT),
+                ft.Tab(text="Deudas", icon=ft.icons.MONEY_OFF),
+            ],
+            expand=1,
+            on_change=self._handle_tab_change, # Usar el método de instancia
+        )
+        
+        # Se crean los contenedores con una propiedad 'data' para fácil acceso
+        self.general_report_container = ft.Container(content=self._build_general_report_content(), visible=True, data="general_report_content", expand=True)
+        self.payments_report_container = ft.Container(content=self._build_payments_report_content(), visible=False, data="payments_report_content", expand=True)
+        self.debts_report_container = ft.Container(content=self._build_debts_report_content(), visible=False, data="debts_report_content", expand=True)
+
+
+        content = ft.Column(
+            controls=[
+                ft.ResponsiveRow([
+                    ft.Column([
+                        ft.Text("Reportes Financieros", size=28, weight="bold"),
+                    ], col={"sm": 12, "md": 8}),
+                    ft.Column([
+                        ft.ElevatedButton(
+                            "Volver al Dashboard",
+                            icon=ft.icons.ARROW_BACK,
+                            on_click=lambda e: self.page.go("/dashboard"),
+                            style=ft.ButtonStyle(
+                                padding=20,
+                                shape=ft.RoundedRectangleBorder(radius=10)
+                            ),
+                            expand=True
+                        )
+                    ], col={"sm": 12, "md": 4}, alignment=ft.MainAxisAlignment.END)
+                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                ft.Divider(height=20),
+                self.report_selector, # Selector de tipo de reporte y fechas
+                tabs,
+                # Contenedores para los diferentes reportes
+                self.general_report_container,
+                self.payments_report_container,
+                self.debts_report_container
+            ],
+            scroll=ft.ScrollMode.AUTO,
+            spacing=20,
+            expand=True,
+            # Eliminado padding=20 de aquí
+        )
+        
+        # Cargar datos después de que la vista esté construida
+        self.load_data()
+        
+        return ft.View(
+            "/reports",
+            controls=[content],
+            padding=20 # <-- Añadido padding aquí
+        )
+
+    def _handle_tab_change(self, e):
+        """Maneja el cambio de pestañas para mostrar el reporte correcto."""
+        # Acceder a los contenedores directamente usando sus referencias
+        self.general_report_container.visible = False
+        self.payments_report_container.visible = False
+        self.debts_report_container.visible = False
+
+        if e.control.selected_index == 0:
+            self.general_report_container.visible = True
+        elif e.control.selected_index == 1:
+            self.payments_report_container.visible = True
+        elif e.control.selected_index == 2:
+            self.debts_report_container.visible = True
+            
+        self.page.update()
+
+    def _build_general_report_content(self):
+        """Construye el contenido del reporte general."""
+        return ft.Column([
+            ft.Text("Resumen Estadístico", size=20, weight="bold"),
+            self.stats_row, # Ya es un ResponsiveRow
+            ft.Divider(),
+            ft.Text("Visualización de Datos", size=20, weight="bold"),
+            self.charts_column, # Ya es un Column
+            ft.Divider(),
+            ft.Text("Detalle de Citas Recientes", size=20, weight="bold"),
+            ft.Container(
+                content=self.appointments_table,
+                border=ft.border.all(1, ft.colors.GREY_300),
+                border_radius=5,
+                height=300, # Altura fija o flexible según necesidad
+                expand=True
+            )
+        ], spacing=15, expand=True)
+
+    def _build_payments_report_content(self):
+        """Construye el contenido del reporte de pagos."""
+        return ft.Column([
+            ft.Text("Reporte de Pagos", size=20, weight="bold"),
+            ft.Container(
+                content=self.payments_table,
+                border=ft.border.all(1, ft.colors.GREY_300),
+                border_radius=5,
+                height=500, # Altura fija o flexible
+                expand=True
+            )
+        ], spacing=15, expand=True)
+
+    def _build_debts_report_content(self):
+        """Construye el contenido del reporte de deudas."""
+        return ft.Column([
+            ft.Text("Reporte de Deudas", size=20, weight="bold"),
+            ft.Container(
+                content=self.debts_table,
+                border=ft.border.all(1, ft.colors.GREY_300),
+                border_radius=5,
+                height=500, # Altura fija o flexible
+                expand=True
+            )
+        ], spacing=15, expand=True)
+
+    def _build_report_selector(self):
+        """Construye los controles para seleccionar el tipo de reporte y rango de fechas."""
+        return ft.Column(
+            controls=[
+                ft.ResponsiveRow(
+                    controls=[
+                        ft.Column([
+                            ft.Dropdown(
+                                label="Tipo de Reporte",
+                                options=[
+                                    ft.dropdown.Option("daily", "Diario"),
+                                    ft.dropdown.Option("weekly", "Semanal"),
+                                    ft.dropdown.Option("monthly", "Mensual"),
+                                    ft.dropdown.Option("custom", "Personalizado")
+                                ],
+                                value=self.report_type,
+                                on_change=self.update_report_type,
+                                expand=True
+                            )
+                        ], col={"sm": 12, "md": 6, "lg": 3}),
+                        ft.Column([
+                            ft.Text("Desde:", size=12),
+                            ft.Row([
+                                ft.ElevatedButton(
+                                    "Seleccionar",
+                                    icon=ft.icons.CALENDAR_TODAY,
+                                    on_click=lambda e: self.page.open(self.start_date_picker), # Uso correcto de pick_date
+                                    height=40,
+                                    expand=True
+                                ),
+                                self.start_date_text
+                            ])
+                        ], col={"sm": 12, "md": 6, "lg": 3}),
+                        ft.Column([
+                            ft.Text("Hasta:", size=12),
+                            ft.Row([
+                                ft.ElevatedButton(
+                                    "Seleccionar",
+                                    icon=ft.icons.CALENDAR_TODAY,
+                                    on_click=lambda e: self.page.open(self.end_date_picker), # Uso correcto de pick_date
+                                    height=40,
+                                    expand=True
+                                ),
+                                self.end_date_text
+                            ])
+                        ], col={"sm": 12, "md": 6, "lg": 3}),
+                        ft.Column([
+                            ft.IconButton(
+                                icon=ft.icons.REFRESH,
+                                tooltip="Actualizar reporte",
+                                on_click=lambda e: self.load_data(),
+                                height=40,
+                                width=40
+                            )
+                        ], col={"sm": 12, "md": 6, "lg": 3}, 
+                          alignment=ft.MainAxisAlignment.CENTER)
+                    ],
+                    spacing=10,
+                    run_spacing=10
+                )
+            ],
+            spacing=10
+        )
+
 
 def reports_view(page: ft.Page):
-    """Función de fábrica para crear la vista de reportes"""
+    """Función de fábrica para crear la vista de reportes."""
     view = ReportsView(page)
     
     def on_close(e):
         view.cleanup()
         page.go(e.route)
     
-    # Reemplazar el manejador de ruta temporalmente
-    original_on_route_change = page.on_route_change
-    page.on_route_change = on_close
+    # Reemplazar el manejador de ruta temporalmente (para propósitos de prueba si es necesario)
+    # En una aplicación real con manejo de rutas robusto, esto se maneja de otra manera.
+    # original_on_route_change = page.on_route_change
+    # page.on_route_change = on_close
     
     built_view = view.build_view()
     
     # Restaurar el manejador original después de construir la vista
-    page.on_route_change = original_on_route_change
+    # page.on_route_change = original_on_route_change
     
     return built_view

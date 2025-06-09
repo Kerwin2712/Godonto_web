@@ -39,7 +39,7 @@ class Appointment:
     client_cedula: str
     date: date
     time: time
-    status: str
+    status: AppointmentStatus = AppointmentStatus.PENDING
     notes: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
@@ -55,12 +55,10 @@ class Appointment:
         return appointment_datetime < datetime.now()
 
     def is_completed(self) -> bool:
-        """Verifica si la cita está completada."""
-        return self.status.lower() == "completed"
+        return self.status == AppointmentStatus.COMPLETED
 
     def is_cancelled(self) -> bool:
-        """Verifica si la cita está cancelada."""
-        return self.status.lower() == "cancelled"
+        return self.status == AppointmentStatus.CANCELLED
 
     def to_dict(self) -> dict:
         """Convierte el objeto a diccionario para serialización.

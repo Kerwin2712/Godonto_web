@@ -1,6 +1,6 @@
 import flet as ft
-from datetime import datetime
-from services.appointment_service import AppointmentService
+from datetime import datetime, time # Importar 'time' explícitamente
+from services.appointment_service import AppointmentService, get_appointment_treatments
 from utils.alerts import AlertManager
 from utils.widgets import build_appointment_card
 from models.appointment import Appointment
@@ -167,6 +167,21 @@ class AppointmentsView:
 
     def _build_appointment_card(self, appointment: Appointment):
         """Construye una tarjeta de cita individual"""
+        # Obtener los tratamientos asociados a la cita
+        treatments = get_appointment_treatments(appointment.id)
+        
+        # Construir la lista de controles para los tratamientos
+        treatments_controls = []
+        if treatments:
+            treatments_controls.append(ft.Divider(height=1))
+            treatments_controls.append(ft.Text("Tratamientos:", size=12, weight=ft.FontWeight.BOLD))
+            for t in treatments:
+                treatments_controls.append(
+                    ft.Text(f"- {t['name']} (${t['price']:.2f})", size=12)
+                )
+        else:
+            treatments_controls.append(ft.Text("Sin tratamientos", size=12, italic=True))
+
         return ft.Card(
             content=ft.Container(
                 content=ft.Column([
@@ -184,7 +199,8 @@ class AppointmentsView:
                             ]),
                             ft.Row([
                                 ft.Icon(ft.icons.ACCESS_TIME, size=16),
-                                ft.Text(appointment.time, size=14)
+                                # Asegúrate de que appointment.time sea un objeto datetime.time o str
+                                ft.Text(appointment.time.strftime('%H:%M') if isinstance(appointment.time, time) else appointment.time, size=14)
                             ]),
                             ft.Row([
                                 ft.Icon(ft.icons.INFO_OUTLINE, size=16),
@@ -192,6 +208,8 @@ class AppointmentsView:
                                        color=self._get_status_color(appointment.status),
                                        size=14)
                             ]),
+                            # Añadir la sección de tratamientos aquí
+                            *treatments_controls 
                         ], spacing=5),
                         padding=ft.padding.symmetric(horizontal=10)
                     ),

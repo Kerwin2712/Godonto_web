@@ -202,11 +202,11 @@ class CalendarView:
             )
             
             cursor.execute("""
-                SELECT a.id, c.name, a.date, a.hour, a.status 
+                SELECT a.id, c.name, a.date, a.time, a.status 
                 FROM appointments a
                 JOIN clients c ON a.client_id = c.id
                 WHERE a.date BETWEEN %s AND %s
-                ORDER BY a.date, a.hour
+                ORDER BY a.date, a.time
             """, (first_day, last_day))
             
             self.appointments = {}

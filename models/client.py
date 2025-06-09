@@ -1,7 +1,11 @@
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List, TYPE_CHECKING
 from utils.validators import Validators
+from models.appointment import Appointment
+from models.debt import Debt
+from models.quote import Quote
+
 #print
 @dataclass
 class Client:
@@ -26,6 +30,9 @@ class Client:
     address: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    appointments: List[Appointment] = None
+    debts: List[Debt] = None
+    quotes: List[Quote] = None
 
     def validate(self) -> Tuple[bool, Optional[str]]:
         """Valida los datos del cliente.

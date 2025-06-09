@@ -3,12 +3,13 @@ from fpdf import FPDF
 from datetime import datetime
 import os
 from pathlib import Path
+
 #print
 logger = logging.getLogger(__name__)
 
 class BudgetService:
     @staticmethod
-    def generate_pdf(budget_data: dict):
+    def generate_pdf(quote_data: dict):
         # Obtener la ruta de la carpeta Documentos del usuario
         documentos_path = Path.home() / "Documents"
         pdfs_folder = documentos_path / "pdfs_presupuestos"
@@ -31,25 +32,25 @@ class BudgetService:
             logger.error(f"Error al cargar imagen de fondo: {e}")
 
         # Datos del cliente
-        pdf.text(130, 22, budget_data['client_name'])
-        pdf.text(130, 32, budget_data['client_cedula'])
+        pdf.text(130, 22, quote_data['client_name'])
+        pdf.text(130, 32, quote_data['client_cedula'])
         
         # Información estática
         pdf.text(45, 50, "Av Centenario Entrada el Piñal Casa #10")
         pdf.text(45, 57, "0424-7432710")
         
         # Número de factura
-        n_factura = 0
+        n_factura = quote_data['quote_id']
         pdf.text(170, 49, str(n_factura))
         
         # Fecha del presupuesto
-        pdf.text(150, 56, str(budget_data.get('date', datetime.now())))
+        pdf.text(150, 56, str(quote_data.get('date', datetime.now())))
 
         # Items del presupuesto
         total_budget = 0.0
         y_pos = 100
         
-        for i, item in enumerate(budget_data['items'], start=1):
+        for i, item in enumerate(quote_data['items'], start=1):
             treatment_str = str(item['treatment'])
             quantity_str = str(item['quantity'])
             price_str = f"{item['price']}"
@@ -75,9 +76,9 @@ class BudgetService:
 
         try:
             # Generar nombre del archivo
-            safe_client_name = "".join(c for c in budget_data['client_name'] if c.isalnum() or c in (' ', '-')).replace(' ', '_')
+            safe_client_name = "".join(c for c in quote_data['client_name'] if c.isalnum() or c in (' ', '-')).replace(' ', '_')
             date_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = pdfs_folder / f"Presupuesto_{safe_client_name}_{date_str}.pdf"
+            filename = pdfs_folder / f"{safe_client_name}_{date_str}_presupuesto.pdf"
             
             # Guardar el PDF directamente
             pdf.output(filename)

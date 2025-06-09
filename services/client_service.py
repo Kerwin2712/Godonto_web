@@ -52,6 +52,52 @@ class ClientService:
             return has_payments or has_debts
     
     @staticmethod
+    def get_client_quotes(client_id: int) -> List[dict]:
+        """Obtiene presupuestos de un cliente"""
+        with get_db() as cursor:
+            cursor.execute(
+                """
+                SELECT id, quote_date, expiration_date, total_amount, status
+                FROM quotes
+                WHERE client_id = %s
+                ORDER BY quote_date DESC
+                """,
+                (client_id,)
+            )
+            return [
+                {
+                    'id': row[0],
+                    'quote_date': row[1],
+                    'expiration_date': row[2],
+                    'total_amount': float(row[3]),
+                    'status': row[4]
+                } for row in cursor.fetchall()
+            ]
+    
+    @staticmethod
+    def get_client_appointments(client_id: int) -> List[dict]:
+        """Obtiene citas de un cliente"""
+        with get_db() as cursor:
+            cursor.execute(
+                """
+                SELECT id, date, hour, status, notes
+                FROM appointments
+                WHERE client_id = %s
+                ORDER BY date DESC, hour DESC
+                """,
+                (client_id,)
+            )
+            return [
+                {
+                    'id': row[0],
+                    'date': row[1],
+                    'time': row[2].strftime('%H:%M'),
+                    'status': row[3],
+                    'notes': row[4]
+                } for row in cursor.fetchall()
+            ]
+    
+    @staticmethod
     def delete_client_with_dependencies(client_id: int) -> bool:
         """Elimina un cliente y todos sus registros asociados (pagos, deudas, citas)"""
         with Database.get_cursor() as cursor:

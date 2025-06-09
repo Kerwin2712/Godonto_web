@@ -1,315 +1,248 @@
-from core.database import Database
 from datetime import datetime
+from typing import Optional, List, Tuple
+from core.database import get_db
 import logging
-#print
+
 logger = logging.getLogger(__name__)
 
 class PaymentService:
-    def __init__(self):
-        pass
-    
-    def create_payment(self, client_id, amount, method, status='completed', invoice_number=None, notes=None, appointment_id=None):
-        """Crea un nuevo pago y aplica el monto a las deudas pendientes"""
+    @staticmethod
+    def create_payment(client_id: int, amount: float, method: str, notes: Optional[str] = None) -> Tuple[bool, str]:
+        """
+        Registra un pago para un cliente.
+        Args:
+            client_id (int): ID del cliente.
+            amount (float): Monto del pago.
+            method (str): Método de pago.
+            notes (Optional[str]): Notas adicionales sobre el pago.
+        Returns:
+            Tuple[bool, str]: (True, mensaje_exito) o (False, mensaje_error).
+        """
         try:
-            with Database.get_cursor() as cursor:
-                # 1. Registrar el pago
-                payment_query = """
-                    INSERT INTO payments (
-                        client_id,
-                        appointment_id, 
-                        amount, 
-                        method, 
-                        status, 
-                        invoice_number, 
-                        notes,
-                        payment_date
-                    )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            with get_db() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO payments (client_id, amount, method, notes, payment_date, created_at)
+                    VALUES (%s, %s, %s, %s, NOW(), NOW())
                     RETURNING id
-                """
-                payment_params = (
-                    client_id,
-                    appointment_id, 
-                    float(amount),
-                    method, 
-                    status, 
-                    invoice_number, 
-                    notes,
-                    datetime.now()
+                    """,
+                    (client_id, amount, method, notes) # Asegurarse de que 'notes' se incluye aquí
                 )
-                cursor.execute(payment_query, payment_params)
                 payment_id = cursor.fetchone()[0]
-                
-                # 2. Obtener deudas pendientes
-                debts_query = """
-                    SELECT id, amount 
-                    FROM debts 
-                    WHERE client_id = %s AND status = 'pending'
-                    ORDER BY created_at ASC
-                    FOR UPDATE
+                return True, f"Pago registrado exitosamente (ID: {payment_id})"
+        except Exception as e:
+            logger.error(f"Error al crear pago: {e}")
+            return False, f"Error al crear pago: {str(e)}"
+
+    
+    @staticmethod
+    def get_client_payments(client_id: int) -> List[dict]:
+        """
+        Obtiene todos los pagos de un cliente.
+        Args:
+            client_id (int): ID del cliente.
+        Returns:
+            List[dict]: Lista de pagos.
+        """
+        with get_db() as cursor:
+            cursor.execute(
                 """
-                cursor.execute(debts_query, (client_id,))
-                debts = cursor.fetchall()
-                
-                remaining_amount = float(amount)
-                
-                # 3. Aplicar el pago a las deudas (sin usar debt_payments)
-                for debt in debts:
-                    if remaining_amount <= 0:
-                        break
-                        
-                    debt_id, debt_amount = debt
-                    debt_amount_float = float(debt_amount)
-                    amount_to_apply = min(remaining_amount, debt_amount_float)
-                    
-                    if amount_to_apply == debt_amount_float:
-                        update_query = """
-                            UPDATE debts 
-                            SET status = 'paid', 
-                                paid_amount = %s,
-                                paid_at = %s,
-                                amount = 0
-                            WHERE id = %s
-                        """
-                        cursor.execute(update_query, (float(debt_amount_float), datetime.now(), debt_id))
-                    else:
-                        update_query = """
-                            UPDATE debts 
-                            SET amount = amount - %s,
-                                paid_amount = paid_amount + %s
-                            WHERE id = %s
-                        """
-                        cursor.execute(update_query, (float(amount_to_apply), float(amount_to_apply), debt_id))
-                    
-                    remaining_amount -= float(amount_to_apply)
-                
-                return payment_id
-                
-        except Exception as e:
-            logger.error(f"Error al crear pago: {str(e)}")
-            raise
-    
-    def create_debt(self, client_id, amount, description):
-        """Crea una deuda para un cliente"""
-        try:
-            query = """
-                INSERT INTO debts (
-                    client_id, 
-                    amount, 
-                    description, 
-                    status, 
-                    created_at
-                )
-                VALUES (%s, %s, %s, %s, %s)
-                RETURNING id
-            """
-            params = (
-                client_id, 
-                amount, 
-                description,
-                'pending',
-                datetime.now()
+                SELECT id, amount, method, notes, payment_date, created_at
+                FROM payments
+                WHERE client_id = %s
+                ORDER BY payment_date DESC
+                """,
+                (client_id,)
             )
-            
-            with Database.get_cursor() as cursor:
-                cursor.execute(query, params)
-                result = cursor.fetchone()
-                return result[0] if result else None
-                
-        except Exception as e:
-            logger.error(f"Error al crear deuda: {str(e)}")
-            raise
+            return [
+                {
+                    'id': row[0],
+                    'amount': float(row[1]),
+                    'method': row[2], # Corregido para que coincida con la columna 'method'
+                    'notes': row[3],  # Asegurado que se mapea 'notes'
+                    'payment_date': row[4], # Corregido para que coincida con la columna 'payment_date'
+                    'created_at': row[5]
+                } for row in cursor.fetchall()
+            ]
     
-    def get_client_payments(self, client_id):
-        """Obtiene los pagos de un cliente con formato para la UI"""
-        try:
-            query = """
-                SELECT 
-                    p.id,
-                    p.amount,
-                    p.method,
-                    p.status,
-                    p.payment_date as date,
-                    p.notes,
-                    p.appointment_id,
-                    a.date as appointment_date
-                FROM payments p
-                LEFT JOIN appointments a ON p.appointment_id = a.id
-                WHERE p.client_id = %s
-                ORDER BY p.payment_date DESC
-                LIMIT 10
-            """
-            
-            with Database.get_cursor() as cursor:
-                cursor.execute(query, (client_id,))
-                results = cursor.fetchall()
-                return [{
-                    'id': r[0],
-                    'amount': float(r[1]),
-                    'method': r[2],
-                    'status': r[3],
-                    'date': r[4].strftime('%d/%m/%Y %H:%M') if r[4] else '',
-                    'notes': r[5],
-                    'appointment_id': r[6],
-                    'appointment_date': r[7].strftime('%d/%m/%Y') if r[7] else 'Sin cita'
-                } for r in results]
-                
-        except Exception as e:
-            logger.error(f"Error al obtener pagos del cliente: {str(e)}")
-            return []
-    
-    def get_client_debts(self, client_id):
-        """Obtiene las deudas de un cliente con formato para la UI"""
-        try:
-            query = """
-                SELECT 
-                    id,
-                    amount,
-                    description,
-                    status,
-                    created_at as date,
-                    (CURRENT_DATE - created_at::date) as days_pending
+    @staticmethod
+    def get_client_debts(client_id: int) -> List[dict]:
+        """
+        Obtiene todas las deudas de un cliente.
+        Args:
+            client_id (int): ID del cliente.
+        Returns:
+            List[dict]: Lista de deudas.
+        """
+        with get_db() as cursor:
+            cursor.execute(
+                """
+                SELECT id, amount, description, due_date, created_at
                 FROM debts
                 WHERE client_id = %s
-                ORDER BY created_at DESC
-                LIMIT 10
-            """
-            
-            with Database.get_cursor() as cursor:
-                cursor.execute(query, (client_id,))
-                results = cursor.fetchall()
-                return [{
-                    'id': r[0],
-                    'amount': float(r[1]),
-                    'description': r[2],
-                    'status': r[3],
-                    'date': r[4].strftime('%d/%m/%Y') if r[4] else '',
-                    'days_pending': int(r[5]),  # Convertir a entero explícitamente
-                    'status_color': 'red' if r[5] > 30 else 'orange' if r[5] > 7 else 'blue'
-                } for r in results]
-                
-        except Exception as e:
-            logger.error(f"Error al obtener deudas del cliente: {str(e)}")
-            return []
+                ORDER BY due_date DESC
+                """,
+                (client_id,)
+            )
+            return [
+                {
+                    'id': row[0],
+                    'amount': float(row[1]),
+                    'description': row[2],
+                    'debt_date': row[3],
+                    'created_at': row[4]
+                } for row in cursor.fetchall()
+            ]
     
-    def get_appointment_payments(self, appointment_id):
-        """Obtiene los pagos asociados a una cita específica"""
-        try:
-            query = """
-                SELECT 
-                    id,
-                    amount,
-                    method,
-                    status,
-                    payment_date,
-                    invoice_number
+    @staticmethod
+    def get_payment_summary(client_id: int) -> dict: # Cambiado de float a dict para consistencia
+        """
+        Obtiene el resumen de pagos y deudas de un cliente.
+        Args:
+            client_id (int): ID del cliente.
+        Returns:
+            dict: Diccionario con el total de pagos, total de deudas y saldo pendiente.
+        """
+        total_payments = PaymentService.get_total_payments_for_client(client_id)
+        total_debts = PaymentService.get_total_debts_for_client(client_id)
+        return {
+            'total_payments': total_payments,
+            'total_debt': total_debts,
+            'balance': total_payments - total_debts
+        }
+    
+    @staticmethod
+    def get_payments_by_client(client_id: int) -> List[dict]:
+        """
+        Obtiene todos los pagos de un cliente.
+        Args:
+            client_id (int): ID del cliente.
+        Returns:
+            List[dict]: Lista de pagos.
+        """
+        # Esta función es un duplicado de get_client_payments.
+        # Se mantiene por si hay referencias en otras partes del código,
+        # pero idealmente se debería usar solo una versión.
+        with get_db() as cursor:
+            cursor.execute(
+                """
+                SELECT id, amount, method, notes, payment_date, created_at
                 FROM payments
-                WHERE appointment_id = %s
+                WHERE client_id = %s
                 ORDER BY payment_date DESC
-            """
-            
-            with Database.get_cursor() as cursor:
-                cursor.execute(query, (appointment_id,))
-                results = cursor.fetchall()
-                return [{
-                    'id': r[0],
-                    'amount': float(r[1]),
-                    'method': r[2],
-                    'status': r[3],
-                    'date': r[4].strftime('%d/%m/%Y %H:%M') if r[4] else '',
-                    'invoice': r[5]
-                } for r in results]
-                
-        except Exception as e:
-            logger.error(f"Error al obtener pagos de cita: {str(e)}")
-            return []
-    
-    def mark_debt_as_paid(self, debt_id):
-        """Marca una deuda como pagada"""
-        try:
-            query = """
-                UPDATE debts
-                SET status = 'paid', paid_at = %s
-                WHERE id = %s
-                RETURNING id
-            """
-            
-            with Database.get_cursor() as cursor:
-                cursor.execute(query, (datetime.now(), debt_id))
-                result = cursor.fetchone()
-                return result[0] if result else None
-                
-        except Exception as e:
-            logger.error(f"Error al marcar deuda como pagada: {str(e)}")
-            raise
-    
-    def get_payment_summary(self, client_id):
-        """Obtiene un resumen financiero del cliente"""
-        try:
-            summary = {
-                'total_paid': 0,
-                'total_debt': 0,
-                'balance': 0,
-                'last_payment': None
-            }
-            
-            with Database.get_cursor() as cursor:
-                # Total pagos (incluyendo los aplicados a deudas)
-                payments_query = """
-                    SELECT COALESCE(SUM(amount), 0)
-                    FROM payments
-                    WHERE client_id = %s AND status = 'completed'
-                """
-                cursor.execute(payments_query, (client_id,))
-                summary['total_paid'] = float(cursor.fetchone()[0] or 0)
-                
-                # Deudas pendientes (solo el saldo pendiente)
-                debts_query = """
-                    SELECT COALESCE(SUM(amount), 0)
-                    FROM debts
-                    WHERE client_id = %s AND status = 'pending'
-                """
-                cursor.execute(debts_query, (client_id,))
-                summary['total_debt'] = float(cursor.fetchone()[0] or 0)
-                
-                summary['balance'] = summary['total_paid'] - (summary['total_debt'] + 
-                                    self.get_total_paid_to_debts(client_id))
-                
-                # Último pago
-                last_payment_query = """
-                    SELECT amount, payment_date
-                    FROM payments
-                    WHERE client_id = %s
-                    ORDER BY payment_date DESC
-                    LIMIT 1
-                """
-                cursor.execute(last_payment_query, (client_id,))
-                last_payment = cursor.fetchone()
-                
-                if last_payment:
-                    summary['last_payment'] = {
-                        'amount': float(last_payment[0]),
-                        'date': last_payment[1].strftime('%d/%m/%Y %H:%M') if last_payment[1] else 'N/A'
-                    }
-            
-            return summary
-            
-        except Exception as e:
-            logger.error(f"Error al obtener resumen financiero: {str(e)}")
-            return {
-                'total_paid': 0,
-                'total_debt': 0,
-                'balance': 0,
-                'last_payment': None
-            }
+                """,
+                (client_id,)
+            )
+            return [
+                {
+                    'id': row[0],
+                    'amount': float(row[1]),
+                    'method': row[2],
+                    'notes': row[3],
+                    'payment_date': row[4],
+                    'created_at': row[5]
+                } for row in cursor.fetchall()
+            ]
 
-    def get_total_paid_to_debts(self, client_id):
-        """Obtiene el total pagado a deudas"""
-        with Database.get_cursor() as cursor:
-            query = """
-                SELECT COALESCE(SUM(paid_amount), 0)
+    @staticmethod
+    def get_total_payments_for_client(client_id: int) -> float:
+        """
+        Calcula el total de pagos realizados por un cliente.
+        """
+        with get_db() as cursor:
+            cursor.execute(
+                "SELECT COALESCE(SUM(amount), 0) FROM payments WHERE client_id = %s",
+                (client_id,)
+            )
+            return float(cursor.fetchone()[0])
+
+    @staticmethod
+    def create_debt(client_id: int, amount: float, description: Optional[str] = None) -> Tuple[bool, str]:
+        """
+        Registra una deuda para un cliente.
+        Args:
+            client_id (int): ID del cliente.
+            amount (float): Monto de la deuda.
+            description (Optional[str]): Descripción de la deuda.
+        Returns:
+            Tuple[bool, str]: (True, mensaje_exito) o (False, mensaje_error).
+        """
+        try:
+            with get_db() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO debts (client_id, amount, description, due_date, created_at, updated_at)
+                    VALUES (%s, %s, %s, NOW(), NOW(), NOW())
+                    RETURNING id
+                    """,
+                    (client_id, amount, description)
+                )
+                debt_id = cursor.fetchone()[0]
+                return True, f"Deuda registrada exitosamente (ID: {debt_id})"
+        except Exception as e:
+            logger.error(f"Error al crear deuda: {e}")
+            return False, f"Error al crear deuda: {str(e)}"
+
+    @staticmethod
+    def delete_debt_by_description_and_client(client_id: int, description_prefix: str) -> bool:
+        """
+        Elimina deudas de un cliente que coincidan con un prefijo de descripción.
+        Útil para limpiar deudas de tratamientos antes de re-insertar.
+        """
+        logger.info(f"Intentando eliminar deuda para client_id: {client_id}, description_prefix: '{description_prefix}'")
+        try:
+            with get_db() as cursor:
+                cursor.execute(
+                    "DELETE FROM debts WHERE client_id = %s AND description ILIKE %s",
+                    (client_id, f"{description_prefix}%")
+                )
+                if cursor.rowcount > 0:
+                    logger.info(f"Se eliminaron {cursor.rowcount} registros de deuda para client_id: {client_id}, description_prefix: '{description_prefix}'")
+                    return True
+                else:
+                    logger.warning(f"No se encontraron registros de deuda para eliminar con client_id: {client_id}, description_prefix: '{description_prefix}'")
+                    return False
+        except Exception as e:
+            logger.error(f"Error al eliminar deuda por descripción y cliente ({client_id}, '{description_prefix}%'): {e}")
+            return False
+
+    @staticmethod
+    def get_debts_by_client(client_id: int) -> List[dict]:
+        """
+        Obtiene todas las deudas de un cliente.
+        Args:
+            client_id (int): ID del cliente.
+        Returns:
+            List[dict]: Lista de deudas.
+        """
+        with get_db() as cursor:
+            cursor.execute(
+                """
+                SELECT id, amount, description, debt_date, created_at
                 FROM debts
-                WHERE client_id = %s AND status = 'paid'
-            """
-            cursor.execute(query, (client_id,))
-            return float(cursor.fetchone()[0] or 0)
+                WHERE client_id = %s
+                ORDER BY debt_date DESC
+                """,
+                (client_id,)
+            )
+            return [
+                {
+                    'id': row[0],
+                    'amount': float(row[1]),
+                    'description': row[2],
+                    'debt_date': row[3],
+                    'created_at': row[4]
+                } for row in cursor.fetchall()
+            ]
+    
+    @staticmethod
+    def get_total_debts_for_client(client_id: int) -> float:
+        """
+        Calcula el total de deudas pendientes de un cliente.
+        """
+        with get_db() as cursor:
+            cursor.execute(
+                "SELECT COALESCE(SUM(amount), 0) FROM debts WHERE client_id = %s",
+                (client_id,)
+            )
+            return float(cursor.fetchone()[0])

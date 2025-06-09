@@ -4,6 +4,9 @@ from utils.alerts import show_error, show_success
 from models.client import Client
 from services.appointment_service import AppointmentService
 from services.payment_service import PaymentService
+import logging
+
+logger = logging.getLogger(__name__)
 
 class ClientsView:
     def __init__(self, page: ft.Page):
@@ -30,7 +33,7 @@ class ClientsView:
             width=300,
             expand=True,
             on_change=self._handle_search_change,  # Cambio clave para búsqueda en tiempo real
-            on_submit=lambda e: self._handle_search_submit()
+            on_submit=lambda e: self._handle_search_submit(e)
         )
     
     def _handle_search_change(self, e):
@@ -268,6 +271,7 @@ class ClientsView:
             except ValueError:
                 show_error(self.page, "Ingrese un monto válido")
             except Exception as e:
+                logger.error(f"Error al registrar pago: {str(e)}")
                 show_error(self.page, f"Error al registrar pago: {str(e)}")
         
         dialog = ft.AlertDialog(
@@ -337,6 +341,7 @@ class ClientsView:
             # Obtener datos del historial
             payments = PaymentService().get_client_payments(client.id)
             debts = PaymentService().get_client_debts(client.id)
+            #quotes = ClientService.get_client_quotes(client.id)
             
             # Construir contenido
             content = ft.Column(scroll=ft.ScrollMode.AUTO)
@@ -345,12 +350,12 @@ class ClientsView:
             if payments:
                 content.controls.append(ft.Text("PAGOS RECIENTES", weight="bold"))
                 for payment in payments:
+                    # Corrección: usar 'payment_date' en lugar de 'date'
                     content.controls.append(
                         ft.ListTile(
                             leading=ft.Icon(ft.icons.ATTACH_MONEY, color=ft.colors.GREEN),
                             title=ft.Text(f"${payment['amount']:,.2f}"),
-                            subtitle=ft.Text(f"{payment['method']} - {payment['date']}"),
-                            trailing=ft.Text(payment['status'].capitalize()),
+                            subtitle=ft.Text(f"{payment['method']} - {payment['payment_date']}")
                         )
                     )
             else:
@@ -362,12 +367,12 @@ class ClientsView:
             if debts:
                 content.controls.append(ft.Text("DEUDAS PENDIENTES", weight="bold"))
                 for debt in debts:
+                    # Asumiendo que 'description' es la clave correcta para deudas
                     content.controls.append(
                         ft.ListTile(
                             leading=ft.Icon(ft.icons.MONEY_OFF, color=ft.colors.RED),
                             title=ft.Text(f"${debt['amount']:,.2f}"),
-                            subtitle=ft.Text(debt['description']),
-                            trailing=ft.Text(debt['status'].capitalize()),
+                            subtitle=ft.Text(debt['description'])
                         )
                     )
             else:
@@ -391,6 +396,7 @@ class ClientsView:
             self.page.update()
             
         except Exception as e:
+            logger.error(f"Error al cargar historial de {client.name}: {str(e)}")
             show_error(self.page, f"Error al cargar historial: {str(e)}")
     
     def _build_appbar(self):

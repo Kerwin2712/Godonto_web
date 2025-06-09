@@ -14,6 +14,7 @@ class Database:
     @classmethod
     def initialize(cls):
         """Inicializa el pool de conexiones a la base de datos"""
+        
         try:
             db_config = settings.get_database_config()
             logger.info(f"Intentando conectar a la base de datos con config: {db_config}")
@@ -26,7 +27,11 @@ class Database:
                 password=db_config["password"],
                 port=db_config["port"]
             )
+            cls._initialized = True
             logger.info("Pool de conexiones a la base de datos inicializado correctamente")
+            
+            # Registrar el cierre al salir
+            #atexit.register(cls.close_all_connections)
             
             # Test connection
             with cls.get_cursor() as cur:
@@ -40,7 +45,7 @@ class Database:
     @contextmanager
     def get_connection(cls):
         """Obtiene una conexión del pool"""
-        if cls._connection_pool is None:
+        if not cls._initialized:
             cls.initialize()
         
         conn = cls._connection_pool.getconn()
@@ -71,9 +76,15 @@ class Database:
     @classmethod
     def close_all_connections(cls):
         """Cierra todas las conexiones del pool"""
-        if cls._connection_pool:
-            cls._connection_pool.closeall()
-            logger.info("Todas las conexiones de la base de datos cerradas")
+        if cls._connection_pool and cls._initialized:
+            try:
+                cls._connection_pool.closeall()
+                logger.info("Todas las conexiones de la base de datos cerradas")
+                cls._initialized = False
+            except Exception as e:
+                logger.error(f"Error al cerrar conexiones: {str(e)}")
+
+#atexit.register(Database.close_all_connections)
 
 # Alias para compatibilidad con el código existente
 get_db = Database.get_cursor
