@@ -91,11 +91,14 @@ class DashboardView:
             )
 
     def _build_appbar(self):
-        """Construye la barra de aplicación con botón de cerrar sesión"""
+        """Construye la barra de aplicación con botón de cerrar sesión y menú de temas"""
+        # Ajusta los colores de la AppBar para el modo oscuro
+        bgcolor_appbar = ft.colors.BLUE_700 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_900
+        color_appbar_text = ft.colors.WHITE if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
+        
         return ft.AppBar(
-            title=ft.Text("Inicio"),
-            bgcolor=ft.colors.BLUE_700,
-            color=ft.colors.WHITE,
+            title=ft.Text("Inicio", color=color_appbar_text),
+            bgcolor=bgcolor_appbar,
             automatically_imply_leading=False,
             leading=ft.PopupMenuButton(
                 icon=ft.icons.MENU,
@@ -111,6 +114,7 @@ class DashboardView:
                         icon=ft.icons.LANGUAGE,
                         on_click=lambda e: self.page.go("/login")
                     ),
+                    ft.PopupMenuItem(), # Separador
                     ft.PopupMenuItem(
                         text="Temas",
                         icon=ft.icons.COLOR_LENS,
@@ -123,35 +127,45 @@ class DashboardView:
                     icon=ft.icons.LOGOUT,
                     tooltip="Cerrar sesión",
                     on_click=lambda e: self.page.go("/login"),
+                    icon_color=color_appbar_text # Asegura que el icono también cambie de color
                 )
             ]
         )
 
     def _show_theme_options(self):
         """Muestra opciones de tema"""
-        # Crear una variable para mantener el estado del tema seleccionado
-        selected_theme = ft.Ref[ft.ThemeMode]()
-        selected_theme.current = self.page.theme_mode
         
-        def change_theme(e):
-            # Aplicar el tema seleccionado
-            self.page.theme_mode = selected_theme.current
-            self._show_success(f"Tema cambiado a {'Claro' if selected_theme.current == ft.ThemeMode.LIGHT else 'Oscuro'}")
-            theme_dialog.open = False
+        # Obtener el valor inicial del tema de la página
+        initial_theme_value = str(self.page.theme_mode) # Convertir a string para la comparación con opciones del Dropdown
+
+        # Definir la función para cambiar el tema
+        def apply_theme(e):
+            selected_mode = theme_dropdown.value
+            if selected_mode == "light":
+                self.page.theme_mode = ft.ThemeMode.LIGHT
+                self._show_success("Tema cambiado a Claro")
+                theme_dialog.open = False
+            elif selected_mode == "dark":
+                self.page.theme_mode = ft.ThemeMode.DARK
+                theme_dialog.open = False
+                self._show_success("Tema cambiado a Oscuro")
+            
+            # Es crucial actualizar el AppBar y la vista completa para que los colores se apliquen
+            # al nuevo tema de la página, especialmente en modo oscuro.
+            # Reconstruir la vista actual para aplicar los nuevos colores de la AppBar
+            if self.page.views and self.page.views[-1].route == "/dashboard":
+                self.page.views[-1] = self.build_view()
             self.page.update()
-        
-        def on_theme_change(e):
-            # Actualizar la referencia cuando cambia la selección
-            selected_theme.current = theme_dropdown.value
-        
+            theme_dialog.open = False # Cierra el diálogo después de aplicar
+            
         theme_dropdown = ft.Dropdown(
             options=[
-                ft.dropdown.Option(ft.ThemeMode.LIGHT, "Claro"),
-                ft.dropdown.Option(ft.ThemeMode.DARK, "Oscuro"),
+                ft.dropdown.Option("light", "Claro"), # Valores en minúsculas para consistencia
+                ft.dropdown.Option("dark", "Oscuro"),  # Valores en minúsculas para consistencia
             ],
-            value=self.page.theme_mode,
+            value=initial_theme_value, # Asigna el valor inicial correctamente
             width=200,
-            on_change=on_theme_change
+            # No necesitamos on_change aquí si solo aplicamos al cerrar el diálogo
         )
         
         theme_dialog = ft.AlertDialog(
@@ -161,16 +175,19 @@ class DashboardView:
                 theme_dropdown,
             ], tight=True),
             actions=[
-                ft.TextButton("Cancelar", on_click=lambda e: self.page.close(theme_dialog)),
-                ft.TextButton("Aplicar", on_click=change_theme),
+                ft.TextButton("Cancelar", on_click=lambda e: setattr(theme_dialog, "open", False)), # Cierra el diálogo sin aplicar
+                ft.TextButton("Aplicar", on_click=apply_theme), # Llama a la función que aplica el tema
             ],
+            actions_alignment=ft.MainAxisAlignment.END # Alinea los botones a la derecha
         )
         self.page.open(theme_dialog)
-        theme_dialog.open = True
-        self.page.update()
+        self.page.update() # Abre el diálogo
     
     def _build_main_content(self):
         """Construye el contenido principal del dashboard"""
+        # Ajusta colores de fondo para el contenido principal
+        bg_main_content = ft.colors.WHITE if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_800
+        
         return ft.Container(
             content=ft.Column(
                 controls=[
@@ -183,16 +200,20 @@ class DashboardView:
                 scroll=ft.ScrollMode.AUTO
             ),
             padding=20,
-            expand=True
+            expand=True,
+            bgcolor=bg_main_content # Color de fondo del contenido principal
         )
 
     def _build_header(self):
         """Construye el encabezado con fecha actual"""
+        # Ajusta el color del texto del encabezado
+        header_text_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
+        
         return ft.Container(
             content=ft.Row(
                 controls=[
-                    ft.Text("Panel Principal", size=24, weight="bold"),
-                    ft.Text(format_date(self.current_date)),
+                    ft.Text("Panel Principal", size=24, weight="bold", color=header_text_color),
+                    ft.Text(format_date(self.current_date), color=header_text_color),
                 ],
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER
@@ -205,6 +226,7 @@ class DashboardView:
         return ft.Container(
             content=ft.Row(
                 controls=[
+                    # Los colores de las tarjetas de estadísticas ya se manejan dentro de build_stat_card
                     build_stat_card("Citas Hoy", self.stats.get('appointments_today', 0), 
                             ft.icons.CALENDAR_TODAY, ft.colors.BLUE_400),
                     build_stat_card("Clientes Nuevos", self.stats.get('new_clients_today', 0), 
@@ -240,6 +262,10 @@ class DashboardView:
 
     def _build_appointments_section(self):
         """Construye la sección de citas"""
+        # Ajusta colores de fondo y borde para las secciones de contenido
+        bg_section = ft.colors.GREY_50 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_700
+        border_section = ft.colors.GREY_300 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_600
+        
         return ft.Container(
             content=ft.Column(
                 controls=[
@@ -248,9 +274,9 @@ class DashboardView:
                         "Agregar Cita", 
                         "/appointment_form"
                     )),
-                    ft.Divider(height=10),
+                    ft.Divider(height=10, color=border_section), # Color del divisor
                     ft.Container(content=self._build_appointment_actions()), # Envuelto en Container
-                    ft.Divider(height=10),
+                    ft.Divider(height=10, color=border_section), # Color del divisor
                     *[self._build_appointment_card(appt) for appt in self.upcoming_appointments]
                 ],
                 spacing=15,
@@ -258,37 +284,52 @@ class DashboardView:
             ),
             padding=10,
             border_radius=10,
-            border=ft.border.all(1, ft.colors.GREY_300),
-            bgcolor=ft.colors.GREY_50,
+            border=ft.border.all(1, border_section),
+            bgcolor=bg_section,
             expand=True
         )
 
     def _build_client_card(self, client):
         """Construye una tarjeta horizontal para cada cliente"""
+        # Ajusta colores de la tarjeta de cliente
+        card_bgcolor = ft.colors.WHITE if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_800
+        card_border_color = ft.colors.GREY_300 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_600
+        text_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
+        subtitle_color = ft.colors.GREY_700 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_200
+
         return ft.Card(
             content=ft.Container(
                 content=ft.Column(
                     controls=[
                         ft.ListTile(
-                            leading=ft.Icon(ft.icons.PERSON),
-                            title=ft.Text(client.name, size=14),
-                            subtitle=ft.Text(f"Cédula: {client.cedula}", size=12),
+                            leading=ft.Icon(ft.icons.PERSON, color=text_color),
+                            title=ft.Text(client.name, size=14, color=text_color),
+                            subtitle=ft.Text(f"Cédula: {client.cedula}", size=12, color=subtitle_color),
                         ),
-                        ft.Text(f"Tel: {client.phone}", size=12),
-                        ft.Text(format_date(client.created_at), size=10)
+                        ft.Text(f"Tel: {client.phone}", size=12, color=subtitle_color),
+                        ft.Text(format_date(client.created_at), size=10, color=subtitle_color)
                     ],
                     spacing=5,
                     tight=True
                 ),
                 padding=10,
-                width=200
+                width=200,
+                bgcolor=card_bgcolor,
+                border=ft.border.all(1, card_border_color), # Añadir borde a la tarjeta
+                border_radius=ft.border_radius.all(10) # Borde redondeado
             ),
             elevation=1,
-            height=110
+            height=110,
+            # Eliminar bgcolor y border directamente del Card si el Container ya lo tiene
+            # para evitar duplicidad de estilos.
         )
     
     def _build_clients_section(self):
         """Construye la sección de clientes en disposición horizontal"""
+        # Ajusta colores de fondo y borde para las secciones de contenido
+        bg_section = ft.colors.GREY_50 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_700
+        border_section = ft.colors.GREY_300 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_600
+
         return ft.Container(
             content=ft.Column(
                 controls=[
@@ -297,9 +338,9 @@ class DashboardView:
                         "Agregar Cliente", 
                         "/client_form"
                     )),
-                    ft.Divider(height=10),
+                    ft.Divider(height=10, color=border_section), # Color del divisor
                     self._build_client_actions(), # ft.Row es compatible, no necesita Container adicional aquí.
-                    ft.Divider(height=5),
+                    ft.Divider(height=5, color=border_section), # Color del divisor
                     ft.Container(
                         content=ft.Row(
                             controls=[self._build_client_card(client) for client in self.recent_clients],
@@ -314,8 +355,8 @@ class DashboardView:
             ),
             padding=10,
             border_radius=10,
-            border=ft.border.all(1, ft.colors.GREY_300),
-            bgcolor=ft.colors.GREY_50,
+            border=ft.border.all(1, border_section),
+            bgcolor=bg_section,
             expand=True
         )
 
@@ -331,9 +372,12 @@ class DashboardView:
         Returns:
             ft.ResponsiveRow: Un contenedor responsive que incluye un título y un botón.
         """
+        # Ajusta el color del texto del encabezado de sección
+        header_text_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
+
         return ft.ResponsiveRow(
             controls=[
-                ft.Text(title, size=19, weight="bold", col={"sm": 12, "md": 8}, color=ft.colors.BLACK),
+                ft.Text(title, size=19, weight="bold", col={"sm": 12, "md": 8}, color=header_text_color),
                 ft.ElevatedButton(
                     button_text,
                     icon=ft.icons.ADD,
@@ -426,46 +470,70 @@ class DashboardView:
             treatments = get_appointment_treatments(appointment.id)
             
             treatments_controls = []
+            # Ajusta el color del texto para tratamientos
+            treatment_text_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
+            
             if treatments:
-                treatments_controls.append(ft.Divider(height=1))
-                treatments_controls.append(ft.Text("Tratamientos:", size=12, weight=ft.FontWeight.BOLD))
+                treatments_controls.append(ft.Divider(height=1, color=ft.colors.GREY_400 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_600)) # Color del divisor
+                treatments_controls.append(ft.Text("Tratamientos:", size=12, weight=ft.FontWeight.BOLD, color=treatment_text_color))
                 for t in treatments:
                     treatments_controls.append(
-                        ft.Text(f"- {t['name']} (${t['price']:.2f})", size=12)
+                        ft.Text(f"- {t['name']} (${t['price']:.2f})", size=12, color=treatment_text_color)
                     )
             else:
-                treatments_controls.append(ft.Text("Sin tratamientos", size=12, italic=True))
+                treatments_controls.append(ft.Text("Sin tratamientos", size=12, italic=True, color=treatment_text_color))
+
+            # Ajusta colores de la tarjeta de cita
+            card_inner_bgcolor = ft.colors.WHITE if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_800
+            card_border_color = ft.colors.GREY_300 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_600
+            title_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
+            subtitle_color = ft.colors.GREY_700 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_200
 
             return ft.Card(
-                content=ft.Column([
-                    ft.ListTile(
-                        leading=ft.Icon(ft.icons.ACCESS_TIME, color=status_color),
-                        title=ft.Text(appointment.client_name or "Cliente no disponible"),
-                        subtitle=ft.Text(f"{time_str} - {appointment.status.capitalize() if appointment.status else 'Sin estado'}"),
-                    ),
-                    ft.Container(
-                        content=ft.Column(treatments_controls, spacing=2),
-                        padding=ft.padding.only(left=16, right=16, bottom=10)
-                    ),
-                    ft.Container(
-                        content=ft.Row(
-                            controls=[
-                                self._build_appointment_menu(appointment)
-                            ],
-                            alignment=ft.MainAxisAlignment.END,
-                            expand=True,
+                # El content de Card debe ser un único Control, que ahora será un Container.
+                # Las propiedades de color de fondo, borde y radio de borde se aplicarán a este Container.
+                content=ft.Container(
+                    content=ft.Column([
+                        ft.ListTile(
+                            leading=ft.Icon(ft.icons.ACCESS_TIME, color=status_color),
+                            title=ft.Text(appointment.client_name or "Cliente no disponible", color=title_color),
+                            subtitle=ft.Text(f"{time_str} - {appointment.status.capitalize() if appointment.status else 'Sin estado'}", color=subtitle_color),
                         ),
-                        padding=ft.padding.only(top=5, right=10, bottom=5),
-                    ),
-                ]),
-                elevation=1
+                        ft.Container(
+                            content=ft.Column(treatments_controls, spacing=2),
+                            padding=ft.padding.only(left=16, right=16, bottom=10)
+                        ),
+                        ft.Container(
+                            content=ft.Row(
+                                controls=[
+                                    self._build_appointment_menu(appointment)
+                                ],
+                                alignment=ft.MainAxisAlignment.END,
+                                expand=True,
+                            ),
+                            padding=ft.padding.only(top=5, right=10, bottom=5),
+                        ),
+                    ]),
+                    # Estas propiedades se mueven de ft.Card a este ft.Container
+                    bgcolor=card_inner_bgcolor,
+                    border=ft.border.all(1, card_border_color),
+                    border_radius=ft.border_radius.all(10),
+                    padding=ft.padding.all(0) # Padding interno del container que contiene el Column
+                ),
+                elevation=1,
+                # Se han eliminado 'color', 'border', 'border_radius' de ft.Card directamente
             )
         except Exception as e:
             logger.error(f"Error al construir tarjeta de cita: {str(e)}")
-            return ft.Card(content=ft.Text("Error al mostrar cita"))
+            return ft.Card(content=ft.Text("Error al mostrar cita", color=ft.colors.RED_500 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.RED_300))
 
     def _build_appointment_menu(self, appointment):
         """Construye el menú de opciones para una cita"""
+        # Los PopupMenuItem no tienen un argumento 'text_style' directo.
+        # El color del texto en los PopupMenuItem se hereda del tema general de la página.
+        # Si se desea un control más fino, se necesitaría envolver el texto en un Control
+        # que soporte 'color' o cambiar el estilo global del tema de PopupMenu.
+        
         return ft.PopupMenuButton(
             icon=ft.icons.MORE_VERT,
             items=[
@@ -486,7 +554,9 @@ class DashboardView:
                 ft.PopupMenuItem(
                     text="Eliminar",
                     icon=ft.icons.DELETE,
-                    # Eliminado icon_color, ya que no es un argumento válido para PopupMenuItem
+                    # El color del icono se puede controlar aquí directamente si es necesario,
+                    # pero no el color del texto del PopupMenuItem.
+                    # icon_color=ft.colors.RED if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.RED_300,
                     on_click=lambda e: self._confirm_delete_appointment(appointment.id, appointment.client_name)
                 )
             ]
@@ -499,14 +569,21 @@ class DashboardView:
             e.control.page.dialog.open = False # Acceso directo al diálogo de la página
             e.control.page.update()
         
+        # Ajusta colores del diálogo de confirmación
+        dialog_bg_color = ft.colors.WHITE if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_800
+        dialog_text_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
+
         self.page.dialog = ft.AlertDialog( # Asegura que el diálogo esté en el overlay de la página
             modal=True,
-            title=ft.Text("Confirmar acción"),
-            content=ft.Text(f"¿Marcar cita con {client_name} como {new_status}?"),
+            title=ft.Text("Confirmar acción", color=dialog_text_color),
+            content=ft.Text(f"¿Marcar cita con {client_name} como {new_status}?", color=dialog_text_color),
             actions=[
-                ft.TextButton("Cancelar", on_click=lambda e: setattr(e.control.page.dialog, "open", False)),
-                ft.TextButton("Confirmar", on_click=handle_confirm),
+                ft.TextButton("Cancelar", on_click=lambda e: setattr(e.control.page.dialog, "open", False),
+                              style=ft.ButtonStyle(color=dialog_text_color)),
+                ft.TextButton("Confirmar", on_click=handle_confirm,
+                              style=ft.ButtonStyle(color=ft.colors.BLUE_500)),
             ],
+            bgcolor=dialog_bg_color # Color de fondo del diálogo
         )
         self.page.open(self.page.dialog) # Abre el diálogo desde la página
         self.page.update()
@@ -514,7 +591,7 @@ class DashboardView:
     def _change_appointment_status(self, appointment_id, new_status):
         """Cambia el estado de una cita"""
         try:
-            success = self.appointment_service.update_appointment_status(appointment_id, new_status)
+            success, message = self.appointment_service.update_appointment_status(appointment_id, new_status)
             if success:
                 # Si la cita fue cancelada, intentar borrar la deuda asociada
                 if new_status == 'cancelled':
@@ -557,15 +634,22 @@ class DashboardView:
             e.control.page.dialog.open = False # Acceso directo al diálogo de la página
             e.control.page.update()
 
+        # Ajusta colores del diálogo de confirmación
+        dialog_bg_color = ft.colors.WHITE if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_800
+        dialog_text_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
+
         self.page.dialog = ft.AlertDialog( # Asegura que el diálogo esté en el overlay de la página
             modal=True,
-            title=ft.Text("Confirmar Eliminación de Cita"),
-            content=ft.Text(f"¿Está seguro de que desea eliminar la cita de {client_name}? Esta acción no se puede deshacer."),
+            title=ft.Text("Confirmar Eliminación de Cita", color=dialog_text_color),
+            content=ft.Text(f"¿Está seguro de que desea eliminar la cita de {client_name}? Esta acción no se puede deshacer.", color=dialog_text_color),
             actions=[
-                ft.TextButton("No", on_click=delete_confirmed, data=False),
-                ft.FilledButton("Sí", on_click=delete_confirmed, data=True, style=ft.ButtonStyle(bgcolor=ft.colors.RED_500)),
+                ft.TextButton("No", on_click=delete_confirmed, data=False,
+                              style=ft.ButtonStyle(color=dialog_text_color)),
+                ft.FilledButton("Sí", on_click=delete_confirmed, data=True, 
+                                style=ft.ButtonStyle(bgcolor=ft.colors.RED_500)),
             ],
             actions_alignment=ft.MainAxisAlignment.END,
+            bgcolor=dialog_bg_color # Color de fondo del diálogo
         )
         self.page.open(self.page.dialog) # Abre el diálogo desde la página
         self.page.update()
@@ -590,20 +674,29 @@ class DashboardView:
 
     def _show_success(self, message):
         """Muestra un mensaje de éxito"""
+        # Ajusta el color de fondo del SnackBar para el modo oscuro
+        snackbar_bgcolor = ft.colors.GREEN_500 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.GREEN_700
+        
         self.snack_bar = ft.SnackBar(
             content=ft.Text(message, color=ft.colors.WHITE),
-            bgcolor=ft.colors.GREEN,
+            bgcolor=snackbar_bgcolor,
         )
         self.page.open(self.snack_bar)
         self.page.update()
     
     def _show_error(self, message):
         """Muestra un mensaje de error"""
+        # Ajusta el color de fondo y texto del diálogo de error
+        dialog_bg_color = ft.colors.WHITE if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_800
+        dialog_text_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
+
         dlg = ft.AlertDialog(
-            title=ft.Text("Error"),
-            content=ft.Text(message),
-            actions=[ft.TextButton("OK", on_click=lambda e: setattr(dlg, "open", False))
+            title=ft.Text("Error", color=dialog_text_color),
+            content=ft.Text(message, color=dialog_text_color),
+            actions=[ft.TextButton("OK", on_click=lambda e: setattr(dlg, "open", False),
+                                   style=ft.ButtonStyle(color=ft.colors.BLUE_500))
 ],
+            bgcolor=dialog_bg_color # Color de fondo del diálogo
         )
         self.page.open(dlg)
         dlg.open = True
@@ -614,3 +707,4 @@ def dashboard_view(page: ft.Page):
     """Función de fábrica para la vista del dashboard"""
     dashboard = DashboardView(page)
     return dashboard.build_view()
+
