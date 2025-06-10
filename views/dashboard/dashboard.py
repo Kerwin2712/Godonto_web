@@ -432,7 +432,7 @@ class DashboardView:
         )
 
     def _build_client_actions(self):
-        """Construye los botones de acción para clientes, incluyendo el de tratamientos"""
+        """Construye los botones de acción para clientes, incluyendo el de tratamientos y presupuestos"""
         return ft.Row([
             ft.ElevatedButton(
                 "Ver Todos los Clientes",
@@ -451,8 +451,17 @@ class DashboardView:
                     padding=15,
                     shape=ft.RoundedRectangleBorder(radius=10)
                 )
+            ),
+            ft.ElevatedButton( # Nuevo botón para presupuestos
+                "Gestionar Presupuestos",
+                icon=ft.icons.REQUEST_QUOTE, # Un icono apropiado para presupuestos
+                on_click=lambda e: self.page.go("/quotes"),
+                style=ft.ButtonStyle(
+                    padding=15,
+                    shape=ft.RoundedRectangleBorder(radius=10)
+                )
             )
-        ], spacing=10)
+        ], spacing=10, wrap=True) # Agregado wrap=True para mejor responsividad
 
     def _build_appointment_card(self, appointment):
         if not appointment or not hasattr(appointment, 'client_name'):
@@ -566,8 +575,10 @@ class DashboardView:
         """Muestra confirmación para cambiar estado de cita"""
         def handle_confirm(e):
             self._change_appointment_status(appointment_id, new_status)
-            e.control.page.dialog.open = False # Acceso directo al diálogo de la página
-            e.control.page.update()
+            # Cerrar el diálogo, si aún está abierto
+            if self.page.dialog and self.page.dialog.open:
+                self.page.dialog.open = False 
+                self.page.update()
         
         # Ajusta colores del diálogo de confirmación
         dialog_bg_color = ft.colors.WHITE if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_800
@@ -591,7 +602,10 @@ class DashboardView:
     def _change_appointment_status(self, appointment_id, new_status):
         """Cambia el estado de una cita"""
         try:
-            success, message = self.appointment_service.update_appointment_status(appointment_id, new_status)
+            # Aquí está el cambio clave: 'update_appointment_status' devuelve un solo booleano.
+            # Por lo tanto, no se debe intentar desempaquetar en 'success, message'.
+            success = self.appointment_service.update_appointment_status(appointment_id, new_status)
+            
             if success:
                 # Si la cita fue cancelada, intentar borrar la deuda asociada
                 if new_status == 'cancelled':
@@ -621,7 +635,7 @@ class DashboardView:
                 # Mostrar confirmación
                 self._show_success(f"Estado actualizado a {new_status.capitalize()}")
             else:
-                self._show_error("No se pudo actualizar el estado")
+                self._show_error("No se pudo actualizar el estado") # Mensaje genérico de error
         except Exception as e:
             logger.error(f"Error al actualizar: {str(e)}")
             self._show_error(f"Error al actualizar: {str(e)}")
@@ -631,8 +645,10 @@ class DashboardView:
         def delete_confirmed(e):
             if e.control.data: # Si el botón "Sí" fue presionado
                 self._delete_appointment(appointment_id)
-            e.control.page.dialog.open = False # Acceso directo al diálogo de la página
-            e.control.page.update()
+            # Cerrar el diálogo, si aún está abierto
+            if self.page.dialog and self.page.dialog.open:
+                self.page.dialog.open = False 
+                self.page.update()
 
         # Ajusta colores del diálogo de confirmación
         dialog_bg_color = ft.colors.WHITE if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_800
@@ -657,16 +673,17 @@ class DashboardView:
     def _delete_appointment(self, appointment_id: int):
         """Elimina una cita."""
         try:
-            success, message = self.appointment_service.delete_appointment(appointment_id)
+            # Aquí también 'delete_appointment' devuelve un booleano.
+            success = self.appointment_service.delete_appointment(appointment_id)
             if success:
                 self.load_data() # Recargar los datos del dashboard
                 current_route = self.page.views[-1].route if self.page.views else ""
                 if current_route == "/dashboard":
                     self.page.views[-1] = self.build_view() # Actualizar la vista del dashboard
                 self.page.update()
-                self._show_success(message)
+                self._show_success("Cita eliminada exitosamente.") # Mensaje genérico de éxito
             else:
-                self._show_error(message)
+                self._show_error("No se pudo eliminar la cita.") # Mensaje genérico de error
         except Exception as e:
             logger.error(f"Error al eliminar cita: {e}")
             self._show_error(f"Error al eliminar cita: {e}")

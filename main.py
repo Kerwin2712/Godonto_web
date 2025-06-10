@@ -11,6 +11,7 @@ from views.reports.reports import reports_view
 from views.clients.client_form import client_form_view
 from views.appointments.appointment_form import appointment_form_view
 from views.presupuesto.presup_form import presup_view
+from views.presupuesto.quotes import quotes_view
 from views.tretment.treatments import treatments_view
 import os
 
@@ -118,14 +119,21 @@ def main(page: ft.Page):
                     page.views.append(client_form_view(page, client_id))
                 elif page.route == "/appointments":
                     page.views.append(appointments_view(page))
-                elif page.route == "/presupuesto" or page.route.startswith("/presupuesto/"): # Modified
+                elif page.route == "/presupuesto" or page.route.startswith("/presupuesto/"):
                     client_id = None
-                    if page.route.startswith("/presupuesto/"):
+                    quote_id = None # Nuevo: para editar presupuestos
+                    route_parts = page.route.split("/")
+                    if len(route_parts) > 2:
                         try:
-                            client_id = int(page.route.split("/")[2])
+                            # Si hay 3 partes, la segunda es quote_id, la tercera es client_id
+                            if len(route_parts) > 3:
+                                quote_id = int(route_parts[2])
+                                client_id = int(route_parts[3])
+                            else: # Si hay solo 2 partes, es el client_id para un nuevo presupuesto
+                                client_id = int(route_parts[2])
                         except (IndexError, ValueError):
-                            logger.error(f"Error {IndexError}: {str(ValueError)}")
-                    page.views.append(presup_view(page, client_id))
+                            logger.error(f"Error al parsear ID de presupuesto o cliente de la ruta: {page.route}")
+                    page.views.append(presup_view(page, client_id, quote_id)) # MODIFICADO: Pasar quote_id
                 elif page.route == "/appointment_form" or page.route.startswith("/appointment_form/"):
                     appointment_id = None
                     if page.route.startswith("/appointment_form/"):
@@ -134,6 +142,8 @@ def main(page: ft.Page):
                         except (IndexError, ValueError):
                             logger.error(f"Error {IndexError}: {str(ValueError)}")
                     page.views.append(appointment_form_view(page, appointment_id))
+                elif page.route == "/quotes": 
+                    page.views.append(quotes_view(page))
                 elif page.route == "/calendar":
                     page.views.append(calendar_view(page))
                 elif page.route == "/reports":

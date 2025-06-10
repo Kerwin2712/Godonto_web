@@ -1,61 +1,319 @@
 import flet as ft
 from services.client_service import ClientService
 from utils.alerts import show_success, show_error
-from datetime import datetime
+from datetime import datetime, date
 import logging
 from services.budget_service import BudgetService
 from services.quote_service import QuoteService
 from services.treatment_service import TreatmentService
+from typing import Optional, List # Importar Optional y List para tipos
 import os
+import asyncio # Necesario para asyncio.sleep
 
 logger = logging.getLogger(__name__)
 
-def presup_view(page: ft.Page, client_id: int = None):
-    """Vista de presupuesto para la aplicación"""
+class PresupFormView:
+    def __init__(self, page: ft.Page, client_id: Optional[int] = None, quote_id: Optional[int] = None):
+        self.page = page
+        self.client_id = client_id
+        self.quote_id = quote_id # Para almacenar el ID del presupuesto una vez guardado o si es edición
+        self._temp_pdf_data: Optional[dict] = None # Para almacenar datos temporales para el PDF
 
-    # Configurar el FilePicker para la descarga
-    file_picker = ft.FilePicker()
-    page.overlay.append(file_picker) # Añadir el FilePicker al overlay de la página
-    page.update() # Asegurarse de que el overlay se actualice
+        # Configurar el FilePicker para la descarga con un handler de resultado
+        self.file_picker = ft.FilePicker(on_result=self._on_file_picker_result)
+        self.page.overlay.append(self.file_picker) # Añadir el FilePicker al overlay de la página
+        self.page.update() # Asegurarse de que el overlay se actualice
 
-    # Lista para almacenar los tratamientos seleccionados con cantidad
-    # Cada elemento será un diccionario: {'id': ..., 'name': ..., 'price': ..., 'quantity': ...}
-    selected_treatments = []
-    treatments_column = ft.Column() # Columna para mostrar los tratamientos seleccionados
-    total_amount_text = ft.Text("Total: $0.00", size=18, weight=ft.FontWeight.BOLD)
+        # Lista para almacenar los tratamientos seleccionados con cantidad
+        # Cada elemento será un diccionario: {'id': ..., 'name': ..., 'price': ..., 'quantity': ...}
+        self.selected_treatments: List[dict] = []
+        self.treatments_column = ft.Column() # Columna para mostrar los tratamientos seleccionados
+        self.total_amount_text = ft.Text("Total: $0.00", size=18, weight=ft.FontWeight.BOLD)
+        
+        # ELIMINADO: Campos de fecha de expiración y notas
+        # self.expiration_date_picker = ft.DatePicker(
+        #     first_date=datetime.now(),
+        #     last_date=datetime(2099, 12, 31),
+        #     on_change=self._handle_expiration_date_change
+        # )
+        # self.page.overlay.append(self.expiration_date_picker)
+        # self.expiration_date_text = ft.Text("No seleccionada")
+        # self.notes_field = ft.TextField(
+        #     label="Notas",
+        #     multiline=True,
+        #     min_lines=3,
+        #     max_lines=5,
+        #     hint_text="Notas adicionales sobre el presupuesto..."
+        # )
 
-    client_name_field = ft.TextField(
-        label="Cliente",
-        width=400,
-        autofocus=True,
-        keyboard_type=ft.KeyboardType.TEXT
-    )
-    client_cedula_field = ft.TextField(
-        label="Cédula",
-        width=200,
-        keyboard_type=ft.KeyboardType.NUMBER
-    )
-    
-    # Componente de búsqueda de tratamientos
-    treatment_search = ft.SearchBar(
-        view_elevation=4,
-        divider_color=ft.colors.GREEN_400,
-        bar_hint_text="Buscar tratamientos existentes...",
-        view_hint_text="Seleccione un tratamiento existente...",
-        bar_leading=ft.IconButton(
-            icon=ft.icons.SEARCH,
-            on_click=lambda e: treatment_search.open_view()
-        ),
-        controls=[],
-        expand=True,
-        on_change=lambda e: handle_treatment_search_change(e),
-        on_submit=lambda e: handle_treatment_search_submit(e) # Keep this for Enter key
-    )
+        # Componente de búsqueda de clientes
+        self.client_search = self._build_client_search()
+        self.selected_client_text = ft.Text(
+            "Ningún cliente seleccionado",
+            italic=True,
+            overflow=ft.TextOverflow.ELLIPSIS,
+        )
 
-    def handle_treatment_search_change(e):
+        # Componente de búsqueda de tratamientos
+        self.treatment_search = self._build_treatment_search()
+
+        # Referencias a los botones de acción
+        self.save_budget_button_ref = ft.Ref[ft.FilledButton]()
+        self.download_pdf_button_ref = ft.Ref[ft.FilledButton]()
+
+        # Cargar datos si se proporcionó un quote_id (modo edición)
+        if self.quote_id:
+            self.page.run_task(self._load_quote_data)
+        elif self.client_id: # Cargar datos del cliente si es un presupuesto nuevo con cliente preseleccionado
+            self.page.run_task(self._load_client_data)
+        
+        # Inicializar la visualización de tratamientos (vacía al principio o se llenará al cargar quote_data)
+        self._update_treatments_display()
+        self._update_total_amount() # Asegurarse de que el total inicial sea 0.00
+
+
+    async def _load_quote_data(self):
+        """Carga los datos de un presupuesto existente para edición."""
+        try:
+            quote_data = QuoteService.get_quote(self.quote_id)
+            if quote_data:
+                # Cargar cliente
+                self.select_client(quote_data['client_id'], quote_data['client_name'], quote_data['client_cedula'])
+
+                # Cargar tratamientos
+                self.selected_treatments = [
+                    {
+                        'id': t['id'],
+                        'name': t['name'],
+                        'price': t['price'],
+                        'quantity': t['quantity'],
+                        'unique_key': f"{t['id']}-{idx}-{datetime.now().timestamp()}" # Generar clave única
+                    } for idx, t in enumerate(quote_data.get('treatments', []))
+                ]
+                self._update_treatments_display()
+                self._update_total_amount()
+
+                # ELIMINADO: Cargar fecha de expiración
+                # if quote_data['expiration_date']:
+                #     self.expiration_date_picker.value = datetime.combine(quote_data['expiration_date'], datetime.min.time())
+                #     self.expiration_date_text.value = quote_data['expiration_date'].strftime("%d/%m/%Y")
+                # else:
+                #     self.expiration_date_text.value = "No seleccionada"
+
+                # ELIMINADO: Cargar notas
+                # self.notes_field.value = quote_data.get('notes', '')
+
+                # Habilitar botones de guardar y PDF
+                if self.save_budget_button_ref.current:
+                    self.save_budget_button_ref.current.disabled = False
+                if self.download_pdf_button_ref.current:
+                    self.download_pdf_button_ref.current.disabled = False
+                self.page.update()
+
+            else:
+                show_error(self.page, f"Presupuesto con ID {self.quote_id} no encontrado.")
+                # Si no se encuentra, resetear el formulario
+                self.quote_id = None
+                self.client_id = None
+                self._reset_client_search()
+                self.selected_treatments = []
+                self._update_treatments_display()
+                self._update_total_amount()
+                # ELIMINADO: Resetear fecha de expiración y notas
+                # self.expiration_date_picker.value = None
+                # self.expiration_date_text.value = "No seleccionada"
+                # self.notes_field.value = ""
+                self.page.update()
+
+        except Exception as e:
+            logger.error(f"Error al cargar datos del presupuesto {self.quote_id}: {e}")
+            show_error(self.page, f"Error al cargar presupuesto: {e}")
+            # En caso de error, también resetear para evitar estados inconsistentes
+            self.quote_id = None
+            self.client_id = None
+            self._reset_client_search()
+            self.selected_treatments = []
+            self._update_treatments_display()
+            self._update_total_amount()
+            # ELIMINADO: Resetear fecha de expiración y notas
+            # self.expiration_date_picker.value = None
+            # self.expiration_date_text.value = "No seleccionada"
+            # self.notes_field.value = ""
+            self.page.update()
+
+    def _build_client_search(self):
+        """Construye el componente de búsqueda de clientes responsive."""
+        divider_color = ft.colors.BLUE_400 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_700
+        bar_leading_icon_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
+        view_text_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
+
+        return ft.SearchBar(
+            view_elevation=4,
+            divider_color=divider_color,
+            bar_hint_text="Buscar cliente...",
+            view_hint_text="Seleccione un cliente...",
+            bar_leading=ft.IconButton(
+                icon=ft.icons.SEARCH,
+                on_click=lambda e: self.client_search.open_view(),
+                icon_color=bar_leading_icon_color
+            ),
+            controls=[],
+            expand=True,
+            on_change=self.handle_client_search_change,
+            on_submit=self.handle_client_search_submit,
+            bar_text_style=ft.TextStyle(color=view_text_color)
+        )
+
+    def _build_search_client_row(self):
+        """Fila de búsqueda responsive con botones de acción para clientes. (Adaptado de appointment_form)"""
+        icon_color_clear = ft.colors.GREY_600 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_300
+        selected_client_bg = ft.colors.GREY_100 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_700
+        selected_client_text_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
+
+        self.selected_client_text.color = selected_client_text_color
+
+        return ft.ResponsiveRow(
+            controls=[
+                ft.Column([
+                    ft.Row([
+                        self.client_search,
+                        ft.IconButton(
+                            icon=ft.icons.CLEAR,
+                            tooltip="Limpiar búsqueda",
+                            on_click=lambda e: self._reset_client_search(),
+                            icon_color=icon_color_clear
+                        )
+                    ], spacing=5)
+                ], col={"sm": 12, "md": 8}),
+                ft.Column([
+                    ft.Container(
+                        content=self.selected_client_text,
+                        padding=10,
+                        bgcolor=selected_client_bg,
+                        border_radius=5,
+                        expand=True
+                    )
+                ], col={"sm": 12, "md": 4})
+            ],
+            spacing=10,
+            run_spacing=10,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER
+        )
+
+    def handle_client_search_change(self, e):
+        """Maneja el cambio en la búsqueda de clientes, actualizando los resultados en el SearchBar."""
+        search_term = e.control.value.strip()
+
+        list_tile_title_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
+        list_tile_subtitle_color = ft.colors.GREY_700 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_200
+
+        if len(search_term) < 1:
+            e.control.controls = []
+            e.control.update()
+            return
+
+        try:
+            # Usar ClientService para buscar clientes
+            clients = ClientService.get_all_clients(search_term=search_term) 
+            e.control.controls = [
+                ft.ListTile(
+                    title=ft.Text(f"{client.name}", color=list_tile_title_color),
+                    subtitle=ft.Text(f"Cédula: {client.cedula}", color=list_tile_subtitle_color),
+                    on_click=lambda ev, id=client.id, name=client.name, cedula=client.cedula: self.select_client(id, name, cedula),
+                    data=(client.id, client.name, client.cedula)
+                ) for client in clients
+            ]
+            e.control.update()
+            self.page.update()
+        except Exception as ex:
+            logger.error(f"Error en búsqueda de clientes: {str(ex)}")
+            show_error(self.page, f"Error en búsqueda de clientes: {str(ex)}")
+
+    def handle_client_search_submit(self, e):
+        """Maneja la selección directa con Enter en la búsqueda de clientes. (Adaptado de appointment_form)"""
+        if self.client_search.controls and len(self.client_search.controls) > 0:
+            selected_data = self.client_search.controls[0].data
+            self.select_client(selected_data[0], selected_data[1], selected_data[2])
+
+    def select_client(self, client_id, name, cedula):
+        """Selecciona un cliente de los resultados y actualiza la UI. (Adaptado de appointment_form)"""
+        self.client_id = client_id # Establecer el client_id de la clase
+        self.client_search.value = f"{name} - {cedula}"
+        self.selected_client_text.value = f"{name} (Cédula: {cedula})"
+        self.selected_client_text.style = None
+        self.selected_client_text.color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
+        self.client_search.close_view()
+        self.page.update()
+        # Si ya hay un cliente seleccionado, habilitar el botón de guardar
+        if self.save_budget_button_ref.current:
+            self.save_budget_button_ref.current.disabled = False
+        # Si ya hay un quote_id (es una edición), también se puede habilitar el botón de PDF
+        if self.download_pdf_button_ref.current and self.quote_id is not None and self.selected_treatments: # Añadir check para tratamientos
+             self.download_pdf_button_ref.current.disabled = False
+        self.page.update()
+
+
+    def _reset_client_search(self):
+        """Resetea la búsqueda de clientes y la selección. (Adaptado de appointment_form)"""
+        self.client_search.value = ""
+        self.client_search.controls = []
+        self.client_id = None # Reiniciar el client_id
+        self.selected_client_text.value = "Ningún cliente seleccionado"
+        self.selected_client_text.style = ft.TextStyle(italic=True)
+        self.selected_client_text.color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
+        self.client_search.close_view()
+        # Deshabilitar ambos botones cuando no hay cliente seleccionado
+        if self.save_budget_button_ref.current:
+            self.save_budget_button_ref.current.disabled = True
+        if self.download_pdf_button_ref.current:
+            self.download_pdf_button_ref.current.disabled = True
+        self.page.update()
+
+
+    async def _load_client_data(self):
+        """Carga los datos del cliente si es una edición (o si se pasó client_id)"""
+        try:
+            client_data = ClientService.get_client_by_id(self.client_id)
+            if client_data:
+                # Usar el método select_client para actualizar la UI consistentemente
+                self.select_client(client_data.id, client_data.name, client_data.cedula)
+            else:
+                show_error(self.page, "Cliente no encontrado.")
+                self._reset_client_search() # Limpiar la selección si no se encuentra
+        except Exception as e:
+            logger.error(f"Error al cargar datos del cliente: {e}")
+            show_error(self.page, f"Error al cargar cliente: {e}")
+
+    def _build_treatment_search(self):
+        """Componente para buscar tratamientos"""
+        divider_color = ft.colors.GREEN_400 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.GREEN_700
+        bar_leading_icon_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
+        view_text_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
+
+        return ft.SearchBar(
+            view_elevation=4,
+            divider_color=divider_color,
+            bar_hint_text="Buscar tratamientos existentes...",
+            view_hint_text="Seleccione un tratamiento existente...",
+            bar_leading=ft.IconButton(
+                icon=ft.icons.SEARCH,
+                on_click=lambda e: self.treatment_search.open_view(),
+                icon_color=bar_leading_icon_color
+            ),
+            controls=[],
+            expand=True,
+            on_change=self._handle_treatment_search_change,
+            on_submit=self._handle_treatment_search_submit,
+            bar_text_style=ft.TextStyle(color=view_text_color)
+        )
+
+    def _handle_treatment_search_change(self, e):
         """Maneja el cambio en la búsqueda de tratamientos existentes"""
         search_term = e.control.value.strip()
-        
+
+        list_tile_title_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
+        list_tile_subtitle_color = ft.colors.GREY_700 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_200
+
         if len(search_term) < 1:
             e.control.controls = []
             e.control.update()
@@ -65,165 +323,164 @@ def presup_view(page: ft.Page, client_id: int = None):
             treatments = TreatmentService.get_all_treatments(search_term=search_term)
             e.control.controls = [
                 ft.ListTile(
-                    title=ft.Text(t.name),
-                    subtitle=ft.Text(f"${t.price:.2f}"),
-                    on_click=lambda e, t=t: select_treatment(t.id, t.name, t.price),
+                    title=ft.Text(t.name, color=list_tile_title_color),
+                    subtitle=ft.Text(f"${t.price:.2f}", color=list_tile_subtitle_color),
+                    on_click=lambda ev, t=t: self._select_treatment(t.id, t.name, t.price),
                     data={'id': t.id, 'name': t.name, 'price': t.price}
                 ) for t in treatments
             ]
             e.control.update()
-            page.update()
+            self.page.update()
         except Exception as ex:
             logger.error(f"Error en búsqueda de tratamientos: {str(ex)}")
-            show_error(page, f"Error en búsqueda de tratamientos: {str(ex)}")
-    
-    def handle_treatment_search_submit(e):
+            show_error(self.page, f"Error en búsqueda de tratamientos: {str(ex)}")
+
+    def _handle_treatment_search_submit(self, e):
         """Maneja la selección con Enter desde la barra de búsqueda"""
         if e.control.controls and len(e.control.controls) > 0:
             selected_data = e.control.controls[0].data
-            select_treatment(selected_data['id'], selected_data['name'], selected_data['price'])
-        # Si no hay resultados de búsqueda, no hace nada especial aquí;
-        # se confía en el botón "Añadir Tratamiento Nuevo (Manual)" para nuevas entradas.
-        treatment_search.value = ""
-        treatment_search.close_view()
-        page.update()
-    
-    def select_treatment(treatment_id: int, name: str, price: float):
+            self._select_treatment(selected_data['id'], selected_data['name'], selected_data['price'])
+        self.treatment_search.value = ""
+        self.treatment_search.controls = []
+        self.treatment_search.close_view()
+        self.page.update()
+
+    def _select_treatment(self, treatment_id: int, name: str, price: float):
         """Selecciona un tratamiento existente y lo añade a la lista"""
-        # Verificar si el tratamiento ya está seleccionado
-        if any(t['id'] == treatment_id for t in selected_treatments if t['id'] is not None):
-            show_error(page, "Este tratamiento ya ha sido añadido al presupuesto.")
-            treatment_search.close_view()
-            page.update()
+        if any(t['id'] == treatment_id for t in self.selected_treatments if t['id'] is not None):
+            show_error(self.page, "Este tratamiento ya ha sido añadido al presupuesto.")
+            self.treatment_search.close_view()
+            self.page.update()
             return
 
-        selected_treatments.append({'id': treatment_id, 'name': name, 'price': price, 'quantity': 1})
-        _update_treatments_display() # Actualizar la visualización
-        treatment_search.value = "" # Limpiar el campo de búsqueda
-        treatment_search.controls = [] # Limpiar los resultados
-        treatment_search.close_view()
-        page.update()
-    
-    def _update_total_amount():
+        self.selected_treatments.append({'id': treatment_id, 'name': name, 'price': price, 'quantity': 1})
+        self._update_treatments_display()
+        self.treatment_search.value = ""
+        self.treatment_search.controls = []
+        self.treatment_search.close_view()
+        self.page.update()
+        self._update_total_amount()
+
+    def _update_total_amount(self):
         """Actualiza el monto total del presupuesto"""
-        total = sum(item['price'] * item['quantity'] for item in selected_treatments if 'price' in item and 'quantity' in item)
-        total_amount_text.value = f"Total: ${total:,.2f}"
-        page.update()
+        total = sum(item['price'] * item['quantity'] for item in self.selected_treatments if 'price' in item and 'quantity' in item)
+        self.total_amount_text.value = f"Total: ${total:,.2f}"
+        self.page.update()
 
-    def _remove_treatment(unique_key: str):
+    def _remove_treatment(self, unique_key: str):
         """Elimina un tratamiento de la lista de seleccionados por su clave única"""
-        nonlocal selected_treatments # Se usa 'nonlocal' para referirse a la variable del ámbito superior
-        # Filtra la lista para remover el item con la clave única
-        selected_treatments = [t for t in selected_treatments if t.get('unique_key') != unique_key]
-        _update_treatments_display()
-        _update_total_amount()
-        page.update()
+        self.selected_treatments = [t for t in self.selected_treatments if t.get('unique_key') != unique_key]
+        self._update_treatments_display()
+        self._update_total_amount()
+        self.page.update()
+        # Si no quedan tratamientos o el presupuesto no ha sido guardado, deshabilitar el botón de PDF
+        if self.download_pdf_button_ref.current:
+            self.download_pdf_button_ref.current.disabled = (not self.selected_treatments) or (self.quote_id is None)
+            self.page.update()
 
-    def _update_treatments_display():
+
+    def _update_treatments_display(self):
         """Actualiza la visualización de los tratamientos seleccionados en la columna"""
-        treatments_column.controls.clear() # Limpiar controles existentes
+        self.treatments_column.controls.clear()
 
-        if not selected_treatments:
-            treatments_column.controls.append(
+        treatment_card_bgcolor = ft.colors.GREY_100 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_700
+        treatment_card_text_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
+        icon_color_delete = ft.colors.RED_500 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.RED_300
+        icon_color_quantity = ft.colors.BLUE_500 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_300
+
+        if not self.selected_treatments:
+            self.treatments_column.controls.append(
                 ft.Text(
                     "Ningún tratamiento seleccionado para el presupuesto.",
                     italic=True,
-                    color=ft.colors.BLACK
+                    color=treatment_card_text_color
                 )
             )
         else:
-            for idx, t in enumerate(selected_treatments):
-                # Asegurarse de que cada item tenga una clave única para fines de UI
+            for idx, t in enumerate(self.selected_treatments):
                 if 'unique_key' not in t:
                     t['unique_key'] = f"{t.get('id', 'new')}-{idx}-{datetime.now().timestamp()}"
 
-                # Referencias para los campos de texto dentro de la tarjeta
                 name_field_ref = ft.Ref[ft.TextField]()
                 price_field_ref = ft.Ref[ft.TextField]()
                 quantity_field_ref = ft.Ref[ft.TextField]()
 
                 def on_name_change(e, item_unique_key=t['unique_key']):
-                    """Maneja el cambio de nombre de un tratamiento individual"""
-                    for item in selected_treatments:
+                    for item in self.selected_treatments:
                         if item.get('unique_key') == item_unique_key:
                             item['name'] = e.control.value
                             break
-                    # No necesita actualizar total, solo el nombre
+                    self.page.update()
 
                 def on_price_change(e, item_unique_key=t['unique_key']):
-                    """Maneja el cambio de precio de un tratamiento individual"""
                     try:
-                        # Si el valor está vacío, se asume 0.0
                         new_price = float(e.control.value) if e.control.value.strip() else 0.0
                         if new_price < 0:
-                            show_error(page, "El precio no puede ser negativo.")
-                            e.control.value = str(t['price']) if 'price' in t else "0.00"
+                            show_error(self.page, "El precio no puede ser negativo.")
+                            e.control.value = f"{t['price']:.2f}" if 'price' in t else "0.00"
                             e.control.update()
                             return
 
-                        for item in selected_treatments:
+                        for item in self.selected_treatments:
                             if item.get('unique_key') == item_unique_key:
                                 item['price'] = new_price
                                 break
-                        _update_total_amount() # Recalcular total
+                        self._update_total_amount()
                     except ValueError:
-                        show_error(page, "Por favor, introduce un número válido para el precio.")
-                        e.control.value = str(t['price']) if 'price' in t else "0.00"
+                        show_error(self.page, "Por favor, introduce un número válido para el precio.")
+                        e.control.value = f"{t['price']:.2f}" if 'price' in t else "0.00"
                         e.control.update()
 
                 def on_price_focus(e):
-                    """Borra el contenido del campo de precio si es el valor por defecto '0.00'"""
                     if e.control.value == "0.00":
                         e.control.value = ""
                         e.control.update()
-                        
+
                 def on_quantity_change(e, item_unique_key=t['unique_key']):
-                    """Maneja el cambio de cantidad de un tratamiento individual"""
                     try:
-                        # Si el valor está vacío, se asume 0
                         new_quantity = int(e.control.value) if e.control.value.strip() else 0
                         if new_quantity <= 0:
-                            show_error(page, "La cantidad debe ser mayor a 0.")
-                            e.control.value = "1" # Restablecer a 1 si es inválido
+                            show_error(self.page, "La cantidad debe ser mayor a 0.")
+                            e.control.value = "1"
                             new_quantity = 1
                             e.control.update()
-                        
-                        for item in selected_treatments:
+
+                        for item in self.selected_treatments:
                             if item.get('unique_key') == item_unique_key:
                                 item['quantity'] = new_quantity
                                 break
-                        _update_total_amount() # Recalcular total
+                        self._update_total_amount()
                     except ValueError:
-                        show_error(page, "Por favor, introduce un número entero válido para la cantidad.")
+                        show_error(self.page, "Por favor, introduce un número entero válido para la cantidad.")
                         e.control.value = str(t['quantity']) if 'quantity' in t else "1"
                         e.control.update()
 
-                def increment_quantity(e, item_unique_key): 
-                    for item in selected_treatments:
+                def increment_quantity(e, item_unique_key):
+                    for item in self.selected_treatments:
                         if item.get('unique_key') == item_unique_key:
                             item['quantity'] += 1
                             quantity_field_ref.current.value = str(item['quantity'])
                             quantity_field_ref.current.update()
                             break
-                    _update_total_amount()
+                    self._update_total_amount()
 
-                def decrement_quantity(e, item_unique_key): 
-                    for item in selected_treatments:
+                def decrement_quantity(e, item_unique_key):
+                    for item in self.selected_treatments:
                         if item.get('unique_key') == item_unique_key:
-                            if item['quantity'] > 1: # No permitir cantidad menor a 1
+                            if item['quantity'] > 1:
                                 item['quantity'] -= 1
                                 quantity_field_ref.current.value = str(item['quantity'])
                                 quantity_field_ref.current.update()
                             else:
-                                show_error(page, "La cantidad no puede ser menor a 1.")
+                                show_error(self.page, "La cantidad no puede ser menor a 1.")
                             break
-                    _update_total_amount()
+                    self._update_total_amount()
 
 
-                treatments_column.controls.append(
+                self.treatments_column.controls.append(
                     ft.Card(
                         content=ft.Container(
-                            content=ft.Column( # Usar Column para apilar los campos de texto
+                            content=ft.Column(
                                 [
                                     ft.Row(
                                         [
@@ -233,8 +490,7 @@ def presup_view(page: ft.Page, client_id: int = None):
                                                 value=t['name'],
                                                 expand=True,
                                                 on_change=on_name_change,
-                                                # Si tiene ID, es un tratamiento existente y no se debería editar el nombre/precio
-                                                read_only=t['id'] is not None 
+                                                read_only=t['id'] is not None
                                             ),
                                             ft.TextField(
                                                 ref=price_field_ref,
@@ -243,9 +499,8 @@ def presup_view(page: ft.Page, client_id: int = None):
                                                 width=120,
                                                 keyboard_type=ft.KeyboardType.NUMBER,
                                                 on_change=on_price_change,
-                                                on_focus=on_price_focus, # Añadido on_focus
-                                                # Si tiene ID, es un tratamiento existente y no se debería editar el nombre/precio
-                                                read_only=t['id'] is not None 
+                                                on_focus=on_price_focus,
+                                                read_only=t['id'] is not None
                                             ),
                                         ],
                                         spacing=10
@@ -254,8 +509,9 @@ def presup_view(page: ft.Page, client_id: int = None):
                                         [
                                             ft.IconButton(
                                                 icon=ft.icons.REMOVE,
-                                                on_click=lambda e: decrement_quantity(e, t['unique_key']), 
-                                                tooltip="Disminuir cantidad"
+                                                on_click=lambda e: decrement_quantity(e, t['unique_key']),
+                                                tooltip="Disminuir cantidad",
+                                                icon_color=icon_color_quantity
                                             ),
                                             ft.TextField(
                                                 ref=quantity_field_ref,
@@ -268,13 +524,14 @@ def presup_view(page: ft.Page, client_id: int = None):
                                             ),
                                             ft.IconButton(
                                                 icon=ft.icons.ADD,
-                                                on_click=lambda e: increment_quantity(e, t['unique_key']), 
-                                                tooltip="Aumentar cantidad"
+                                                on_click=lambda e: increment_quantity(e, t['unique_key']),
+                                                tooltip="Aumentar cantidad",
+                                                icon_color=icon_color_quantity
                                             ),
                                             ft.IconButton(
                                                 icon=ft.icons.DELETE,
-                                                icon_color=ft.colors.RED_500,
-                                                on_click=lambda e, key=t['unique_key']: _remove_treatment(key),
+                                                icon_color=icon_color_delete,
+                                                on_click=lambda e, key=t['unique_key']: self._remove_treatment(key),
                                                 tooltip="Eliminar tratamiento"
                                             )
                                         ],
@@ -284,171 +541,307 @@ def presup_view(page: ft.Page, client_id: int = None):
                                 ],
                                 spacing=5
                             ),
-                            padding=10
+                            padding=10,
+                            bgcolor=treatment_card_bgcolor,
+                            border_radius=5
                         ),
-                        margin=ft.margin.only(bottom=5)
+                        margin=ft.margin.only(bottom=5),
+                        elevation=1
                     )
                 )
-        page.update()
-    
-    def add_new_treatment_item(e=None):
+        self.page.update()
+
+    def add_new_treatment_item(self, e=None):
         """Añade un nuevo item de tratamiento vacío para que el usuario lo rellene"""
-        # Añade un diccionario con id=None para indicar que es un tratamiento nuevo
-        selected_treatments.append({'id': None, 'name': '', 'price': 0.0, 'quantity': 1})
-        _update_treatments_display()
-        _update_total_amount() # No cambia el total si el precio es 0, pero es buena práctica
-        page.update()
+        self.selected_treatments.append({'id': None, 'name': '', 'price': 0.0, 'quantity': 1})
+        self._update_treatments_display()
+        self._update_total_amount()
+        self.page.update()
+
+    # ELIMINADO: _handle_expiration_date_change
+    # def _handle_expiration_date_change(self, e):
+    #     """Maneja el cambio de fecha de expiración del DatePicker."""
+    #     if self.expiration_date_picker.value:
+    #         self.expiration_date_text.value = self.expiration_date_picker.value.strftime("%d/%m/%Y")
+    #     else:
+    #         self.expiration_date_text.value = "No seleccionada"
+    #     self.page.update()
 
 
-    # Si se proporciona client_id, cargar datos del cliente
-    if client_id:
-        try:
-            client_data = ClientService.get_client_by_id(client_id)
-            if client_data:
-                client_name_field.value = client_data.name
-                client_cedula_field.value = client_data.cedula
-            else:
-                show_error(page, "Cliente no encontrado.")
-        except Exception as e:
-            logger.error(f"Error al cargar datos del cliente: {e}")
-            show_error(page, f"Error al cargar cliente: {e}")
+    def _validate_budget_data(self) -> bool:
+        """Valida los datos del presupuesto antes de guardar o generar PDF."""
+        if self.client_id is None:
+            show_error(self.page, "Por favor, seleccione un cliente para generar el presupuesto.")
+            return False
 
-    async def on_submit(e):
-        client_name = client_name_field.value
-        client_cedula = client_cedula_field.value
-        
-        if not client_name or not client_cedula:
-            show_error(page, "Por favor, complete el nombre del cliente y la cédula.")
-            return
+        if not self.selected_treatments:
+            show_error(self.page, "Debe añadir al menos un tratamiento al presupuesto.")
+            return False
 
-        if not selected_treatments:
-            show_error(page, "Debe añadir al menos un tratamiento al presupuesto.")
-            return
-
-        # Validar tratamientos antes de guardar
-        valid_treatments_for_quote = []
-        for item in selected_treatments:
+        for item in self.selected_treatments:
             if not item['name'].strip():
-                show_error(page, "Todos los tratamientos deben tener un nombre.")
-                return
-            # Se ha ajustado la validación de precio y cantidad para permitir 0 si el campo está vacío.
-            # Aquí se valida que, si no está vacío, sea un número válido y no negativo.
+                show_error(self.page, "Todos los tratamientos deben tener un nombre.")
+                return False
             if not isinstance(item['price'], (int, float)) or item['price'] < 0:
-                show_error(page, f"El precio para '{item['name']}' no es válido.")
-                return
+                show_error(self.page, f"El precio para '{item['name']}' no es válido.")
+                return False
             if not isinstance(item['quantity'], int) or item['quantity'] <= 0:
-                show_error(page, f"La cantidad para '{item['name']}' no es válida (debe ser un entero positivo).")
-                return
-            valid_treatments_for_quote.append(item)
+                show_error(self.page, f"La cantidad para '{item['name']}' no es válida (debe ser un entero positivo).")
+                return False
+        return True
 
+    async def _save_budget(self, e):
+        """Guarda o actualiza el presupuesto en la base de datos."""
+        if not self._validate_budget_data():
+            return
 
         try:
-            # Para la creación del presupuesto, necesitamos el client_id.
-            if not client_id:
-                # En un escenario real, aquí buscarías el cliente por nombre/cédula
-                # y si no existe, lo crearías y obtendrías su ID.
-                # Por ahora, si no hay client_id, no se puede guardar.
-                show_error(page, "Error: No se ha proporcionado un ID de cliente válido. No se puede crear el presupuesto.")
+            # ELIMINADO: Obtener fecha de expiración y notas
+            # expiration_date_obj = self.expiration_date_picker.value.date() if self.expiration_date_picker.value else None
+            # notes_text = self.notes_field.value.strip() if self.notes_field.value else None
+
+            if self.quote_id: # Es una edición
+                success = QuoteService.update_quote(
+                    quote_id=self.quote_id,
+                    client_id=self.client_id,
+                    treatments=self.selected_treatments,
+                    expiration_date=None, # Siempre None ya que se eliminó el campo
+                    notes=None # Siempre None ya que se eliminó el campo
+                )
+                if success:
+                    show_success(self.page, f"Presupuesto #{self.quote_id} actualizado exitosamente.")
+                else:
+                    show_error(self.page, f"No se pudo actualizar el presupuesto #{self.quote_id}.")
+            else: # Es un presupuesto nuevo
+                self.quote_id = QuoteService.create_quote(
+                    client_id=self.client_id,
+                    treatments=self.selected_treatments,
+                    expiration_date=None, # Siempre None ya que se eliminó el campo
+                    notes=None # Siempre None ya que se eliminó el campo
+                )
+
+                if self.quote_id:
+                    show_success(self.page, f"Presupuesto #{self.quote_id} guardado exitosamente.")
+            
+            # Habilitar el botón de PDF solo si el presupuesto se ha guardado/actualizado
+            if self.quote_id and self.download_pdf_button_ref.current:
+                self.download_pdf_button_ref.current.disabled = False
+                self.page.update()
+
+        except Exception as ex:
+            logger.error(f"Error al guardar/actualizar presupuesto: {ex}")
+            show_error(self.page, f"Error al guardar/actualizar presupuesto: {ex}")
+
+    async def _generate_pdf_and_download(self, e):
+        """Prepara los datos y abre el diálogo para guardar el PDF."""
+        if not self._validate_budget_data():
+            return
+
+        if self.quote_id is None:
+            show_error(self.page, "Primero debe guardar el presupuesto para poder generar el PDF.")
+            return
+
+        try:
+            # Obtener detalles completos del presupuesto y cliente para el PDF
+            quote_details = QuoteService.get_quote(self.quote_id)
+            client_info = ClientService.get_client_by_id(self.client_id) # Obtener info completa del cliente
+
+            if not quote_details or not client_info:
+                show_error(self.page, "Error: No se pudieron obtener los detalles completos del presupuesto o del cliente para generar el PDF.")
                 return
 
-            # Crear presupuesto en la base de datos usando QuoteService
-            # QuoteService.create_quote ya llama a TreatmentService.create_treatment_if_not_exists
-            # para guardar tratamientos nuevos si no existen.
-            quote_id = QuoteService.create_quote(
-                client_id=client_id,
-                treatments=valid_treatments_for_quote,
-                notes="Presupuesto generado desde la aplicación"
-            )
+            # Preparar los ítems para el PDF, asegurando que todos los campos existan
+            items_for_pdf = [
+                {
+                    "treatment": item.get('name', 'N/A'),
+                    "quantity": item.get('quantity', 0),
+                    "price": item.get('price', 0.0)
+                } for item in quote_details.get('treatments', [])
+            ]
             
-            if quote_id:
-                # Preparar los ítems para BudgetService.generate_pdf
-                # Mapear 'name' a 'treatment' para que coincida con la expectativa de generate_pdf
-                items_for_pdf = [
-                    {
-                        "treatment": item['name'],
-                        "quantity": item['quantity'],
-                        "price": item['price']
-                    } for item in valid_treatments_for_quote
-                ]
+            self._temp_pdf_data = {
+                "quote_id": quote_details['id'],
+                "client_name": client_info.name,
+                "client_cedula": client_info.cedula,
+                "client_phone": client_info.phone,
+                "client_email": client_info.email,
+                "client_address": client_info.address,
+                "items": items_for_pdf,
+                "date": quote_details['quote_date'], # Usar la fecha del presupuesto desde la BD
+                "total_amount": quote_details['total_amount'],
+                # ELIMINADO: "notes": quote_details.get('notes', '') # Añadir las notas del presupuesto
+            }
 
-                # Generar PDF
-                pdf_path = BudgetService.generate_pdf({
-                    "quote_id": quote_id,
-                    "client_name": client_name,
-                    "client_cedula": client_cedula,
-                    "items": items_for_pdf, # Usar la lista con la clave 'treatment'
-                    "date": datetime.now().strftime("%Y-%m-%d")
-                })
-                
-                show_success(page, f"Presupuesto #{quote_id} guardado exitosamente y PDF generado en {pdf_path}")
-                page.go("/clients") # O a donde sea apropiado después de guardar
-            else:
-                show_error(page, "No se pudo crear el presupuesto en la base de datos.")
-            
-        except Exception as ex:
-            logger.error(f"Error al guardar presupuesto: {ex}")
-            show_error(page, f"Error al guardar presupuesto: {ex}")
-
-    # Inicializar la visualización de tratamientos (vacía al principio)
-    _update_treatments_display()
-
-    # Contenido principal del formulario
-    main_content = ft.Column(
-        [
-            ft.Text("Información del Cliente", size=20, weight=ft.FontWeight.BOLD),
-            ft.Row(
-                [
-                    client_name_field,
-                    client_cedula_field,
-                ],
-                spacing=15
-            ),
-            ft.Divider(height=20),
-            ft.Text("Tratamientos", size=20, weight=ft.FontWeight.BOLD),
-            treatment_search, # Barra de búsqueda de tratamientos existentes
-            ft.FilledButton(
-                icon=ft.icons.ADD,
-                text="Añadir Tratamiento Nuevo",
-                on_click=add_new_treatment_item, # Nuevo botón para añadir manualmente
-                width=300
-            ),
-            treatments_column, # Columna para mostrar tratamientos seleccionados (ahora editables)
-            ft.Divider(height=20),
-            ft.Container(
-                content=total_amount_text,
-                alignment=ft.alignment.center_right,
-                padding=ft.padding.only(right=10, top=10)
-            ),
-            ft.Container(
-                content=ft.FilledButton(
-                    "Generar Presupuesto y Descargar PDF",
-                    on_click=on_submit,
-                    icon=ft.icons.DOWNLOAD,
-                    expand=True
-                ),
-                margin=ft.margin.only(top=20),
-                alignment=ft.alignment.center
-            )
-        ],
-        spacing=15,
-        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-        scroll=ft.ScrollMode.AUTO, # Añadir scrollbar aquí
-        expand=True
-    )
-
-    return ft.Column(
-        [
-            ft.AppBar(
-                title=ft.Text("Generar Presupuesto"),
-                bgcolor=ft.colors.SURFACE_VARIANT,
-                leading=ft.IconButton(
-                    icon=ft.icons.ARROW_BACK,
-                    on_click=lambda e: page.go("/clients")
+            # Abrir el diálogo para guardar el archivo. El resultado se manejará en _on_file_picker_result
+            if self.file_picker and hasattr(self.file_picker, 'save_file') and callable(self.file_picker.save_file):
+                self.file_picker.save_file(
+                    file_name=f"presupuesto_{client_info.name.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d%H%M%S')}.pdf",
+                    allowed_extensions=["pdf"]
                 )
-            ),
-            main_content # El contenido principal ahora tiene scroll
-        ],
-        expand=True,
-        alignment=ft.alignment.top_center,
-        spacing=0
-    )
+                self.page.update() # Asegurarse de que la UI se actualice después de abrir el diálogo
+            else:
+                logger.error(f"Error: self.file_picker o su método save_file no está disponible. self.file_picker: {self.file_picker}")
+                show_error(self.page, "Error interno: El sistema de guardado de archivos no está listo.")
+
+        except Exception as e:
+            logger.error(f"Error al iniciar generación de PDF para presupuesto {self.quote_id}: {e}")
+            show_error(self.page, f"Error al preparar el PDF: {e}")
+
+    async def _on_file_picker_result(self, e: ft.FilePickerResultEvent):
+        """Maneja el resultado del diálogo de FilePicker (la ruta seleccionada)."""
+        logger.info(f"Resultado del FilePicker: {e.path}")
+        if e.path:
+            if self._temp_pdf_data:
+                try:
+                    BudgetService.generate_pdf_to_path(e.path, self._temp_pdf_data)
+                    show_success(self.page, f"PDF generado exitosamente en {e.path}")
+                    self._temp_pdf_data = None # Limpiar datos temporales
+                    # No navegar automáticamente, permitir al usuario seguir en el formulario
+                    # self.page.go("/clients") 
+                except Exception as ex:
+                    logger.error(f"Error al generar PDF en _on_file_picker_result: {ex}")
+                    show_error(self.page, f"Error al generar PDF: {ex}")
+            else:
+                show_error(self.page, "Error: Datos del presupuesto no disponibles para generar el PDF.")
+        else:
+            show_error(self.page, "Operación de guardado de PDF cancelada.")
+
+    def build_view(self):
+        """Construye y devuelve la vista del formulario de presupuesto."""
+        appbar_bgcolor = ft.colors.BLUE_700 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_900
+        appbar_text_color = ft.colors.WHITE
+        main_content_bgcolor = ft.colors.WHITE if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_800
+        section_title_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
+        divider_color = ft.colors.GREY_300 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_600
+        # Colores para los botones de acción
+        save_button_bgcolor = ft.colors.BLUE_700 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_900
+        download_button_bgcolor = ft.colors.PURPLE_500 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.PURPLE_800
+        button_color = ft.colors.WHITE
+
+        self._update_treatments_display() # Asegurarse de que la visualización de tratamientos inicial se renderice
+
+        # Determinar el estado inicial de los botones al construir la vista
+        # El botón de guardar estará habilitado si ya hay un client_id o un quote_id (para edición)
+        initial_save_disabled = (self.client_id is None) and (self.quote_id is None)
+        # El botón de PDF estará deshabilitado inicialmente si no hay quote_id o tratamientos
+        initial_pdf_disabled = (self.quote_id is None) or (not self.selected_treatments)
+        # Si se navega a un presupuesto existente, habilitar el PDF si hay quote_id y tratamientos
+        if self.quote_id and self.selected_treatments:
+            initial_pdf_disabled = False
+
+        return ft.View(
+            # Ajustar la ruta para incluir quote_id si está presente
+            f"/presupuesto/{self.quote_id}/{self.client_id}" if self.quote_id else (f"/presupuesto/{self.client_id}" if self.client_id else "/presupuesto"),
+            controls=[
+                ft.AppBar(
+                    title=ft.Text("Generar Presupuesto", color=appbar_text_color),
+                    bgcolor=appbar_bgcolor,
+                    leading=ft.IconButton(
+                        icon=ft.icons.ARROW_BACK,
+                        on_click=lambda e: self.page.go("/clients"),
+                        tooltip="Volver a Clientes",
+                        icon_color=appbar_text_color
+                    )
+                ),
+                ft.Container(
+                    content=ft.Column(
+                        controls=[
+                            ft.Text("Seleccionar Cliente", weight="bold", color=section_title_color),
+                            self._build_search_client_row(), # Fila de búsqueda de clientes
+                            ft.Divider(color=divider_color),
+                            ft.Text("Tratamientos", weight="bold", color=section_title_color),
+                            ft.ResponsiveRow(
+                                controls=[
+                                    ft.Column([
+                                        self.treatment_search
+                                    ], col={"xs":12, "md":9}),
+                                    ft.Column([
+                                        ft.FilledButton(
+                                            icon=ft.icons.ADD,
+                                            text="Añadir Nuevo",
+                                            on_click=self.add_new_treatment_item,
+                                            expand=True,
+                                            style=ft.ButtonStyle(bgcolor=ft.colors.GREEN_500 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.GREEN_800,
+                                                                 color=ft.colors.WHITE)
+                                        ),
+                                    ], col={"xs":12, "md":3})
+                                ],
+                                spacing=10,
+                                run_spacing=10
+                            ),
+                            self.treatments_column,
+                            ft.Divider(color=divider_color),
+                            ft.Container(
+                                content=self.total_amount_text,
+                                alignment=ft.alignment.center_right,
+                                padding=ft.padding.only(right=10, top=10)
+                            ),
+                            # ELIMINADO: Información Adicional (fecha de expiración y notas)
+                            # ft.Text("Información Adicional", weight="bold", color=section_title_color),
+                            # ft.Row([
+                            #     ft.Text("Fecha de Expiración:", size=12, color=section_title_color),
+                            #     ft.ElevatedButton(
+                            #         "Seleccionar Fecha",
+                            #         icon=ft.icons.CALENDAR_TODAY,
+                            #         on_click=lambda e: self.page.open(self.expiration_date_picker),
+                            #         style=ft.ButtonStyle(bgcolor=ft.colors.BLUE_500 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_800,
+                            #                              color=ft.colors.WHITE)
+                            #     ),
+                            #     ft.Container(
+                            #         content=self.expiration_date_text,
+                            #         padding=ft.padding.all(10),
+                            #         bgcolor=ft.colors.GREY_100 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_700,
+                            #         border_radius=5,
+                            #         expand=True
+                            #     )
+                            # ], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                            # self.notes_field, # Campo de notas
+
+                            ft.ResponsiveRow(
+                                controls=[
+                                    ft.Column(col={"xs": 12, "sm": 6}, alignment=ft.MainAxisAlignment.END,
+                                        controls=[
+                                            ft.FilledButton(
+                                                ref=self.save_budget_button_ref,
+                                                text="Guardar Presupuesto",
+                                                on_click=self._save_budget,
+                                                icon=ft.icons.SAVE,
+                                                expand=True,
+                                                style=ft.ButtonStyle(bgcolor=save_button_bgcolor, color=button_color),
+                                                disabled=initial_save_disabled # Usar estado calculado
+                                            )
+                                        ]
+                                    ),
+                                    ft.Column(col={"xs": 12, "sm": 6}, alignment=ft.MainAxisAlignment.START,
+                                        controls=[
+                                            ft.FilledButton(
+                                                ref=self.download_pdf_button_ref,
+                                                text="Descargar PDF",
+                                                on_click=lambda e: self.page.run_task(self._generate_pdf_and_download, e), # Asegurar llamada asíncrona
+                                                icon=ft.icons.DOWNLOAD,
+                                                expand=True,
+                                                style=ft.ButtonStyle(bgcolor=download_button_bgcolor, color=button_color),
+                                                disabled=initial_pdf_disabled # Usar estado calculado
+                                            )
+                                        ]
+                                    )
+                                ], spacing=10
+                            )
+                        ],
+                        spacing=20,
+                        expand=True,
+                        horizontal_alignment=ft.CrossAxisAlignment.CENTER
+                    ),
+                    padding=20,
+                    expand=True,
+                    bgcolor=main_content_bgcolor
+                )
+            ],
+            scroll=ft.ScrollMode.AUTO,
+            padding=0
+        )
+
+def presup_view(page: ft.Page, client_id: Optional[int] = None, quote_id: Optional[int] = None):
+    """Función de fábrica para crear la vista del formulario de presupuesto"""
+    return PresupFormView(page, client_id=client_id, quote_id=quote_id).build_view()
+

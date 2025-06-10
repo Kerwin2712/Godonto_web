@@ -625,7 +625,8 @@ class ReportsView:
             if isinstance(item, tuple) and len(item) == 2:
                 processed_data.append((str(item[0]), float(item[1])))
             else:
-                processed_data.append((str(item), float(item)))
+                # Esto es un fallback, idealmente `data` siempre debería ser una lista de tuplas de 2 elementos
+                processed_data.append((str(item), float(item))) 
 
         bars = [
             ft.BarChartGroup(
@@ -654,7 +655,14 @@ class ReportsView:
                 left_axis=ft.ChartAxis(
                     labels_size=40,
                     title=ft.Text(y_label, size=12, color=axis_label_color),
-                    labels_style=ft.TextStyle(color=axis_label_color) # Color de los valores en el eje
+                    # MODIFICACIÓN: Cambiado 'labels_style' a 'labels' y se le pasa una lista de ft.ChartAxisLabel
+                    # Si solo necesitas el color del texto de la etiqueta, puedes hacerlo a través de un ft.Text en ChartAxisLabel
+                    labels=[
+                        ft.ChartAxisLabel(
+                            value=i, # Usa el valor numérico para la posición
+                            label=ft.Text(f"${val:,.0f}", color=axis_label_color) # Formato y color para la etiqueta del eje Y
+                        ) for i, val in enumerate(range(0, int(max_y_val * 1.2) + 1, int(max_y_val * 0.2))) # Ejemplo de labels numéricos
+                    ]
                 ),
                 bottom_axis=ft.ChartAxis(
                     labels=[
@@ -702,9 +710,10 @@ class ReportsView:
             percentage = value / total * 100
             
             # Asignar colores, priorizando los pasados, luego los adaptativos
-            section_color = colors.get(key.capitalize(), 
+            # CAMBIO: Usar 'key' directamente en lugar de 'key.capitalize()'
+            section_color = colors.get(key, 
                                        default_dark_colors[color_index % len(default_dark_colors)]) if colors and self.page.theme_mode == ft.ThemeMode.DARK else \
-                            colors.get(key.capitalize(), ft.colors.BLUE_GREY_400) # Default para modo claro
+                            colors.get(key, ft.colors.BLUE_GREY_400) # Default para modo claro
             
             # Incrementar índice para usar el siguiente color por defecto
             if key not in colors or self.page.theme_mode == ft.ThemeMode.DARK:
@@ -738,7 +747,8 @@ class ReportsView:
                         ft.Container(
                             width=16,
                             height=16,
-                            bgcolor=colors.get(key.capitalize(), ft.colors.BLUE_GREY_400) if colors else ft.colors.BLUE_GREY_400, # Color del cuadrado en la leyenda
+                            # CAMBIO: Usar 'key' directamente en lugar de 'key.capitalize()'
+                            bgcolor=colors.get(key, ft.colors.BLUE_GREY_400) if colors else ft.colors.BLUE_GREY_400, # Color del cuadrado en la leyenda
                             border_radius=8,
                             margin=ft.margin.only(right=5)
                         ),
@@ -929,15 +939,7 @@ class ReportsView:
                 tooltip="Volver al Dashboard",
                 on_click=lambda _: self.page.go("/dashboard"),
                 icon_color=appbar_text_color
-            ),
-            actions=[
-                ft.IconButton(
-                    icon=ft.icons.REFRESH,
-                    tooltip="Recargar reportes",
-                    on_click=lambda _: self.load_data(),
-                    icon_color=appbar_text_color
-                )
-            ]
+            )
         )
 
     def build_view(self):
@@ -1207,3 +1209,4 @@ def reports_view(page: ft.Page):
     # page.on_route_change = original_on_route_change
     
     return built_view
+
