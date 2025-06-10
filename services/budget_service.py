@@ -48,8 +48,8 @@ class BudgetService:
         pdf.set_font("Arial", size=10) 
         # La plantilla tiene "Ubicación :" y "Teléfono :", pondremos los datos dinámicos después.
         # Asumiendo que 65mm es el inicio del texto para estos campos.
-        pdf.text(65, 50, "Av Centenario Entrada el Piñal Casa #10") # Posición para la dirección del cliente
-        pdf.text(65, 57, "04247432710") # Posición para el teléfono del cliente
+        pdf.text(45, 50, "Av Centenario Entrada el Piñal Casa #10") # Posición para la dirección del cliente
+        pdf.text(45, 57, "04247432710") # Posición para el teléfono del cliente
         # Si la plantilla tiene un espacio para el email, puedes agregarlo aquí
         # pdf.text(65, 64, str(quote_data.get('client_email', 'N/A'))) 
 
