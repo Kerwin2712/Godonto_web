@@ -66,6 +66,7 @@ class AppointmentFormView:
         ) # El color se establecerá en _build_search_row
         
         # Añadir pickers al overlay de la página
+        # ESTA LÍNEA SE MUEVE AQUÍ PARA ASEGURAR QUE SE AÑADAN AL OVERLAY AL INICIALIZAR LA VISTA.
         self.page.overlay.extend([self.date_picker, self.time_picker])
         
         # Cargar datos si es edición
