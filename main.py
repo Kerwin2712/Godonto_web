@@ -14,6 +14,7 @@ from views.presupuesto.presup_form import presup_view
 from views.presupuesto.quotes import quotes_view
 from views.tretment.treatments import treatments_view
 import os
+from services.preference_service import PreferenceService # Importar el nuevo servicio
 
 # Configuración de logging
 # Directorio alternativo para logs (ej: AppData/Local)
@@ -37,11 +38,19 @@ def main(page: ft.Page):
     # Configuración inicial de la página
     #page.logger.setLevel(ft.LoggingLevel.DEBUG)
     page.title = settings.APP_NAME
-    page.theme_mode = ft.ThemeMode.LIGHT
     page.padding = 0
     page.window_width = 1200
     page.window_height = 800
     
+    # Cargar la preferencia de tema al iniciar
+    # Asumimos un user_id fijo (por ejemplo, 1) si no hay un sistema de autenticación
+    # De lo contrario, este user_id debería venir de la sesión del usuario autenticado
+    user_id_for_preferences = 1 
+    saved_theme = PreferenceService.get_user_theme(user_id_for_preferences)
+    page.theme_mode = ft.ThemeMode.DARK if saved_theme == 'dark' else ft.ThemeMode.LIGHT
+    logger.info(f"Tema inicial cargado para el usuario {user_id_for_preferences}: {page.theme_mode}")
+
+
     # Manejar el cierre de la ventana
     def window_event(e):
         if e.data == "close":
@@ -86,24 +95,26 @@ def main(page: ft.Page):
     def route_change(e):
         """Manejador de rutas síncrono"""
         try:
-            #print(f"Cambiando a ruta: {page.route}")  # Debug
-            # Mantener solo la última vista si es el dashboard
-            if page.route == "/dashboard" and page.views:
-                page.views.clear()
-            
-            # Asegurarse de que siempre haya una vista
-            #if not page.views:
-                #page.views.append(ft.View("/", [ft.ProgressRing()]))
-            
             current_route = page.route
-            
+
+            # Limpiar todas las vistas actuales (excepto la primera si es el login inicial)
+            # Esto evita la acumulación de vistas en la pila.
+            if len(page.views) > 1: # Si hay más de una vista (ej. no es la primera vez en el login)
+                page.views.pop() # Eliminar la vista actual de la pila
+            else: # Si es la primera vista o la única, limpiar toda la pila
+                page.views.clear()
+
+            # CRÍTICO: Limpiar explícitamente el overlay de la página.
+            # Esto elimina cualquier FilePicker, SearchBar, DatePicker, etc.
+            # que hayan sido añadidos por vistas anteriores y se encuentren en el overlay.
+            page.overlay.clear()
+            page.update() # Asegurarse de que la página se actualice después de limpiar el overlay
+
+
             try:
-                #print(f"Cambiando a ruta: {page.route}")
                 if page.route == "/login":
-                    #print(f"Mostrando vista: {current_route}")
                     page.views.append(login_view(page))
                 elif page.route == "/dashboard":
-                    #print(f"Mostrando vista: {current_route}")
                     page.views.append(dashboard_view(page))
                 elif page.route == "/treatments":
                     page.views.append(treatments_view(page))
@@ -121,19 +132,18 @@ def main(page: ft.Page):
                     page.views.append(appointments_view(page))
                 elif page.route == "/presupuesto" or page.route.startswith("/presupuesto/"):
                     client_id = None
-                    quote_id = None # Nuevo: para editar presupuestos
+                    quote_id = None 
                     route_parts = page.route.split("/")
                     if len(route_parts) > 2:
                         try:
-                            # Si hay 3 partes, la segunda es quote_id, la tercera es client_id
                             if len(route_parts) > 3:
                                 quote_id = int(route_parts[2])
                                 client_id = int(route_parts[3])
-                            else: # Si hay solo 2 partes, es el client_id para un nuevo presupuesto
+                            else: 
                                 client_id = int(route_parts[2])
                         except (IndexError, ValueError):
                             logger.error(f"Error al parsear ID de presupuesto o cliente de la ruta: {page.route}")
-                    page.views.append(presup_view(page, client_id, quote_id)) # MODIFICADO: Pasar quote_id
+                    page.views.append(presup_view(page, client_id, quote_id)) 
                 elif page.route == "/appointment_form" or page.route.startswith("/appointment_form/"):
                     appointment_id = None
                     if page.route.startswith("/appointment_form/"):
@@ -149,13 +159,10 @@ def main(page: ft.Page):
                 elif page.route == "/reports":
                     page.views.append(reports_view(page))
                 
-                #print(f"Vistas después de cambio: {page.views}")  # Debug
                 page.update()
                 
             except Exception as view_error:
                 logger.error(f"Error al cargar la vista: {str(view_error)}")
-                #print(f"Error al cargar la vista: {str(view_error)}")  # Debug
-                # Vista de error genérica
                 page.views.append(
                     ft.View(
                         current_route,

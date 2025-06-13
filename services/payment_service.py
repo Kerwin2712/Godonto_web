@@ -3,6 +3,7 @@ from typing import Optional, List, Tuple
 from core.database import get_db
 import logging
 import psycopg2
+from dateutil.relativedelta import relativedelta # Importar relativedelta
 
 logger = logging.getLogger(__name__)
 
@@ -135,6 +136,8 @@ class PaymentService:
         """
         Registra una deuda para un cliente, intentando usar el saldo a favor del cliente primero.
         Ahora puede asociarse con una appointment_id y usar un cursor existente.
+        La fecha de vencimiento (due_date) se establece automáticamente un mes después de la creación
+        si no se proporciona explícitamente.
         """
         try:
             # Usa el cursor proporcionado o abre uno nuevo si no se proporciona
@@ -142,6 +145,10 @@ class PaymentService:
             _cursor = cursor if cursor is not None else db_context.__enter__()
 
             try:
+                # Si due_date no se proporciona, calcúlala un mes después de hoy
+                if due_date is None:
+                    due_date = datetime.now() + relativedelta(months=1)
+
                 current_credit = PaymentService._get_client_credit_balance(client_id, _cursor)
                 
                 initial_status = 'pending'
@@ -429,4 +436,3 @@ class PaymentService:
                 (client_id,)
             )
             return float(cursor.fetchone()[0])
-

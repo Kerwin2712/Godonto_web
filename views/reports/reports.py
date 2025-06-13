@@ -9,16 +9,179 @@ from utils.date_utils import (
 )
 from utils.alerts import show_snackbar
 import logging
+from fpdf import FPDF
+import os
+import asyncio # Importar asyncio para usar asyncio.sleep
 
 logger = logging.getLogger(__name__)
+
+# Clase para generar el PDF del reporte
+class ReportGenerator:
+    def __init__(self):
+        self.pdf = FPDF()
+        self.pdf.set_auto_page_break(auto=True, margin=15)
+        self.pdf.add_page()
+        self.pdf.set_font("Arial", size=10)
+
+    def _add_header(self, title, start_date, end_date):
+        self.pdf.set_font("Arial", "B", 16)
+        self.pdf.cell(0, 10, title, 0, 1, "C")
+        self.pdf.set_font("Arial", "", 10)
+        self.pdf.cell(0, 7, f"Período: {format_date(start_date)} - {format_date(end_date)}", 0, 1, "C")
+        self.pdf.ln(5)
+
+    def _add_section_title(self, title):
+        self.pdf.set_font("Arial", "B", 12)
+        self.pdf.cell(0, 8, title, 0, 1, "L")
+        self.pdf.ln(2)
+
+    def _add_stat_card_to_pdf(self, title, value):
+        self.pdf.set_font("Arial", "B", 10)
+        self.pdf.cell(0, 6, f"{title}:", 0, 0, "L")
+        self.pdf.set_font("Arial", "", 10)
+        self.pdf.cell(0, 6, str(value), 0, 1, "R")
+        self.pdf.ln(1)
+
+    def _add_table_header(self, headers, col_widths):
+        self.pdf.set_fill_color(200, 220, 255) # Light blue background for headers
+        self.pdf.set_font("Arial", "B", 8)
+        for header, width in zip(headers, col_widths):
+            self.pdf.cell(width, 7, header, 1, 0, "C", True)
+        self.pdf.ln()
+
+    def _add_table_row(self, row_data, col_widths):
+        self.pdf.set_font("Arial", "", 8)
+        for data, width in zip(row_data, col_widths):
+            self.pdf.cell(width, 7, str(data), 1, 0, "L")
+        self.pdf.ln()
+
+    def generate_report_pdf(self, file_path: str, report_data: dict, start_date: datetime.date, end_date: datetime.date):
+        self._add_header("Reporte General de Clínica Odontológica", start_date, end_date)
+
+        # Sección de Estadísticas
+        self._add_section_title("Resumen Estadístico")
+        stats = report_data.get('stats', {})
+        self.pdf.set_left_margin(20) # Indent for stats
+        self.pdf.set_right_margin(20)
+
+        stats_display_order = [
+            ("Citas Totales", stats.get('total_appointments', 0)),
+            ("Citas Completadas", stats.get('completed_appointments', 0)),
+            ("Ingresos Total", f"${stats.get('total_revenue', 0.0):,.2f}"),
+            ("Clientes Nuevos", stats.get('new_clients', 0)),
+            ("Pagos Registrados", stats.get('total_payments', 0)),
+            ("Monto Deudas Pendientes", f"${stats.get('total_pending_debts_amount', 0.0):,.2f}"), # Cambiado
+            ("Monto Deudas Vencidas", f"${stats.get('overdue_debts_amount', 0.0):,.2f}"), # Cambiado
+            ("Deudas Vencidas (Conteo)", stats.get('overdue_count', 0)), # Cambiado
+            ("Método de Pago Popular", stats.get('popular_payment_method', 'N/A'))
+        ]
+
+        for title, value in stats_display_order:
+            self._add_stat_card_to_pdf(title, value)
+        self.pdf.ln(5)
+        self.pdf.set_left_margin(10) # Reset margin
+        self.pdf.set_right_margin(10)
+
+        # Sección de Citas Recientes
+        self._add_section_title("Citas Recientes")
+        appointments = report_data.get('appointments', [])
+        if appointments:
+            headers = ["Fecha", "Cliente", "Hora", "Estado", "Monto Tratamientos"]
+            col_widths = [30, 60, 20, 25, 45] # Ajustar según el contenido
+            self._add_table_header(headers, col_widths)
+            for appt in appointments:
+                row_data = [
+                    appt[2].strftime("%d/%m/%Y"),
+                    appt[1],
+                    appt[3].strftime("%H:%M"),
+                    appt[4].capitalize(),
+                    f"${appt[5]:,.2f}"
+                ]
+                self._add_table_row(row_data, col_widths)
+        else:
+            self.pdf.set_font("Arial", "", 10)
+            self.pdf.cell(0, 10, "No hay citas recientes en este período.", 0, 1)
+        self.pdf.ln(5)
+
+        # Sección de Pagos
+        self._add_section_title("Detalle de Pagos")
+        payments = report_data.get('payments', [])
+        if payments:
+            headers = ["Fecha Pago", "Cliente", "Monto", "Método", "Estado", "Factura"]
+            col_widths = [25, 50, 25, 25, 25, 30]
+            self._add_table_header(headers, col_widths)
+            for payment in payments:
+                row_data = [
+                    payment[1].strftime("%d/%m/%Y"),
+                    payment[2],
+                    f"${payment[4]:,.2f}",
+                    payment[3],
+                    str(payment[5]).capitalize(),
+                    payment[6] or "N/A"
+                ]
+                self.pdf.ln(0.5) # Small padding
+                self._add_table_row(row_data, col_widths)
+        else:
+            self.pdf.set_font("Arial", "", 10)
+            self.pdf.cell(0, 10, "No hay pagos en este período.", 0, 1)
+        self.pdf.ln(5)
+
+        # Sección de Deudas
+        self._add_section_title("Detalle de Deudas")
+        debts = report_data.get('debts', [])
+        if debts:
+            headers = ["Cliente", "Fecha Creación", "Monto Total", "Monto Pagado", "Monto Restante", "Estado", "Fecha Vencimiento", "Días Vencida"]
+            col_widths = [35, 25, 25, 25, 25, 20, 25, 20] # Ajustar anchos
+            self._add_table_header(headers, col_widths)
+            for debt in debts:
+                remaining_amount = debt[3] - debt[7] # total - paid
+                days_overdue = ""
+                if debt[5] == 'pending' and debt[6] and datetime.now().date() > debt[6]:
+                    days_overdue = str((datetime.now().date() - debt[6]).days)
+
+                row_data = [
+                    debt[1],
+                    debt[2].strftime("%d/%m/%Y"),
+                    f"${debt[3]:,.2f}",
+                    f"${debt[7]:,.2f}",
+                    f"${remaining_amount:,.2f}",
+                    str(debt[5]).capitalize(),
+                    debt[6].strftime("%d/%m/%Y") if debt[6] else "N/A",
+                    days_overdue if days_overdue else "-"
+                ]
+                self._add_table_row(row_data, col_widths)
+        else:
+            self.pdf.set_font("Arial", "", 10)
+            self.pdf.cell(0, 10, "No hay deudas en este período.", 0, 1)
+        self.pdf.ln(5)
+
+        try:
+            self.pdf.output(file_path)
+            logger.info(f"PDF del reporte generado exitosamente en: {file_path}")
+            return True, f"PDF del reporte generado exitosamente en: {file_path}"
+        except Exception as e:
+            logger.error(f"Error al generar el PDF del reporte en '{file_path}': {e}")
+            return False, f"Error al generar el PDF del reporte: {str(e)}"
 
 class ReportsView:
     def __init__(self, page: ft.Page):
         self.page = page
         self.report_type = 'monthly' # Tipo de reporte inicial
-        self.end_date = datetime.now().date() + timedelta(days=60) # Inicializa end_date a hoy
-        self.start_date = self.end_date - timedelta(days=120) # Inicializa start_date a 60 días antes
+        self.end_date = datetime.now().date() + timedelta(days=60) # Inicializa end_date 60 dias despues de hoy
+        self.start_date = self.end_date - timedelta(days=120) # Inicializa start_date a 120 días antes de end_date
         
+        # Almacenar datos cargados para el PDF
+        self.current_stats = {}
+        self.current_appointments = []
+        self.current_payments = []
+        self.current_debts = []
+        self._temp_report_data = None # Para almacenar datos temporales para el PDF
+
+        # Configurar el FilePicker para la descarga con un handler de resultado
+        self.file_picker = ft.FilePicker(on_result=self._on_file_picker_result)
+        self.page.overlay.append(self.file_picker) # Añadir el FilePicker al overlay de la página
+        self.page.update()
+
         # Componentes UI principales para el diseño
         self.stats_row = ft.ResponsiveRow(spacing=20, run_spacing=20)
         self.charts_column = ft.Column(spacing=20)
@@ -134,20 +297,20 @@ class ReportsView:
     def load_data(self):
         """Carga todos los datos para los reportes."""
         try:
-            stats = self.load_statistics()
-            self.update_stats_row(stats)
+            self.current_stats = self.load_statistics()
+            self.update_stats_row(self.current_stats)
             
             chart_data = self.load_chart_data()
             self.update_charts(chart_data)
             
-            appointments = self.load_recent_appointments()
-            self.update_appointments_table(appointments)
+            self.current_appointments = self.load_recent_appointments()
+            self.update_appointments_table(self.current_appointments)
             
-            payments = self.load_payments()
-            self.update_payments_table(payments)
+            self.current_payments = self.load_payments()
+            self.update_payments_table(self.current_payments)
             
-            debts = self.load_debts()
-            self.update_debts_table(debts)
+            self.current_debts = self.load_debts()
+            self.update_debts_table(self.current_debts)
             
             self.page.update()
         except Exception as e:
@@ -282,7 +445,7 @@ class ReportsView:
                     ),
                     ft.DataCell(ft.Text(debt[6].strftime("%d/%m/%Y") if debt[6] else "N/A", color=text_color)), # due_date
                     # Días vencida: cálculo si es pendiente y la fecha de vencimiento es anterior a hoy
-                    ft.DataCell(ft.Text(str((datetime.now().date() - debt[6].date()).days) if debt[5] == 'pending' and debt[6] and datetime.now().date() > debt[6].date() else "-", color=text_color))
+                    ft.DataCell(ft.Text(str((datetime.now().date() - debt[6]).days) if debt[5] == 'pending' and debt[6] and datetime.now().date() > debt[6] else "-", color=text_color))
                 ]
             ) for debt in debts
         ]
@@ -326,16 +489,32 @@ class ReportsView:
                 'total_payments': int(payment_stats[1]) if payment_stats and payment_stats[1] is not None else 0
             })
 
-            # Pagos pendientes (total de deudas marcadas como pendientes)
+            # Monto total de deudas pendientes (todas, no solo vencidas)
             cursor.execute("""
-                SELECT COALESCE(SUM(amount - paid_amount), 0) as pending_debts_amount
+                SELECT COALESCE(SUM(amount - paid_amount), 0) as total_pending_debts_amount
                 FROM debts
-                WHERE status = 'pending' AND due_date < CURRENT_DATE -- Deudas pendientes que hayan vencido
-                AND created_at BETWEEN %s AND %s -- Mantener el filtro de rango de fecha de creación
+                WHERE status = 'pending'
+                AND created_at BETWEEN %s AND %s
             """, (self.start_date, self.end_date))
-            pending_debts_stats = cursor.fetchone()
+            total_pending_debts_stats = cursor.fetchone()
             stats.update({
-                'pending_debts_amount': float(pending_debts_stats[0]) if pending_debts_stats and pending_debts_stats[0] is not None else 0.0
+                'total_pending_debts_amount': float(total_pending_debts_stats[0]) if total_pending_debts_stats and total_pending_debts_stats[0] is not None else 0.0
+            })
+
+            # Monto total de deudas vencidas (solo las que están pending Y due_date < CURRENT_DATE)
+            cursor.execute("""
+                SELECT 
+                    COALESCE(SUM(amount - paid_amount), 0) as overdue_debts_amount,
+                    COUNT(*) as overdue_count
+                FROM debts
+                WHERE status = 'pending'
+                AND due_date < CURRENT_DATE
+                AND created_at BETWEEN %s AND %s
+            """, (self.start_date, self.end_date))
+            overdue_stats = cursor.fetchone()
+            stats.update({
+                'overdue_debts_amount': float(overdue_stats[0]) if overdue_stats and overdue_stats[0] is not None else 0.0,
+                'overdue_count': int(overdue_stats[1]) if overdue_stats and overdue_stats[1] is not None else 0
             })
             
             # Métodos de pago más usados
@@ -349,36 +528,6 @@ class ReportsView:
             """, (self.start_date, self.end_date))
             popular_method = cursor.fetchone()
             stats['popular_payment_method'] = popular_method[0] if popular_method else "N/A"
-            
-            # Deudas totales y número de deudas
-            cursor.execute("""
-                SELECT 
-                    COALESCE(SUM(amount), 0) as total_debts,
-                    COUNT(*) as count_debts
-                FROM debts
-                WHERE created_at BETWEEN %s AND %s
-            """, (self.start_date, self.end_date))
-            debt_stats = cursor.fetchone()
-            stats.update({
-                'total_debts': float(debt_stats[0]) if debt_stats and debt_stats[0] is not None else 0.0,
-                'count_debts': int(debt_stats[1]) if debt_stats and debt_stats[1] is not None else 0
-            })
-            
-            # Deudas vencidas (que su due_date es anterior a hoy Y status es 'pending')
-            cursor.execute("""
-                SELECT 
-                    COALESCE(SUM(amount - paid_amount), 0) as overdue_amount,
-                    COUNT(*) as overdue_count
-                FROM debts
-                WHERE status = 'pending'
-                AND due_date < CURRENT_DATE
-                AND created_at BETWEEN %s AND %s
-            """, (self.start_date, self.end_date))
-            overdue_stats = cursor.fetchone()
-            stats.update({
-                'overdue_amount': float(overdue_stats[0]) if overdue_stats and overdue_stats[0] is not None else 0.0,
-                'overdue_count': int(overdue_stats[1]) if overdue_stats and overdue_stats[1] is not None else 0
-            })
             
             # Clientes nuevos
             cursor.execute("""
@@ -410,12 +559,12 @@ class ReportsView:
             ft.ResponsiveRow([
                 self._build_stat_card("Pagos Registrados", stats['total_payments'], 
                                 ft.icons.PAYMENT, ft.colors.TEAL_400),
-                self._build_stat_card("Deudas Pendientes", f"${stats['pending_debts_amount']:,.2f}",
-                                ft.icons.PENDING, ft.colors.AMBER_400),
-                self._build_stat_card("Deudas Totales", f"${stats['total_debts']:,.2f}", 
-                                ft.icons.MONEY_OFF, ft.colors.RED_400),
-                self._build_stat_card("Deudas Vencidas", stats['overdue_count'], 
-                                ft.icons.WARNING, ft.colors.DEEP_ORANGE_400)
+                self._build_stat_card("Total Deudas Pendientes", f"${stats['total_pending_debts_amount']:,.2f}", # Cambiado
+                                ft.icons.RECEIPT_LONG, ft.colors.AMBER_400), # Cambiado
+                self._build_stat_card("Monto Deudas Vencidas", f"${stats['overdue_debts_amount']:,.2f}", # Cambiado
+                                ft.icons.WARNING, ft.colors.RED_400), # Cambiado
+                self._build_stat_card("Deudas Vencidas (Conteo)", stats['overdue_count'], # Cambiado
+                                ft.icons.WARNING, ft.colors.DEEP_ORANGE_400) # Cambiado
             ])
         ])
         self.page.update() # Asegurar que la fila de estadísticas se actualice
@@ -499,10 +648,16 @@ class ReportsView:
                         WHEN status = 'pending' THEN 'Pendientes'
                         ELSE 'Pagadas'
                     END as status_category,
-                    COALESCE(SUM(amount - paid_amount), 0) as total_amount
+                    COALESCE(
+                        CASE
+                            WHEN status = 'pending' THEN SUM(amount - paid_amount)
+                            WHEN status = 'paid' THEN SUM(amount) -- Suma el monto total para deudas pagadas
+                            ELSE 0
+                        END, 0
+                    ) as total_amount
                 FROM debts
                 WHERE created_at BETWEEN %s AND %s
-                GROUP BY status_category
+                GROUP BY status_category, status -- Añadir status al GROUP BY
             """, (self.start_date, self.end_date))
             chart_data['debts_by_status'] = {
                 category: float(amount) if amount is not None else 0.0
@@ -857,9 +1012,47 @@ class ReportsView:
         """Muestra el detalle de una cita específica."""
         show_snackbar(self.page, f"Ver detalle de cita ID: {appointment_id}", "info")
 
-    def export_to_pdf(self):
+    async def export_to_pdf(self):
         """Exporta el reporte actual a PDF."""
-        show_snackbar(self.page, "Funcionalidad de exportar a PDF no implementada aún.", "info")
+        # Recopilar todos los datos necesarios para el PDF
+        self._temp_report_data = {
+            'stats': self.current_stats,
+            'appointments': self.current_appointments,
+            'payments': self.current_payments,
+            'debts': self.current_debts
+        }
+        
+        # Abrir el diálogo para guardar el archivo
+        # Añadir un pequeño retraso para permitir que Flet's internal mechanisms se sincronicen
+        await asyncio.sleep(0.1) 
+        if self.file_picker and hasattr(self.file_picker, 'save_file') and callable(self.file_picker.save_file):
+            self.file_picker.save_file(
+                file_name=f"reporte_odontologico_{datetime.now().strftime('%Y%m%d%H%M%S')}.pdf",
+                allowed_extensions=["pdf"]
+            )
+            self.page.update() # Asegurarse de que la UI se actualice después de abrir el diálogo
+        else:
+            logger.error(f"Error: self.file_picker o su método save_file no está disponible. self.file_picker: {self.file_picker}")
+            show_snackbar(self.page, "Error interno: El sistema de guardado de archivos no está listo.", "error")
+
+    async def _on_file_picker_result(self, e: ft.FilePickerResultEvent):
+        """Maneja el resultado del diálogo de FilePicker (la ruta seleccionada)."""
+        logger.info(f"Resultado del FilePicker: {e.path}")
+        if e.path:
+            if self._temp_report_data:
+                try:
+                    generator = ReportGenerator()
+                    success, message = generator.generate_report_pdf(e.path, self._temp_report_data, self.start_date, self.end_date)
+                    show_snackbar(self.page, message, "success" if success else "error")
+                    self._temp_report_data = None # Limpiar datos temporales
+                except Exception as ex:
+                    logger.error(f"Error al generar PDF en _on_file_picker_result: {ex}")
+                    show_snackbar(self.page, f"Error al generar PDF: {ex}", "error")
+            else:
+                show_snackbar(self.page, "Error: Datos del reporte no disponibles para generar el PDF.", "error")
+        else:
+            show_snackbar(self.page, "Operación de guardado de PDF cancelada.", "info")
+
 
     def _create_appointments_table(self):
         """
@@ -936,7 +1129,8 @@ class ReportsView:
         header_text_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
         heading_row_bgcolor = ft.colors.GREY_200 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_700
         border_color = ft.colors.GREY_300 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_600
-        line_color = ft.colors.GREEN_200 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_700
+        line_color = ft.colors.GREY_200 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_700
+
 
         return ft.DataTable(
             columns=[
@@ -972,6 +1166,9 @@ class ReportsView:
                 self.page.overlay.remove(self.start_date_picker)
             if self.end_date_picker in self.page.overlay:
                 self.page.overlay.remove(self.end_date_picker)
+            # Asegurarse de remover el FilePicker también
+            if self.file_picker in self.page.overlay:
+                self.page.overlay.remove(self.file_picker)
             self.page.update()
         except Exception as e:
             logger.error(f"Error en cleanup: {str(e)}")
@@ -1001,9 +1198,11 @@ class ReportsView:
             self.page.overlay.remove(self.start_date_picker)
         if self.end_date_picker in self.page.overlay:
             self.page.overlay.remove(self.end_date_picker)
+        if self.file_picker in self.page.overlay: # Remover también el FilePicker
+            self.page.overlay.remove(self.file_picker)
         
-        # Volver a agregar los datepickers
-        self.page.overlay.extend([self.start_date_picker, self.end_date_picker])
+        # Volver a agregar los datepickers y el filepicker
+        self.page.overlay.extend([self.start_date_picker, self.end_date_picker, self.file_picker])
 
         # Colores para el contenido principal
         main_content_bgcolor = ft.colors.WHITE if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_800
@@ -1033,7 +1232,32 @@ class ReportsView:
                     tabs,
                     self.general_report_container,
                     self.payments_report_container,
-                    self.debts_report_container
+                    self.debts_report_container,
+                    # Nuevo contenedor para el botón Generar PDF al final de la página
+                    ft.Container(
+                        content=ft.Row(
+                            [
+                                ft.ElevatedButton(
+                                    text="Generar PDF del Reporte", # Texto más descriptivo
+                                    icon=ft.icons.PICTURE_AS_PDF,
+                                    on_click=lambda e: self.page.run_task(self.export_to_pdf),
+                                    height=50, # Ligeramente más alto
+                                    width=250, # Ancho fijo para consistencia
+                                    style=ft.ButtonStyle(
+                                        bgcolor=ft.colors.BLUE_700, # Color principal de la app
+                                        color=ft.colors.WHITE,
+                                        shape=ft.RoundedRectangleBorder(radius=10), # Bordes redondeados
+                                        padding=ft.padding.symmetric(horizontal=20, vertical=10),
+                                        elevation=5, # Sombra para efecto 3D
+                                        animation_duration=300
+                                    )
+                                )
+                            ],
+                            alignment=ft.MainAxisAlignment.CENTER # Centrar el botón horizontalmente
+                        ),
+                        padding=ft.padding.symmetric(vertical=20), # Espacio alrededor del botón
+                        alignment=ft.alignment.center # Centrar el contenedor en sí
+                    )
                 ],
                 scroll=ft.ScrollMode.AUTO,
                 spacing=20,

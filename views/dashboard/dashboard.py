@@ -5,6 +5,7 @@ from services.appointment_service import AppointmentService, get_appointment_tre
 from services.client_service import ClientService
 from services.stats_service import StatsService
 from services.payment_service import PaymentService # Importar PaymentService
+from services.preference_service import PreferenceService # Importar el nuevo servicio
 from utils.date_utils import format_date
 from utils.widgets import build_stat_card
 import logging
@@ -27,6 +28,7 @@ class DashboardView:
         self.client_service = ClientService()
         self.stats_service = StatsService()
         self.payment_service = PaymentService() # Inicializar PaymentService
+        self.preference_service = PreferenceService() # Inicializar PreferenceService
         
         # Cargar datos iniciales
         self.load_data()
@@ -111,7 +113,7 @@ class DashboardView:
                     ),
                     ft.PopupMenuItem(
                         text="Salir",
-                        icon=ft.icons.LANGUAGE,
+                        icon=ft.icons.EXIT_TO_APP, # Cambiado a un ícono más apropiado para "Salir"
                         on_click=lambda e: self.page.go("/login")
                     ),
                     ft.PopupMenuItem(), # Separador
@@ -141,6 +143,13 @@ class DashboardView:
         # Definir la función para cambiar el tema
         def apply_theme(e):
             selected_mode = theme_dropdown.value
+            
+            # Asumimos un user_id fijo (por ejemplo, 1) para guardar la preferencia.
+            # En una aplicación real, esto se manejaría con el user_id del usuario autenticado.
+            user_id_for_preferences = 1 
+            self.preference_service.save_user_theme(user_id_for_preferences, selected_mode)
+            logger.info(f"Tema guardado para el usuario {user_id_for_preferences}: {selected_mode}")
+
             if selected_mode == "light":
                 self.page.theme_mode = ft.ThemeMode.LIGHT
                 self._show_success("Tema cambiado a Claro")

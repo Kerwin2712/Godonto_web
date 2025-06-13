@@ -391,7 +391,8 @@ class CalendarView:
                             ),
                             ft.PopupMenuItem(
                                 text="Editar",
-                                on_click=lambda e, a=appointment: self.page.go(f"/appointment_form?id={a[0]}")
+                                on_click=lambda e, a=appointment: self.page.go(f"/appointment_form/{a[0]}")
+                                #on_click=lambda e: self.page.go(f"/appointment_form/{appointment.id}")
                             )
                         ]
                     )
