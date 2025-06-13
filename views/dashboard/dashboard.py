@@ -136,7 +136,7 @@ class DashboardView:
         """Muestra opciones de tema"""
         
         # Obtener el valor inicial del tema de la página
-        initial_theme_value = str(self.page.theme_mode) # Convertir a string para la comparación con opciones del Dropdown
+        initial_theme_value = str(self.page.theme_mode).lower() # Convertir a string para la comparación con opciones del Dropdown
 
         # Definir la función para cambiar el tema
         def apply_theme(e):
@@ -147,8 +147,8 @@ class DashboardView:
                 theme_dialog.open = False
             elif selected_mode == "dark":
                 self.page.theme_mode = ft.ThemeMode.DARK
-                theme_dialog.open = False
                 self._show_success("Tema cambiado a Oscuro")
+                theme_dialog.open = False
             
             # Es crucial actualizar el AppBar y la vista completa para que los colores se apliquen
             # al nuevo tema de la página, especialmente en modo oscuro.
@@ -575,10 +575,10 @@ class DashboardView:
         """Muestra confirmación para cambiar estado de cita"""
         def handle_confirm(e):
             self._change_appointment_status(appointment_id, new_status)
-            # Cerrar el diálogo, si aún está abierto
-            if self.page.dialog and self.page.dialog.open:
+            # Asegura que el diálogo se cierre siempre.
+            if self.page.dialog is not None and self.page.dialog.open:
                 self.page.dialog.open = False 
-                self.page.update()
+            self.page.update()
         
         # Ajusta colores del diálogo de confirmación
         dialog_bg_color = ft.colors.WHITE if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_800
@@ -589,7 +589,7 @@ class DashboardView:
             title=ft.Text("Confirmar acción", color=dialog_text_color),
             content=ft.Text(f"¿Marcar cita con {client_name} como {new_status}?", color=dialog_text_color),
             actions=[
-                ft.TextButton("Cancelar", on_click=lambda e: setattr(e.control.page.dialog, "open", False),
+                ft.TextButton("Cancelar", on_click=lambda e: setattr(self.page.dialog, "open", False), # Refiere directamente a self.page.dialog
                               style=ft.ButtonStyle(color=dialog_text_color)),
                 ft.TextButton("Confirmar", on_click=handle_confirm,
                               style=ft.ButtonStyle(color=ft.colors.BLUE_500)),
@@ -602,26 +602,16 @@ class DashboardView:
     def _change_appointment_status(self, appointment_id, new_status):
         """Cambia el estado de una cita"""
         try:
-            # Aquí está el cambio clave: 'update_appointment_status' devuelve un solo booleano.
-            # Por lo tanto, no se debe intentar desempaquetar en 'success, message'.
             success = self.appointment_service.update_appointment_status(appointment_id, new_status)
             
             if success:
-                # Si la cita fue cancelada, intentar borrar la deuda asociada
+                # Si la cita fue cancelada, eliminar la deuda asociada
                 if new_status == 'cancelled':
-                    appointment_details = get_appointment_by_id(appointment_id) # Obtener detalles completos
-                    if appointment_details and hasattr(appointment_details, 'client_id'):
-                        client_id = appointment_details.client_id
-                        treatments = get_appointment_treatments(appointment_id)
-                        for t in treatments:
-                            debt_description_prefix = f"Tratamiento: {t['name']}"
-                            debt_deleted = self.payment_service.delete_debt_by_description_and_client(client_id, debt_description_prefix)
-                            if debt_deleted:
-                                logger.info(f"Deuda '{debt_description_prefix}' para cliente {client_id} eliminada al cancelar cita {appointment_id}.")
-                            else:
-                                logger.warning(f"No se encontró deuda '{debt_description_prefix}' para eliminar o falló la eliminación para cliente {client_id} al cancelar cita {appointment_id}.")
+                    debt_deleted = self.payment_service.delete_debts_by_appointment_id(appointment_id)
+                    if debt_deleted:
+                        logger.info(f"Deuda asociada a la cita {appointment_id} eliminada al cancelar.")
                     else:
-                        logger.warning(f"No se pudo obtener client_id para la cita {appointment_id} al intentar borrar la deuda.")
+                        logger.warning(f"No se encontró deuda asociada a la cita {appointment_id} para eliminar o falló la eliminación al cancelar.")
 
 
                 # Recargar datos y actualizar vista
@@ -645,10 +635,10 @@ class DashboardView:
         def delete_confirmed(e):
             if e.control.data: # Si el botón "Sí" fue presionado
                 self._delete_appointment(appointment_id)
-            # Cerrar el diálogo, si aún está abierto
-            if self.page.dialog and self.page.dialog.open:
+            # Asegura que el diálogo se cierre siempre.
+            if self.page.dialog is not None and self.page.dialog.open:
                 self.page.dialog.open = False 
-                self.page.update()
+            self.page.update()
 
         # Ajusta colores del diálogo de confirmación
         dialog_bg_color = ft.colors.WHITE if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_800
@@ -673,7 +663,6 @@ class DashboardView:
     def _delete_appointment(self, appointment_id: int):
         """Elimina una cita."""
         try:
-            # Aquí también 'delete_appointment' devuelve un booleano.
             success = self.appointment_service.delete_appointment(appointment_id)
             if success:
                 self.load_data() # Recargar los datos del dashboard
@@ -707,16 +696,16 @@ class DashboardView:
         dialog_bg_color = ft.colors.WHITE if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_800
         dialog_text_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
 
-        dlg = ft.AlertDialog(
+        # Asegúrate de que el diálogo se asigne a self.page.dialog para que pueda ser cerrado
+        self.page.dialog = ft.AlertDialog(
             title=ft.Text("Error", color=dialog_text_color),
             content=ft.Text(message, color=dialog_text_color),
-            actions=[ft.TextButton("OK", on_click=lambda e: setattr(dlg, "open", False),
+            actions=[ft.TextButton("OK", on_click=lambda e: setattr(self.page.dialog, "open", False), # Usa self.page.dialog aquí
                                    style=ft.ButtonStyle(color=ft.colors.BLUE_500))
 ],
             bgcolor=dialog_bg_color # Color de fondo del diálogo
         )
-        self.page.open(dlg)
-        dlg.open = True
+        self.page.open(self.page.dialog) # Abre el diálogo desde la página
         self.page.update()
 
 
@@ -724,4 +713,3 @@ def dashboard_view(page: ft.Page):
     """Función de fábrica para la vista del dashboard"""
     dashboard = DashboardView(page)
     return dashboard.build_view()
-

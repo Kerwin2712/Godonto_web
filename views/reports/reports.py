@@ -1,6 +1,6 @@
 import flet as ft
 from datetime import datetime, timedelta
-from core.database import get_db, Database
+from core.database import get_db # Asumo que Database.get_connection() es el get_db del core
 from utils.date_utils import (
     format_date,
     get_month_name,
@@ -12,22 +12,18 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# NOTA: build_bar_chart, build_pie_chart y build_stat_card
-# se asume que están definidos en utils.widgets y se importan implícitamente
-# o directamente. Para este código, los referiremos como si estuvieran disponibles.
-
 class ReportsView:
     def __init__(self, page: ft.Page):
         self.page = page
-        self.report_type = 'monthly'
-        self.end_date = datetime.now().date() + timedelta(days=30)
-        self.start_date = self.end_date - timedelta(days=60) 
+        self.report_type = 'monthly' # Tipo de reporte inicial
+        self.end_date = datetime.now().date() + timedelta(days=60) # Inicializa end_date a hoy
+        self.start_date = self.end_date - timedelta(days=120) # Inicializa start_date a 60 días antes
         
-        # Componentes UI principales
+        # Componentes UI principales para el diseño
         self.stats_row = ft.ResponsiveRow(spacing=20, run_spacing=20)
         self.charts_column = ft.Column(spacing=20)
         
-        # DatePickers
+        # DatePickers para rango de fechas personalizado
         self.start_date_picker = ft.DatePicker(
             first_date=datetime(2020, 1, 1),
             last_date=datetime(2030, 12, 31),
@@ -40,25 +36,34 @@ class ReportsView:
             on_change=lambda e: self.handle_date_change(e, is_start_date=False)
         )
         
+        # Añadir DatePickers al overlay de la página (se limpian en cleanup)
         self.page.overlay.extend([self.start_date_picker, self.end_date_picker])
         
-        # Textos para fechas (el color se actualizará en _build_report_selector)
+        # Textos para mostrar las fechas seleccionadas
         self.start_date_text = ft.Text(format_date(self.start_date))
         self.end_date_text = ft.Text(format_date(self.end_date))
         
-        # Escuchar cambios de tamaño de pantalla
+        # Escuchar cambios de tamaño de pantalla para la responsividad
         self.page.on_resize = self.handle_resize
 
-        # Inicializar el selector de fechas
+        # Inicializar el selector de fechas y tipo de reporte
         self.report_selector = self._build_report_selector()
 
         # Inicializar tablas (ahora como métodos de instancia)
+        # Se crean aquí para que sus referencias existan cuando se construya la vista
         self.appointments_table = self._create_appointments_table()
         self.payments_table = self._create_payments_table()
         self.debts_table = self._create_debts_table()
 
+        # Contenedores para las diferentes pestañas
+        self.general_report_container = ft.Container(content=ft.Column(), visible=True, expand=True)
+        self.payments_report_container = ft.Container(content=ft.Column(), visible=False, expand=True)
+        self.debts_report_container = ft.Container(content=ft.Column(), visible=False, expand=True)
+
+
     def handle_resize(self, e):
         """Maneja el cambio de tamaño de la pantalla."""
+        # Al redimensionar, la vista se actualizará automáticamente si los controles son responsive
         self.page.update()
 
     def handle_date_change(self, e, is_start_date):
@@ -76,11 +81,21 @@ class ReportsView:
             # Asegurarse de que end_date no sea menor que start_date
             if self.end_date < self.start_date:
                 self.end_date = self.start_date
-                self.end_date_picker.value = datetime(self.start_date.year, self.start_date.month, self.start_date.day) # Sincroniza el DatePicker
+                # Sincroniza el DatePicker y el texto para reflejar la corrección
+                self.end_date_picker.value = datetime(self.start_date.year, self.start_date.month, self.start_date.day) 
                 self.end_date_text.value = format_date(self.start_date)
-                show_snackbar(self.page, "La fecha final no puede ser anterior a la inicial", "warning")
+                show_snackbar(self.page, "La fecha final no puede ser anterior a la inicial.", "warning")
             
-            self.load_data()
+            # Al cambiar manualmente las fechas, el tipo de reporte se considera 'custom'
+            self.report_type = 'custom' 
+            # Actualizar el Dropdown del selector de reportes para reflejar 'Personalizado'
+            for control in self.report_selector.controls[0].controls: # Acceder al Dropdown
+                if isinstance(control, ft.Dropdown) and control.label == "Tipo de Reporte":
+                    control.value = 'custom'
+                    control.update()
+                    break
+
+            self.load_data() # Recargar datos con el nuevo rango
         except Exception as ex:
             logger.error(f"Error al cambiar fecha: {str(ex)}")
             show_snackbar(self.page, f"Error al cambiar fecha: {str(ex)}", "error")
@@ -90,7 +105,8 @@ class ReportsView:
         Actualiza el rango de fechas según el tipo de reporte.
         Agregado 'init_load' para evitar sobreescritura si las fechas vienen de un estado inicial.
         """
-        if not init_load: # Solo actualiza si no es la carga inicial para preservar fechas personalizadas
+        # Solo actualiza si no es la carga inicial o si el tipo de reporte no es 'custom'
+        if not init_load and self.report_type != 'custom': 
             today = datetime.now().date()
             
             if self.report_type == 'daily':
@@ -101,8 +117,8 @@ class ReportsView:
             elif self.report_type == 'monthly':
                 self.start_date = today.replace(day=1)
                 self.end_date = get_last_day_of_month(today)
-            # Para 'custom', las fechas se manejan directamente por los DatePickers
             
+            # Sincronizar los DatePickers y Textos
             self.start_date_picker.value = datetime(self.start_date.year, self.start_date.month, self.start_date.day)
             self.end_date_picker.value = datetime(self.end_date.year, self.end_date.month, self.end_date.day)
             self.start_date_text.value = format_date(self.start_date)
@@ -112,8 +128,8 @@ class ReportsView:
     def update_report_type(self, e):
         """Actualiza el tipo de reporte seleccionado y el rango de fechas."""
         self.report_type = e.control.value
-        self.update_date_range()
-        self.load_data()
+        self.update_date_range() # Actualiza el rango de fechas según el tipo
+        self.load_data() # Recarga los datos con el nuevo rango
 
     def load_data(self):
         """Carga todos los datos para los reportes."""
@@ -141,30 +157,33 @@ class ReportsView:
     def load_payments(self):
         """Carga los pagos para mostrar en la tabla."""
         try:
-            with Database.get_connection() as conn:
-                with conn.cursor() as cursor:
-                    # NOTA: Asegúrate de que la tabla 'payments' tenga 'appointment_id'
-                    # y que 'clients' tenga 'name' para que esta consulta funcione.
-                    # Asumo que la relación es payments -> appointments -> clients.
-                    cursor.execute("""
-                        SELECT 
-                            p.id,
-                            p.payment_date,
-                            c.name,
-                            p.method,
-                            p.amount,
-                            p.status,
-                            p.invoice_number
-                        FROM payments p
-                        LEFT JOIN appointments a ON p.appointment_id = a.id
-                        LEFT JOIN clients c ON a.client_id = c.id
-                        WHERE p.payment_date BETWEEN %s AND %s
-                        ORDER BY p.payment_date DESC
-                        LIMIT 100
-                    """, (self.start_date, self.end_date))
-                    results = cursor.fetchall()
-                    logger.info(f"Pagos cargados: {len(results)} registros")
-                    return results
+            with get_db() as cursor: # Usar get_db directamente si es un contexto manager
+                cursor.execute("""
+                    SELECT 
+                        p.id,
+                        p.payment_date,
+                        c.name,
+                        p.method,
+                        p.amount,
+                        p.status,
+                        p.invoice_number
+                    FROM payments p
+                    JOIN clients c ON p.client_id = c.id
+                    WHERE p.payment_date BETWEEN %s AND %s
+                    ORDER BY p.payment_date DESC
+                    LIMIT 100
+                """, (self.start_date, self.end_date))
+                results = cursor.fetchall()
+                logger.info(f"Pagos cargados: {len(results)} registros")
+                
+                # Convertir Decimal a float al cargar
+                return [
+                    (
+                        row[0], row[1], row[2], row[3], 
+                        float(row[4]) if row[4] is not None else 0.0, # Convertir amount a float
+                        row[5], row[6]
+                    ) for row in results
+                ]
         except Exception as e:
             logger.error(f"Error al cargar pagos: {str(e)}")
             return []
@@ -180,8 +199,8 @@ class ReportsView:
                     cells=[
                         ft.DataCell(ft.Text(payment[1].strftime("%d/%m/%Y") if payment[1] else "N/A", color=text_color)),
                         ft.DataCell(ft.Text(payment[2] if payment[2] else "N/A", color=text_color)), # client_name
-                        ft.DataCell(ft.Text(payment[3] if payment[3] else "N/A", color=text_color)), # method
-                        ft.DataCell(ft.Text(f"${float(payment[4]):,.2f}" if payment[4] else "$0.00", color=text_color)), # amount
+                        ft.DataCell(ft.Text(f"${payment[4]:,.2f}" if payment[4] is not None else "$0.00", color=text_color)), # amount (ya es float)
+                        ft.DataCell(ft.Text(payment[3] if payment[3] else "N/A", color=text_color)), # method (index changed from 3 to 2)
                         ft.DataCell(
                             ft.Container(
                                 content=ft.Text(str(payment[5]).capitalize() if payment[5] else "N/A", color=ft.colors.WHITE), # status
@@ -205,8 +224,8 @@ class ReportsView:
 
     def load_debts(self):
         """Carga las deudas para mostrar en la tabla."""
-        with Database.get_connection() as conn:
-            with conn.cursor() as cursor:
+        try:
+            with get_db() as cursor:
                 cursor.execute("""
                     SELECT 
                         d.id,
@@ -215,14 +234,29 @@ class ReportsView:
                         d.amount,
                         d.description,
                         d.status,
-                        EXTRACT(DAY FROM (CURRENT_DATE - d.created_at))::int as days_overdue
+                        d.due_date,
+                        d.paid_amount
                     FROM debts d
                     JOIN clients c ON d.client_id = c.id
                     WHERE d.created_at BETWEEN %s AND %s
-                    ORDER BY days_overdue DESC
+                    ORDER BY d.created_at DESC
                     LIMIT 100
                 """, (self.start_date, self.end_date))
-                return cursor.fetchall()
+                results = cursor.fetchall()
+                logger.info(f"Deudas cargadas: {len(results)} registros")
+
+                # Convertir Decimal a float al cargar
+                return [
+                    (
+                        row[0], row[1], row[2], 
+                        float(row[3]) if row[3] is not None else 0.0, # amount a float
+                        row[4], row[5], row[6], 
+                        float(row[7]) if row[7] is not None else 0.0 # paid_amount a float
+                    ) for row in results
+                ]
+        except Exception as e:
+            logger.error(f"Error al cargar deudas: {str(e)}")
+            return []
 
     def update_debts_table(self, debts):
         """Actualiza la tabla de deudas."""
@@ -234,18 +268,21 @@ class ReportsView:
                 cells=[
                     ft.DataCell(ft.Text(debt[1], color=text_color)), # client_name
                     ft.DataCell(ft.Text(debt[2].strftime("%d/%m/%Y"), color=text_color)), # created_at
-                    ft.DataCell(ft.Text(f"${debt[3]:,.2f}", color=text_color)), # amount
+                    ft.DataCell(ft.Text(f"${debt[3]:,.2f}", color=text_color)), # amount (ya es float)
+                    ft.DataCell(ft.Text(f"${debt[7]:,.2f}", color=text_color)), # paid_amount (ya es float)
+                    ft.DataCell(ft.Text(f"${debt[3] - debt[7]:,.2f}", color=text_color)), # remaining amount (ambos ya son float)
                     ft.DataCell(ft.Text(debt[4] or "N/A", color=text_color)), # description
                     ft.DataCell(
                         ft.Container(
-                            content=ft.Text("Vencida" if debt[5] == 'pending' and (datetime.now().date() - debt[2].date()).days > 30 else "Pendiente", color=ft.colors.WHITE),
+                            content=ft.Text(str(debt[5]).capitalize() if debt[5] else "N/A", color=ft.colors.WHITE), # status
                             padding=5,
-                            # Ajustar colores de estado para modo oscuro
-                            bgcolor=ft.colors.RED_700 if debt[5] == 'pending' and (datetime.now().date() - debt[2].date()).days > 30 else ft.colors.ORANGE_700,
+                            bgcolor=ft.colors.GREEN_700 if str(debt[5]).lower() == 'paid' else ft.colors.ORANGE_700, # Verde si pagada, Naranja si pendiente
                             border_radius=5
                         )
                     ),
-                    ft.DataCell(ft.Text(str((datetime.now().date() - debt[2].date()).days) if debt[5] == 'pending' else "-", color=text_color))
+                    ft.DataCell(ft.Text(debt[6].strftime("%d/%m/%Y") if debt[6] else "N/A", color=text_color)), # due_date
+                    # Días vencida: cálculo si es pendiente y la fecha de vencimiento es anterior a hoy
+                    ft.DataCell(ft.Text(str((datetime.now().date() - debt[6].date()).days) if debt[5] == 'pending' and debt[6] and datetime.now().date() > debt[6].date() else "-", color=text_color))
                 ]
             ) for debt in debts
         ]
@@ -256,112 +293,113 @@ class ReportsView:
         """Carga estadísticas generales desde la base de datos."""
         stats = {}
         
-        with Database.get_connection() as conn:
-            with conn.cursor() as cursor:
-                # Estadísticas de citas
-                cursor.execute("""
-                    SELECT 
-                        COUNT(*) as total,
-                        SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
-                        SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as cancelled,
-                        SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending
-                    FROM appointments 
-                    WHERE date BETWEEN %s AND %s
-                """, (self.start_date, self.end_date))
-                appointment_stats = cursor.fetchone()
-                stats.update({
-                    'total_appointments': appointment_stats[0] or 0,
-                    'completed_appointments': appointment_stats[1] or 0,
-                    'cancelled_appointments': appointment_stats[2] or 0,
-                    'pending_appointments': appointment_stats[3] or 0
-                })
-                
-                # Estadísticas financieras (pagos completados)
-                cursor.execute("""
-                    SELECT 
-                        COALESCE(SUM(amount), 0) as total_revenue,
-                        COUNT(*) as total_payments
-                    FROM payments
-                    WHERE status = 'completed' AND payment_date BETWEEN %s AND %s
-                """, (self.start_date, self.end_date))
-                payment_stats = cursor.fetchone()
-                stats.update({
-                    'total_revenue': payment_stats[0],
-                    'total_payments': payment_stats[1]
-                })
+        with get_db() as cursor:
+            # Estadísticas de citas
+            cursor.execute("""
+                SELECT 
+                    COUNT(*) as total,
+                    SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
+                    SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as cancelled,
+                    SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending
+                FROM appointments 
+                WHERE date BETWEEN %s AND %s
+            """, (self.start_date, self.end_date))
+            appointment_stats = cursor.fetchone()
+            stats.update({
+                'total_appointments': int(appointment_stats[0]) if appointment_stats and appointment_stats[0] is not None else 0,
+                'completed_appointments': int(appointment_stats[1]) if appointment_stats and appointment_stats[1] is not None else 0,
+                'cancelled_appointments': int(appointment_stats[2]) if appointment_stats and appointment_stats[2] is not None else 0,
+                'pending_appointments': int(appointment_stats[3]) if appointment_stats and appointment_stats[3] is not None else 0
+            })
+            
+            # Estadísticas financieras (pagos completados)
+            cursor.execute("""
+                SELECT 
+                    COALESCE(SUM(amount), 0) as total_revenue,
+                    COUNT(*) as total_payments
+                FROM payments
+                WHERE payment_date BETWEEN %s AND %s
+            """, (self.start_date, self.end_date))
+            payment_stats = cursor.fetchone()
+            stats.update({
+                'total_revenue': float(payment_stats[0]) if payment_stats and payment_stats[0] is not None else 0.0,
+                'total_payments': int(payment_stats[1]) if payment_stats and payment_stats[1] is not None else 0
+            })
 
-                # Pagos pendientes (total de deudas marcadas como pendientes)
-                cursor.execute("""
-                    SELECT COALESCE(SUM(amount), 0) as pending_payments_amount
-                    FROM debts
-                    WHERE status = 'pending' AND due_date <= %s
-                """, (self.end_date,)) # Deudas pendientes hasta la fecha de fin
-                pending_payments_stats = cursor.fetchone()
-                stats.update({
-                    'pending_payments': pending_payments_stats[0]
-                })
-                
-                # Métodos de pago más usados
-                cursor.execute("""
-                    SELECT method, COUNT(*) as count
-                    FROM payments
-                    WHERE status = 'completed'
-                    AND payment_date BETWEEN %s AND %s
-                    GROUP BY method
-                    ORDER BY count DESC
-                    LIMIT 1
-                """, (self.start_date, self.end_date))
-                popular_method = cursor.fetchone()
-                stats['popular_payment_method'] = popular_method[0] if popular_method else "N/A"
-                
-                # Deudas totales y número de deudas
-                cursor.execute("""
-                    SELECT 
-                        COALESCE(SUM(amount), 0) as total_debts,
-                        COUNT(*) as count_debts
-                    FROM debts
-                    WHERE created_at BETWEEN %s AND %s
-                """, (self.start_date, self.end_date))
-                debt_stats = cursor.fetchone()
-                stats.update({
-                    'total_debts': debt_stats[0],
-                    'count_debts': debt_stats[1]
-                })
-                
-                # Deudas vencidas (que su created_at está antes de hoy menos 30 días Y status es 'pending')
-                cursor.execute("""
-                    SELECT 
-                        COALESCE(SUM(amount), 0) as overdue_amount,
-                        COUNT(*) as overdue_count
-                    FROM debts
-                    WHERE status = 'pending'
-                    AND created_at < CURRENT_DATE - INTERVAL '30 days'
-                    AND created_at BETWEEN %s AND %s
-                """, (self.start_date, self.end_date))
-                overdue_stats = cursor.fetchone()
-                stats.update({
-                    'overdue_amount': overdue_stats[0],
-                    'overdue_count': overdue_stats[1]
-                })
-                
-                # Clientes nuevos
-                cursor.execute("""
-                    SELECT COUNT(*) 
-                    FROM clients 
-                    WHERE created_at BETWEEN %s AND %s
-                """, (self.start_date, self.end_date))
-                stats['new_clients'] = cursor.fetchone()[0]
+            # Pagos pendientes (total de deudas marcadas como pendientes)
+            cursor.execute("""
+                SELECT COALESCE(SUM(amount - paid_amount), 0) as pending_debts_amount
+                FROM debts
+                WHERE status = 'pending' AND due_date < CURRENT_DATE -- Deudas pendientes que hayan vencido
+                AND created_at BETWEEN %s AND %s -- Mantener el filtro de rango de fecha de creación
+            """, (self.start_date, self.end_date))
+            pending_debts_stats = cursor.fetchone()
+            stats.update({
+                'pending_debts_amount': float(pending_debts_stats[0]) if pending_debts_stats and pending_debts_stats[0] is not None else 0.0
+            })
+            
+            # Métodos de pago más usados
+            cursor.execute("""
+                SELECT method, COUNT(*) as count
+                FROM payments
+                WHERE payment_date BETWEEN %s AND %s
+                GROUP BY method
+                ORDER BY count DESC
+                LIMIT 1
+            """, (self.start_date, self.end_date))
+            popular_method = cursor.fetchone()
+            stats['popular_payment_method'] = popular_method[0] if popular_method else "N/A"
+            
+            # Deudas totales y número de deudas
+            cursor.execute("""
+                SELECT 
+                    COALESCE(SUM(amount), 0) as total_debts,
+                    COUNT(*) as count_debts
+                FROM debts
+                WHERE created_at BETWEEN %s AND %s
+            """, (self.start_date, self.end_date))
+            debt_stats = cursor.fetchone()
+            stats.update({
+                'total_debts': float(debt_stats[0]) if debt_stats and debt_stats[0] is not None else 0.0,
+                'count_debts': int(debt_stats[1]) if debt_stats and debt_stats[1] is not None else 0
+            })
+            
+            # Deudas vencidas (que su due_date es anterior a hoy Y status es 'pending')
+            cursor.execute("""
+                SELECT 
+                    COALESCE(SUM(amount - paid_amount), 0) as overdue_amount,
+                    COUNT(*) as overdue_count
+                FROM debts
+                WHERE status = 'pending'
+                AND due_date < CURRENT_DATE
+                AND created_at BETWEEN %s AND %s
+            """, (self.start_date, self.end_date))
+            overdue_stats = cursor.fetchone()
+            stats.update({
+                'overdue_amount': float(overdue_stats[0]) if overdue_stats and overdue_stats[0] is not None else 0.0,
+                'overdue_count': int(overdue_stats[1]) if overdue_stats and overdue_stats[1] is not None else 0
+            })
+            
+            # Clientes nuevos
+            cursor.execute("""
+                SELECT COUNT(*) 
+                FROM clients 
+                WHERE created_at BETWEEN %s AND %s
+            """, (self.start_date, self.end_date))
+            new_clients_result = cursor.fetchone() # Capturar el resultado en una variable
+            stats['new_clients'] = int(new_clients_result[0]) if new_clients_result and new_clients_result[0] is not None else 0
         
         return stats
 
     def update_stats_row(self, stats):
         """Actualiza la fila de estadísticas con datos financieros."""
-        self.stats_row.controls = [
+        self.stats_row.controls.clear() # Limpiar antes de añadir nuevos controles
+        self.stats_row.controls.extend([
             ft.ResponsiveRow([
                 # Ajustar colores de las tarjetas de estadísticas para modo oscuro
                 self._build_stat_card("Citas Totales", stats['total_appointments'], 
                                 ft.icons.CALENDAR_TODAY, ft.colors.BLUE_400),
-                self._build_stat_card("Completadas", stats['completed_appointments'], 
+                self._build_stat_card("Citas Completadas", stats['completed_appointments'], 
                                 ft.icons.CHECK_CIRCLE, ft.colors.GREEN_400),
                 self._build_stat_card("Ingresos Total", f"${stats['total_revenue']:,.2f}", 
                                 ft.icons.ATTACH_MONEY, ft.colors.PURPLE_400),
@@ -372,14 +410,14 @@ class ReportsView:
             ft.ResponsiveRow([
                 self._build_stat_card("Pagos Registrados", stats['total_payments'], 
                                 ft.icons.PAYMENT, ft.colors.TEAL_400),
-                self._build_stat_card("Deudas Pendientes", f"${stats['pending_payments']:,.2f}", 
+                self._build_stat_card("Deudas Pendientes", f"${stats['pending_debts_amount']:,.2f}",
                                 ft.icons.PENDING, ft.colors.AMBER_400),
                 self._build_stat_card("Deudas Totales", f"${stats['total_debts']:,.2f}", 
                                 ft.icons.MONEY_OFF, ft.colors.RED_400),
                 self._build_stat_card("Deudas Vencidas", stats['overdue_count'], 
                                 ft.icons.WARNING, ft.colors.DEEP_ORANGE_400)
             ])
-        ]
+        ])
         self.page.update() # Asegurar que la fila de estadísticas se actualice
 
     def _build_stat_card(self, title: str, value: any, icon: ft.icons, color: str):
@@ -428,85 +466,85 @@ class ReportsView:
         """Carga datos para gráficos incluyendo información financiera."""
         chart_data = {}
         
-        with Database.get_connection() as conn:
-            with conn.cursor() as cursor:
-                # Datos de citas por estado (Pie Chart)
+        with get_db() as cursor:
+            # Datos de citas por estado (Pie Chart)
+            cursor.execute("""
+                SELECT status, COUNT(*) 
+                FROM appointments 
+                WHERE date BETWEEN %s AND %s
+                GROUP BY status
+            """, (self.start_date, self.end_date))
+            chart_data['appointments_by_status'] = {
+                status: int(count) if count is not None else 0 
+                for status, count in cursor.fetchall()
+            }
+            
+            # Datos de ingresos por método de pago (Pie Chart)
+            cursor.execute("""
+                SELECT method, SUM(amount)
+                FROM payments
+                WHERE payment_date BETWEEN %s AND %s
+                GROUP BY method
+            """, (self.start_date, self.end_date))
+            chart_data['revenue_by_method'] = {
+                method: float(amount) if amount is not None else 0.0
+                for method, amount in cursor.fetchall()
+            }
+            
+            # Datos de deudas por estado (Pie Chart - Distinción entre pendientes y vencidas)
+            cursor.execute("""
+                SELECT 
+                    CASE 
+                        WHEN status = 'pending' AND due_date < CURRENT_DATE THEN 'Vencidas'
+                        WHEN status = 'pending' THEN 'Pendientes'
+                        ELSE 'Pagadas'
+                    END as status_category,
+                    COALESCE(SUM(amount - paid_amount), 0) as total_amount
+                FROM debts
+                WHERE created_at BETWEEN %s AND %s
+                GROUP BY status_category
+            """, (self.start_date, self.end_date))
+            chart_data['debts_by_status'] = {
+                category: float(amount) if amount is not None else 0.0
+                for category, amount in cursor.fetchall()
+            }
+            
+            # Datos temporales de ingresos (Bar Chart)
+            if self.report_type == 'daily':
                 cursor.execute("""
-                    SELECT status, COUNT(*) 
-                    FROM appointments 
-                    WHERE date BETWEEN %s AND %s
-                    GROUP BY status
-                """, (self.start_date, self.end_date))
-                chart_data['appointments_by_status'] = dict(cursor.fetchall())
-                
-                # Datos de ingresos por método de pago (Pie Chart)
-                cursor.execute("""
-                    SELECT method, SUM(amount)
+                    SELECT DATE(payment_date), SUM(amount)
                     FROM payments
-                    WHERE status = 'completed'
-                    AND payment_date BETWEEN %s AND %s
-                    GROUP BY method
+                    WHERE payment_date BETWEEN %s AND %s
+                    GROUP BY DATE(payment_date)
+                    ORDER BY DATE(payment_date)
                 """, (self.start_date, self.end_date))
-                chart_data['revenue_by_method'] = dict(cursor.fetchall())
-                
-                # Datos de deudas por estado (Pie Chart)
+                chart_data['revenue_over_time'] = [(date, float(amount) if amount is not None else 0.0) for date, amount in cursor.fetchall()]
+            elif self.report_type == 'weekly':
                 cursor.execute("""
-                    SELECT 
-                        CASE 
-                            WHEN created_at < CURRENT_DATE - INTERVAL '30 days' THEN 'Vencidas'
-                            ELSE 'Pendientes'
-                        END as status,
-                        COALESCE(SUM(amount), 0) as total_amount
-                    FROM debts
-                    WHERE status = 'pending'
-                    AND created_at BETWEEN %s AND %s
-                    GROUP BY 
-                        CASE 
-                            WHEN created_at < CURRENT_DATE - INTERVAL '30 days' THEN 'Vencidas'
-                            ELSE 'Pendientes'
-                        END
+                    SELECT EXTRACT(YEAR FROM payment_date)::int, 
+                        EXTRACT(WEEK FROM payment_date)::int, 
+                        SUM(amount)
+                    FROM payments
+                    WHERE payment_date BETWEEN %s AND %s
+                    GROUP BY EXTRACT(YEAR FROM payment_date), EXTRACT(WEEK FROM payment_date)
+                    ORDER BY EXTRACT(YEAR FROM payment_date), EXTRACT(WEEK FROM payment_date)
                 """, (self.start_date, self.end_date))
-                chart_data['debts_by_status'] = dict(cursor.fetchall())
-                
-                # Datos temporales de ingresos (Bar Chart)
-                if self.report_type == 'daily':
-                    cursor.execute("""
-                        SELECT DATE(payment_date), SUM(amount)
-                        FROM payments
-                        WHERE status = 'completed'
-                        AND payment_date BETWEEN %s AND %s
-                        GROUP BY DATE(payment_date)
-                        ORDER BY DATE(payment_date)
-                    """, (self.start_date, self.end_date))
-                    chart_data['revenue_over_time'] = [(date, float(amount)) for date, amount in cursor.fetchall()]
-                elif self.report_type == 'weekly':
-                    cursor.execute("""
-                        SELECT EXTRACT(YEAR FROM payment_date)::int, 
-                            EXTRACT(WEEK FROM payment_date)::int, 
-                            SUM(amount)
-                        FROM payments
-                        WHERE status = 'completed'
-                        AND payment_date BETWEEN %s AND %s
-                        GROUP BY EXTRACT(YEAR FROM payment_date), EXTRACT(WEEK FROM payment_date)
-                        ORDER BY EXTRACT(YEAR FROM payment_date), EXTRACT(WEEK FROM payment_date)
-                    """, (self.start_date, self.end_date))
-                    chart_data['revenue_over_time'] = [
-                        (f"Semana {int(week)}", float(amount)) for year, week, amount in cursor.fetchall()
-                    ]
-                else:  # monthly
-                    cursor.execute("""
-                        SELECT EXTRACT(YEAR FROM payment_date)::int, 
-                            EXTRACT(MONTH FROM payment_date)::int, 
-                            SUM(amount)
-                        FROM payments
-                        WHERE status = 'completed'
-                        AND payment_date BETWEEN %s AND %s
-                        GROUP BY EXTRACT(YEAR FROM payment_date), EXTRACT(MONTH FROM payment_date)
-                        ORDER BY EXTRACT(YEAR FROM payment_date), EXTRACT(MONTH FROM payment_date)
-                    """, (self.start_date, self.end_date))
-                    chart_data['revenue_over_time'] = [
-                        (get_month_name(int(month)), float(amount)) for year, month, amount in cursor.fetchall()
-                    ]
+                chart_data['revenue_over_time'] = [
+                    (f"Semana {int(week)}", float(amount) if amount is not None else 0.0) for year, week, amount in cursor.fetchall()
+                ]
+            else:  # monthly (o cualquier otro por defecto a mensual)
+                cursor.execute("""
+                    SELECT EXTRACT(YEAR FROM payment_date)::int, 
+                        EXTRACT(MONTH FROM payment_date)::int, 
+                        SUM(amount)
+                    FROM payments
+                    WHERE payment_date BETWEEN %s AND %s
+                    GROUP BY EXTRACT(YEAR FROM payment_date), EXTRACT(MONTH FROM payment_date)
+                    ORDER BY EXTRACT(YEAR FROM payment_date), EXTRACT(MONTH FROM payment_date)
+                """, (self.start_date, self.end_date))
+                chart_data['revenue_over_time'] = [
+                    (get_month_name(int(month)), float(amount) if amount is not None else 0.0) for year, month, amount in cursor.fetchall()
+                ]
         
         return chart_data
 
@@ -541,7 +579,8 @@ class ReportsView:
             data=chart_data.get('debts_by_status', {}),
             colors={
                 'Vencidas': ft.colors.RED_500,
-                'Pendientes': ft.colors.AMBER_500
+                'Pendientes': ft.colors.AMBER_500,
+                'Pagadas': ft.colors.GREEN_500 # Si una deuda está "Pagada" completamente
             }
         )
         
@@ -558,7 +597,8 @@ class ReportsView:
 
         # Colores para el contenedor de los gráficos
         chart_container_border_color = ft.colors.GREY_300 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_600
-        
+        chart_container_bgcolor = ft.colors.WHITE if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_700
+
         self.charts_column.controls.extend([
             ft.ResponsiveRow([
                 ft.Column([
@@ -568,7 +608,8 @@ class ReportsView:
                         border=ft.border.all(1, chart_container_border_color),
                         border_radius=5,
                         expand=True,
-                        height=300
+                        height=300,
+                        bgcolor=chart_container_bgcolor
                     )
                 ], col={"sm": 12, "lg": 6}),
                 ft.Column([
@@ -578,7 +619,8 @@ class ReportsView:
                         border=ft.border.all(1, chart_container_border_color),
                         border_radius=5,
                         expand=True,
-                        height=300
+                        height=300,
+                        bgcolor=chart_container_bgcolor
                     )
                 ], col={"sm": 12, "lg": 6})
             ]),
@@ -590,17 +632,19 @@ class ReportsView:
                         border=ft.border.all(1, chart_container_border_color),
                         border_radius=5,
                         expand=True,
-                        height=300
+                        height=300,
+                        bgcolor=chart_container_bgcolor
                     )
                 ], col={"sm": 12, "lg": 6}),
-                ft.Column([
+                 ft.Column([
                     ft.Container(
                         content=debts_status_chart,
                         padding=10,
                         border=ft.border.all(1, chart_container_border_color),
                         border_radius=5,
                         expand=True,
-                        height=300
+                        height=300,
+                        bgcolor=chart_container_bgcolor
                     )
                 ], col={"sm": 12, "lg": 6})
             ])
@@ -613,19 +657,19 @@ class ReportsView:
         axis_label_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
         grid_line_color = ft.colors.GREY_300 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_500
         tooltip_bgcolor = ft.colors.with_opacity(0.8, ft.colors.GREY_800) if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.with_opacity(0.9, ft.colors.BLUE_GREY_900)
+        border_color = ft.colors.GREY_300 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_600
 
         if not data:
             return ft.Column([
                 ft.Text(title, size=16, weight="bold", color=chart_title_color), 
                 ft.Text("No hay datos disponibles para este período.", italic=True, color=chart_title_color)
-            ])
+            ], expand=True, alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
 
         processed_data = []
         for item in data:
             if isinstance(item, tuple) and len(item) == 2:
                 processed_data.append((str(item[0]), float(item[1])))
             else:
-                # Esto es un fallback, idealmente `data` siempre debería ser una lista de tuplas de 2 elementos
                 processed_data.append((str(item), float(item))) 
 
         bars = [
@@ -651,17 +695,15 @@ class ReportsView:
             ft.Text(title, size=16, weight="bold", color=chart_title_color),
             ft.BarChart(
                 bar_groups=bars,
-                border=ft.border.all(1, ft.colors.GREY_300 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_600),
+                border=ft.border.all(1, border_color),
                 left_axis=ft.ChartAxis(
                     labels_size=40,
                     title=ft.Text(y_label, size=12, color=axis_label_color),
-                    # MODIFICACIÓN: Cambiado 'labels_style' a 'labels' y se le pasa una lista de ft.ChartAxisLabel
-                    # Si solo necesitas el color del texto de la etiqueta, puedes hacerlo a través de un ft.Text en ChartAxisLabel
                     labels=[
                         ft.ChartAxisLabel(
-                            value=i, # Usa el valor numérico para la posición
-                            label=ft.Text(f"${val:,.0f}", color=axis_label_color) # Formato y color para la etiqueta del eje Y
-                        ) for i, val in enumerate(range(0, int(max_y_val * 1.2) + 1, int(max_y_val * 0.2))) # Ejemplo de labels numéricos
+                            value=i, 
+                            label=ft.Text(f"${val:,.0f}", color=axis_label_color)
+                        ) for i, val in enumerate(range(0, int(max_y_val * 1.2) + 1, max(1, int(max_y_val * 0.2 // 100) * 100))) # Ajustar rango de etiquetas
                     ]
                 ),
                 bottom_axis=ft.ChartAxis(
@@ -681,9 +723,9 @@ class ReportsView:
                 tooltip_bgcolor=tooltip_bgcolor,
                 interactive=True,
                 expand=True,
-                max_y=max_y_val * 1.2 # Añade un poco de espacio en la parte superior
+                max_y=max_y_val * 1.2
             ),
-        ], spacing=10, expand=True) # expand=True para que el gráfico se adapte a su columna
+        ], spacing=10, expand=True)
 
     def _build_pie_chart(self, title: str, data: dict, colors: dict = None):
         """Construye un gráfico de pastel mejorado."""
@@ -694,40 +736,38 @@ class ReportsView:
             return ft.Column([
                 ft.Text(title, size=16, weight="bold", color=chart_title_color), 
                 ft.Text("No hay datos disponibles para este período.", italic=True, color=chart_title_color)
-            ])
+            ], expand=True, alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
         
         total = sum(data.values())
         
         sections = []
-        # Definir colores más suaves para modo oscuro, si no están ya en 'colors'
-        default_dark_colors = [
-            ft.colors.BLUE_GREY_400, ft.colors.DEEP_ORANGE_400, ft.colors.TEAL_400,
-            ft.colors.CYAN_400, ft.colors.INDIGO_400, ft.colors.LIME_400
+        default_light_colors = [
+            ft.colors.BLUE_500, ft.colors.GREEN_500, ft.colors.ORANGE_500,
+            ft.colors.PURPLE_500, ft.colors.TEAL_500, ft.colors.RED_500
         ]
+        default_dark_colors = [
+            ft.colors.BLUE_300, ft.colors.GREEN_300, ft.colors.ORANGE_300,
+            ft.colors.PURPLE_300, ft.colors.TEAL_300, ft.colors.RED_300
+        ]
+        
+        current_default_colors = default_dark_colors if self.page.theme_mode == ft.ThemeMode.DARK else default_light_colors
         color_index = 0
         
         for key, value in data.items():
             percentage = value / total * 100
             
-            # Asignar colores, priorizando los pasados, luego los adaptativos
-            # CAMBIO: Usar 'key' directamente en lugar de 'key.capitalize()'
-            section_color = colors.get(key, 
-                                       default_dark_colors[color_index % len(default_dark_colors)]) if colors and self.page.theme_mode == ft.ThemeMode.DARK else \
-                            colors.get(key, ft.colors.BLUE_GREY_400) # Default para modo claro
-            
-            # Incrementar índice para usar el siguiente color por defecto
-            if key not in colors or self.page.theme_mode == ft.ThemeMode.DARK:
-                color_index += 1
+            section_color = colors.get(key, current_default_colors[color_index % len(current_default_colors)])
+            color_index += 1
 
             sections.append(
                 ft.PieChartSection(
                     value=value,
                     title=f"{percentage:.1f}%",
                     color=section_color,
-                    radius=80, # Tamaño del radio
+                    radius=80,
                     title_style=ft.TextStyle(
                         size=14,
-                        color=ft.colors.WHITE, # Texto del porcentaje siempre blanco para contraste
+                        color=ft.colors.WHITE, 
                         weight="bold"
                     ),
                 )
@@ -738,47 +778,58 @@ class ReportsView:
             ft.PieChart(
                 sections=sections,
                 sections_space=1,
-                center_space_radius=0, # Elimina el espacio central para un pastel completo
+                center_space_radius=0, 
                 expand=True,
             ),
-            ft.Column( # Leyenda
+            ft.Column( 
                 controls=[
                     ft.Row([
                         ft.Container(
                             width=16,
                             height=16,
-                            # CAMBIO: Usar 'key' directamente en lugar de 'key.capitalize()'
-                            bgcolor=colors.get(key, ft.colors.BLUE_GREY_400) if colors else ft.colors.BLUE_GREY_400, # Color del cuadrado en la leyenda
+                            bgcolor=colors.get(key, current_default_colors[i % len(current_default_colors)]), 
                             border_radius=8,
                             margin=ft.margin.only(right=5)
                         ),
                         ft.Text(f"{key}: {value} (${value:,.2f})" if "Ingresos" in title or "Deudas" in title else f"{key}: {value}",
-                                color=legend_text_color), # Color del texto de la leyenda
+                                color=legend_text_color),
                     ])
-                    for key, value in data.items()
+                    for i, (key, value) in enumerate(data.items())
                 ],
                 wrap=True,
                 spacing=5
             )
-        ], spacing=10, expand=True) # expand=True para que el gráfico se adapte a su columna
+        ], spacing=10, expand=True)
 
     def load_recent_appointments(self):
         """Carga las citas para mostrar en la tabla."""
-        with Database.get_connection() as conn:
-            with conn.cursor() as cursor:
+        try:
+            with get_db() as cursor:
                 cursor.execute("""
                     SELECT a.id, c.name, a.date, a.time, a.status, 
-                        COALESCE(SUM(p.amount), 0) as amount_paid,
-                        a.notes
+                        COALESCE(SUM(t.price), 0) as total_treatments_amount -- Sumar los precios de los tratamientos asociados
                     FROM appointments a
                     JOIN clients c ON a.client_id = c.id
-                    LEFT JOIN payments p ON a.id = p.appointment_id
+                    LEFT JOIN appointment_treatments at ON a.id = at.appointment_id
+                    LEFT JOIN treatments t ON at.treatment_id = t.id
                     WHERE a.date BETWEEN %s AND %s
-                    GROUP BY a.id, c.name, a.date, a.time, a.status, a.notes
+                    GROUP BY a.id, c.name, a.date, a.time, a.status
                     ORDER BY a.date DESC, a.time DESC
                     LIMIT 50
                 """, (self.start_date, self.end_date))
-                return cursor.fetchall()
+                results = cursor.fetchall()
+                logger.info(f"Citas cargadas para tabla: {len(results)} registros")
+                
+                # Convertir Decimal a float al cargar
+                return [
+                    (
+                        row[0], row[1], row[2], row[3], row[4], 
+                        float(row[5]) if row[5] is not None else 0.0 # Convertir total_treatments_amount a float
+                    ) for row in results
+                ]
+        except Exception as e:
+            logger.error(f"Error al cargar citas recientes para tabla: {str(e)}")
+            return []
 
     def update_appointments_table(self, appointments):
         """Actualiza la tabla de citas."""
@@ -795,7 +846,7 @@ class ReportsView:
                         ft.Text(appt[4].capitalize(), color=text_color), # status
                         on_tap=lambda e, a_id=appt[0]: self.show_appointment_detail(a_id)
                     ),
-                    ft.DataCell(ft.Text(f"${appt[5]:,.2f}", color=text_color)) # amount_paid
+                    ft.DataCell(ft.Text(f"${appt[5]:,.2f}", color=text_color)) # total_treatments_amount (ya es float)
                 ]
             ) for appt in appointments
         ]
@@ -804,8 +855,6 @@ class ReportsView:
 
     def show_appointment_detail(self, appointment_id):
         """Muestra el detalle de una cita específica."""
-        # Puedes navegar a una vista de detalle de cita o mostrar un diálogo
-        # Por ahora, solo muestra un snackbar.
         show_snackbar(self.page, f"Ver detalle de cita ID: {appointment_id}", "info")
 
     def export_to_pdf(self):
@@ -828,7 +877,7 @@ class ReportsView:
                 ft.DataColumn(ft.Text("Cliente", color=header_text_color)),
                 ft.DataColumn(ft.Text("Hora", color=header_text_color)),
                 ft.DataColumn(ft.Text("Estado", color=header_text_color)),
-                ft.DataColumn(ft.Text("Monto Pagado", color=header_text_color), numeric=True)
+                ft.DataColumn(ft.Text("Monto Tratamientos", color=header_text_color), numeric=True)
             ],
             rows=[],
             border=ft.border.all(1, border_color),
@@ -857,7 +906,7 @@ class ReportsView:
 
         return ft.DataTable(
             columns=[
-                ft.DataColumn(ft.Text("Fecha", color=header_text_color)),
+                ft.DataColumn(ft.Text("Fecha Pago", color=header_text_color)),
                 ft.DataColumn(ft.Text("Cliente", color=header_text_color)),
                 ft.DataColumn(ft.Text("Método", color=header_text_color)),
                 ft.DataColumn(ft.Text("Monto", color=header_text_color), numeric=True),
@@ -887,15 +936,18 @@ class ReportsView:
         header_text_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
         heading_row_bgcolor = ft.colors.GREY_200 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_700
         border_color = ft.colors.GREY_300 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_600
-        line_color = ft.colors.GREY_200 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_700
+        line_color = ft.colors.GREEN_200 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_700
 
         return ft.DataTable(
             columns=[
                 ft.DataColumn(ft.Text("Cliente", color=header_text_color)),
-                ft.DataColumn(ft.Text("Fecha Deuda", color=header_text_color)),
-                ft.DataColumn(ft.Text("Monto", color=header_text_color), numeric=True),
+                ft.DataColumn(ft.Text("Fecha Creación", color=header_text_color)),
+                ft.DataColumn(ft.Text("Monto Total", color=header_text_color), numeric=True),
+                ft.DataColumn(ft.Text("Monto Pagado", color=header_text_color), numeric=True),
+                ft.DataColumn(ft.Text("Monto Restante", color=header_text_color), numeric=True),
                 ft.DataColumn(ft.Text("Descripción", color=header_text_color)),
                 ft.DataColumn(ft.Text("Estado", color=header_text_color)),
+                ft.DataColumn(ft.Text("Fecha Vencimiento", color=header_text_color)),
                 ft.DataColumn(ft.Text("Días Vencida", color=header_text_color), numeric=True)
             ],
             rows=[],
@@ -944,7 +996,7 @@ class ReportsView:
 
     def build_view(self):
         """Construye y devuelve la vista completa de reportes."""
-        # Limpiar overlays existentes para evitar duplicados
+        # Limpiar overlays existentes para evitar duplicados al reconstruir la vista
         if self.start_date_picker in self.page.overlay:
             self.page.overlay.remove(self.start_date_picker)
         if self.end_date_picker in self.page.overlay:
@@ -955,35 +1007,30 @@ class ReportsView:
 
         # Colores para el contenido principal
         main_content_bgcolor = ft.colors.WHITE if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_800
-        section_title_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
-        divider_color = ft.colors.GREY_300 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_600
-
+        
         tabs = ft.Tabs(
             selected_index=0,
             animation_duration=300,
             tabs=[
-                # Los colores de las pestañas se ajustan con el tema, no necesitan cambio explícito aquí
                 ft.Tab(text="Resumen General", icon=ft.icons.DASHBOARD),
                 ft.Tab(text="Pagos", icon=ft.icons.PAYMENT),
                 ft.Tab(text="Deudas", icon=ft.icons.MONEY_OFF),
             ],
             expand=1,
-            on_change=self._handle_tab_change, # Usar el método de instancia
+            on_change=self._handle_tab_change,
         )
         
-        # Se crean los contenedores con una propiedad 'data' para fácil acceso
-        self.general_report_container = ft.Container(content=self._build_general_report_content(), visible=True, data="general_report_content", expand=True)
-        self.payments_report_container = ft.Container(content=self._build_payments_report_content(), visible=False, data="payments_report_content", expand=True)
-        self.debts_report_container = ft.Container(content=self._build_debts_report_content(), visible=False, data="debts_report_content", expand=True)
+        # Asignar contenido a los contenedores de las pestañas
+        self.general_report_container.content = self._build_general_report_content()
+        self.payments_report_container.content = self._build_payments_report_content()
+        self.debts_report_container.content = self._build_debts_report_content()
 
 
-        # Se envuelve el Column con un Container para aplicar el padding
         content_with_padding = ft.Container(
             content=ft.Column(
                 controls=[
-                    self.report_selector, # Selector de tipo de reporte y fechas
+                    self.report_selector,
                     tabs,
-                    # Contenedores para los diferentes reportes
                     self.general_report_container,
                     self.payments_report_container,
                     self.debts_report_container
@@ -992,26 +1039,24 @@ class ReportsView:
                 spacing=20,
                 expand=True,
             ),
-            padding=ft.padding.symmetric(horizontal=20, vertical=10), # Aplicar padding aquí
-            expand=True, # Asegurar que el contenedor también se expanda
-            bgcolor=main_content_bgcolor # Aplicar color de fondo al contenido principal
+            padding=ft.padding.symmetric(horizontal=20, vertical=10),
+            expand=True,
+            bgcolor=main_content_bgcolor
         )
         
-        # Cargar datos después de que la vista esté construida
-        self.load_data()
+        self.load_data() # Cargar datos después de que la vista esté construida y los controles estén inicializados
         
         return ft.View(
             "/reports",
             controls=[
-                self._build_appbar(), # Agregar el AppBar aquí
-                content_with_padding # Usar el contenedor con padding
+                self._build_appbar(),
+                content_with_padding
             ],
-            padding=0 # Eliminar padding del View para que el AppBar ocupe todo el ancho
+            padding=0
         )
 
     def _handle_tab_change(self, e):
         """Maneja el cambio de pestañas para mostrar el reporte correcto."""
-        # Acceder a los contenedores directamente usando sus referencias
         self.general_report_container.visible = False
         self.payments_report_container.visible = False
         self.debts_report_container.visible = False
@@ -1038,19 +1083,19 @@ class ReportsView:
         
         return ft.Column([
             ft.Text("Resumen Estadístico", size=20, weight="bold", color=section_title_color),
-            self.stats_row, # Ya es un ResponsiveRow
+            self.stats_row, 
             ft.Divider(color=divider_color),
             ft.Text("Visualización de Datos", size=20, weight="bold", color=section_title_color),
-            self.charts_column, # Ya es un Column
+            self.charts_column,
             ft.Divider(color=divider_color),
             ft.Text("Detalle de Citas Recientes", size=20, weight="bold", color=section_title_color),
             ft.Container(
                 content=self.appointments_table,
                 border=ft.border.all(1, table_border_color),
                 border_radius=5,
-                height=300, # Altura fija o flexible según necesidad
+                height=300,
                 expand=True,
-                bgcolor=table_container_bgcolor # Fondo para el contenedor de la tabla
+                bgcolor=table_container_bgcolor
             )
         ], spacing=15, expand=True)
 
@@ -1069,9 +1114,9 @@ class ReportsView:
                 content=self.payments_table,
                 border=ft.border.all(1, table_border_color),
                 border_radius=5,
-                height=500, # Altura fija o flexible
+                height=500,
                 expand=True,
-                bgcolor=table_container_bgcolor # Fondo para el contenedor de la tabla
+                bgcolor=table_container_bgcolor
             )
         ], spacing=15, expand=True)
 
@@ -1090,9 +1135,9 @@ class ReportsView:
                 content=self.debts_table,
                 border=ft.border.all(1, table_border_color),
                 border_radius=5,
-                height=500, # Altura fija o flexible
+                height=500,
                 expand=True,
-                bgcolor=table_container_bgcolor # Fondo para el contenedor de la tabla
+                bgcolor=table_container_bgcolor
             )
         ], spacing=15, expand=True)
 
@@ -1198,15 +1243,4 @@ def reports_view(page: ft.Page):
         view.cleanup()
         page.go(e.route)
     
-    # Reemplazar el manejador de ruta temporalmente (para propósitos de prueba si es necesario)
-    # En una aplicación real con manejo de rutas robusto, esto se maneja de otra manera.
-    # original_on_route_change = page.on_route_change
-    # page.on_route_change = on_close
-    
-    built_view = view.build_view()
-    
-    # Restaurar el manejador original después de construir la vista
-    # page.on_route_change = original_on_route_change
-    
-    return built_view
-
+    return view.build_view()

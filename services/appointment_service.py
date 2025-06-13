@@ -1,14 +1,14 @@
+import psycopg2
 from datetime import datetime, time, date, timedelta
 from typing import List, Optional, Tuple
 from core.database import get_db
 from models.appointment import Appointment
-from services.payment_service import PaymentService
+from services.payment_service import PaymentService # Importa PaymentService
 from utils.validators import Validators
 from utils.date_utils import is_working_hours, is_future_datetime
 from .observable import Observable
 import logging
 logger = logging.getLogger(__name__)
-#print
 
 # Define or import the notify_all function
 def notify_all(event_type: str, data: dict):
@@ -76,7 +76,7 @@ class AppointmentService(Observable):
             if not is_future_datetime(appointment_dt):
                 return False, "No se pueden agendar citas en el pasado"
             
-            with get_db() as cursor:
+            with get_db() as cursor: # Inicia la transacción para la cita y sus deudas
                 # Obtener datos del cliente
                 cursor.execute(
                     "SELECT name, cedula FROM clients WHERE id = %s",
@@ -121,10 +121,13 @@ class AppointmentService(Observable):
                     
                     # Crear deuda asociada si hay tratamientos con costo
                     if total_debt > 0:
+                        # Pasa el cursor de la transacción actual a PaymentService.create_debt
                         PaymentService().create_debt(
                             client_id=client_id,
                             amount=total_debt,
-                            description=f"Tratamientos para cita #{appointment_id}"
+                            description=f"Tratamientos para cita #{appointment_id}",
+                            appointment_id=appointment_id,
+                            cursor=cursor
                         )
 
                 return True, f"Cita creada exitosamente (ID: {appointment_id})"
@@ -184,7 +187,7 @@ class AppointmentService(Observable):
             return False, "No hay campos válidos para actualizar"
             
         try:
-            with get_db() as cursor:
+            with get_db() as cursor: # Inicia la transacción para la actualización
                 # Actualizar campos de la cita principal
                 if updates:
                     set_clause = ", ".join([f"{field} = %s" for field in updates.keys()])
@@ -228,21 +231,26 @@ class AppointmentService(Observable):
                         else:
                             logger.warning(f"Tratamiento incompleto, no se pudo añadir a la cita: {treatment}")
                     
-                    # Actualizar deuda asociada (esto es una simplificación, en un caso real
-                    # podrías querer ajustar la deuda existente en lugar de solo crear una nueva)
-                    # Por simplicidad, aquí se crea una nueva deuda por los nuevos tratamientos
-                    # o se podría buscar la deuda existente y actualizarla.
-                    # Para una gestión de deuda más robusta, se necesitaría un enfoque más sofisticado.
-                    # Por ahora, eliminaremos las deudas anteriores de tratamientos de esta cita y crearemos una nueva
-                    PaymentService().delete_debt_by_description_and_client(
-                        client_id=updates.get('client_id', self.get_appointment_by_id(appointment_id).client_id), # Asegura que tenemos el client_id
-                        description_prefix=f"Tratamientos para cita #{appointment_id}"
+                    # Eliminar deudas anteriores asociadas a esta cita antes de crear las nuevas
+                    # Esto es importante para evitar duplicados si la cita se actualiza varias veces.
+                    cursor.execute(
+                        """
+                        DELETE FROM debts
+                        WHERE appointment_id = %s;
+                        """,
+                        (appointment_id,)
                     )
+                    # La línea PaymentService().delete_debt_by_description_and_client fue eliminada aquí
+                    # porque es redundante y causaba el error de atributo.
+
                     if total_debt > 0:
+                        # Pasa el cursor de la transacción actual a PaymentService.create_debt
                         PaymentService().create_debt(
-                            client_id=updates.get('client_id', self.get_appointment_by_id(appointment_id).client_id),
+                            client_id=kwargs.get('client_id', self.get_appointment_by_id(appointment_id).client_id),
                             amount=total_debt,
-                            description=f"Tratamientos para cita #{appointment_id}"
+                            description=f"Tratamientos para cita #{appointment_id}",
+                            appointment_id=appointment_id,
+                            cursor=cursor
                         )
 
 
@@ -275,9 +283,7 @@ class AppointmentService(Observable):
                     current_time not in booked_times
                 ))
                 # Añadir 30 minutos
-                # Esto puede causar problemas al pasar de 23:30 a 00:00 del día siguiente.
-                # Una forma más robusta sería usar timedelta.
-                current_datetime = datetime.combine(date.today(), current_time) # Usar una fecha dummy para timedelta
+                current_datetime = datetime.combine(date.today(), current_time)
                 current_datetime += timedelta(minutes=30)
                 current_time = current_datetime.time()
                 
@@ -370,7 +376,7 @@ class AppointmentService(Observable):
                 
         except Exception as e:
             logger.error(f"Error en get_upcoming_appointments: {str(e)}")
-            return []  # Devuelve lista vacía en lugar de None
+            return []
     
     @staticmethod
     def get_appointments(limit: int = 10, offset: int = 0, filters: dict = None) -> List[Appointment]:
@@ -434,20 +440,56 @@ class AppointmentService(Observable):
 
     @staticmethod
     def delete_appointment(appointment_id: int) -> bool:
-        """Elimina una cita por su ID"""
-        with get_db() as cursor:
-            cursor.execute("DELETE FROM appointments WHERE id = %s", (appointment_id,))
-            return cursor.rowcount > 0
-        
+        """
+        Elimina una cita por su ID y todas las deudas asociadas a ella.
+        """
+        try:
+            with get_db() as cursor:
+                # Iniciar una transacción
+                cursor.execute("BEGIN;") 
+                
+                # Paso 1: Eliminar las deudas asociadas a esta cita
+                # Esta consulta ahora funcionará una vez que la tabla 'debts' tenga 'appointment_id'
+                cursor.execute(
+                    """
+                    DELETE FROM debts
+                    WHERE appointment_id = %s;
+                    """,
+                    (appointment_id,)
+                )
+                logger.info(f"Eliminadas {cursor.rowcount} deudas asociadas a la cita {appointment_id}.")
+
+                # Paso 2: Eliminar la cita
+                cursor.execute(
+                    """
+                    DELETE FROM appointments
+                    WHERE id = %s;
+                    """,
+                    (appointment_id,)
+                )
+                if cursor.rowcount > 0:
+                    cursor.execute("COMMIT;") # Confirmar la transacción
+                    logger.info(f"Cita con ID {appointment_id} eliminada con éxito.")
+                    return True
+                else:
+                    cursor.execute("ROLLBACK;") # Revertir si la cita no se encontró
+                    logger.warning(f"No se encontró la cita con ID {appointment_id} para eliminar.")
+                    return False
+        except Exception as e:
+            cursor.execute("ROLLBACK;") # Revertir en caso de error
+            logger.error(f"Error al eliminar cita con ID {appointment_id} y sus deudas asociadas: {e}")
+            return False
 
 # Funciones de conveniencia para mantener compatibilidad
 def create_appointment(*args, **kwargs):
+    # Asegúrate de que se pase la instancia de AppointmentService si es un método de instancia
     return AppointmentService.create_appointment(*args, **kwargs)
 
 def get_appointment_by_id(*args, **kwargs):
     return AppointmentService.get_appointment_by_id(*args, **kwargs)
 
 def update_appointment(*args, **kwargs):
+    # Asegúrate de que se pase la instancia de AppointmentService si es un método de instancia
     return AppointmentService.update_appointment(*args, **kwargs)
 
 def search_available_slots(*args, **kwargs):
@@ -456,7 +498,7 @@ def search_available_slots(*args, **kwargs):
 def validate_appointment_time(*args, **kwargs):
     return AppointmentService.validate_appointment_time(*args, **kwargs)
 
-def search_clients(*args, **kwargs):  # ¡Añade esta línea!
+def search_clients(*args, **kwargs):
     return AppointmentService.search_clients(*args, **kwargs)
 
 def get_appointments(*args, **kwargs):
@@ -470,3 +512,4 @@ def delete_appointment(*args, **kwargs):
 
 def get_appointment_treatments(*args, **kwargs):
     return AppointmentService.get_appointment_treatments(*args, **kwargs)
+

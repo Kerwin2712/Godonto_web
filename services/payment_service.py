@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Optional, List, Tuple
 from core.database import get_db
 import logging
+import psycopg2
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +36,6 @@ class PaymentService:
             "SELECT COALESCE(amount, 0) FROM client_credits WHERE client_id = %s",
             (client_id,)
         )
-        # Fetchone puede devolver None si no hay entrada, COALESCE lo maneja, pero es bueno estar seguro
         result = cursor.fetchone()
         return float(result[0]) if result else 0.0
 
@@ -64,7 +64,6 @@ class PaymentService:
                 total_applied_to_debts = 0.0
 
                 # 2. Obtener deudas pendientes del cliente, ordenadas por due_date (o created_at)
-                # Priorizamos las deudas más antiguas o con fecha de vencimiento más cercana
                 cursor.execute(
                     """
                     SELECT id, amount, paid_amount, due_date
@@ -77,29 +76,25 @@ class PaymentService:
 
                 # 3. Aplicar el pago a las deudas pendientes existentes
                 for debt_id, debt_total_amount_decimal, debt_paid_amount_decimal, _ in pending_debts:
-                    # Convertir a float para las operaciones aritméticas
                     debt_total_amount = float(debt_total_amount_decimal)
                     debt_paid_amount = float(debt_paid_amount_decimal)
 
                     debt_remaining_to_pay = debt_total_amount - debt_paid_amount
 
                     if remaining_amount <= 0:
-                        break # No hay más monto del pago para aplicar
+                        break
 
                     if debt_remaining_to_pay <= remaining_amount:
-                        # El pago cubre completamente esta deuda
                         amount_to_apply_to_this_debt = debt_remaining_to_pay
                         new_debt_status = 'paid'
                         new_debt_paid_amount = debt_total_amount
-                        paid_at_clause = ', paid_at = NOW()' # Se marca como pagada ahora
+                        paid_at_clause = ', paid_at = NOW()'
                     else:
-                        # El pago cubre parcialmente esta deuda
                         amount_to_apply_to_this_debt = remaining_amount
-                        new_debt_status = 'pending' # Sigue pendiente
+                        new_debt_status = 'pending'
                         new_debt_paid_amount = debt_paid_amount + remaining_amount
-                        paid_at_clause = '' # No se marca como pagada completamente
+                        paid_at_clause = ''
 
-                    # Actualizar la deuda
                     cursor.execute(
                         f"""
                         UPDATE debts
@@ -109,7 +104,6 @@ class PaymentService:
                         (new_debt_paid_amount, new_debt_status, debt_id)
                     )
 
-                    # Registrar la aplicación del pago a la deuda específica
                     cursor.execute(
                         """
                         INSERT INTO debt_payments (payment_id, debt_id, amount_applied, created_at)
@@ -122,86 +116,208 @@ class PaymentService:
                     total_applied_to_debts += amount_to_apply_to_this_debt
                     applied_debts_count += 1
                 
-                # 4. Registrar el saldo a favor si queda un monto restante
-                if remaining_amount > 0.001: # Usar una pequeña tolerancia para flotantes
+                if remaining_amount > 0.001:
                     PaymentService._update_client_credit_balance(client_id, remaining_amount, cursor)
                     return True, f"Pago registrado exitosamente (ID: {payment_id}). Aplicados ${total_applied_to_debts:,.2f} a {applied_debts_count} deudas. ${remaining_amount:,.2f} registrados como saldo a favor."
                 elif applied_debts_count > 0:
                     return True, f"Pago registrado exitosamente (ID: {payment_id}). Aplicados ${total_applied_to_debts:,.2f} a {applied_debts_count} deudas pendientes."
                 else:
-                    return True, f"Pago registrado exitosamente (ID: {payment_id}). No se encontraron deudas pendientes para cubrir."
+                    return True, f"Pago registrado exitosamente (ID: {payment_id}). No se encontraron deudas pendientes a las cuales aplicar el pago."
 
         except Exception as e:
             logger.error(f"Error al crear pago y aplicar a deudas: {e}")
             return False, f"Error al crear pago y aplicar a deudas: {str(e)}"
     
     @staticmethod
-    def create_debt(client_id: int, amount: float, description: Optional[str] = None, due_date: Optional[datetime] = None) -> Tuple[bool, str]:
+    def create_debt(client_id: int, amount: float, description: Optional[str] = None, 
+                    due_date: Optional[datetime] = None, appointment_id: Optional[int] = None,
+                    cursor=None) -> Tuple[bool, str]:
         """
         Registra una deuda para un cliente, intentando usar el saldo a favor del cliente primero.
+        Ahora puede asociarse con una appointment_id y usar un cursor existente.
         """
         try:
-            with get_db() as cursor:
-                # Obtener el saldo a favor actual del cliente
-                current_credit = PaymentService._get_client_credit_balance(client_id, cursor)
+            # Usa el cursor proporcionado o abre uno nuevo si no se proporciona
+            db_context = get_db() if cursor is None else None
+            _cursor = cursor if cursor is not None else db_context.__enter__()
+
+            try:
+                current_credit = PaymentService._get_client_credit_balance(client_id, _cursor)
                 
                 initial_status = 'pending'
                 paid_amount_on_creation = 0.0
                 message_suffix = ""
 
-                # Columnas y valores base para la inserción
                 sql_columns = ["client_id", "amount", "description", "due_date", "status", "paid_amount", "created_at", "updated_at"]
                 sql_placeholders = ["%s", "%s", "%s", "%s", "%s", "%s", "NOW()", "NOW()"]
                 sql_values = [client_id, amount, description, due_date, initial_status, paid_amount_on_creation]
 
-                if current_credit > 0.001: # Si hay saldo a favor
+                # Añadir appointment_id si se proporciona
+                if appointment_id is not None:
+                    sql_columns.append("appointment_id")
+                    sql_placeholders.append("%s")
+                    sql_values.append(appointment_id)
+
+                if current_credit > 0.001:
                     if current_credit >= amount:
-                        # El crédito cubre la deuda completamente
                         paid_amount_on_creation = amount
                         initial_status = 'paid'
-                        PaymentService._update_client_credit_balance(client_id, -amount, cursor) # Usar el crédito
+                        PaymentService._update_client_credit_balance(client_id, -amount, _cursor)
                         
-                        # Añadir 'paid_at' y su valor (NOW()) a la consulta
-                        if "paid_at" not in sql_columns: # Evitar duplicados
+                        if "paid_at" not in sql_columns:
                             sql_columns.append("paid_at")
                             sql_placeholders.append("NOW()")
-                            # No se añade a sql_values porque NOW() se inserta directamente en SQL
                         
-                        sql_values[sql_columns.index("status")] = initial_status # Actualizar el estado en los valores
-                        sql_values[sql_columns.index("paid_amount")] = paid_amount_on_creation # Actualizar monto pagado
+                        sql_values[sql_columns.index("status")] = initial_status
+                        sql_values[sql_columns.index("paid_amount")] = paid_amount_on_creation
 
                         message_suffix = f" Cubierta completamente con saldo a favor (${amount:,.2f} usados)."
                         logger.info(f"Deuda de {amount} para cliente {client_id} cubierta completamente con saldo a favor.")
                     else:
-                        # El crédito cubre parcialmente la deuda
                         paid_amount_on_creation = current_credit
-                        initial_status = 'pending' # Sigue siendo pendiente por el resto
-                        PaymentService._update_client_credit_balance(client_id, -current_credit, cursor) # Usar todo el crédito
+                        initial_status = 'pending'
+                        PaymentService._update_client_credit_balance(client_id, -current_credit, _cursor)
 
-                        sql_values[sql_columns.index("status")] = initial_status # Actualizar el estado en los valores
-                        sql_values[sql_columns.index("paid_amount")] = paid_amount_on_creation # Actualizar monto pagado
+                        sql_values[sql_columns.index("status")] = initial_status
+                        sql_values[sql_columns.index("paid_amount")] = paid_amount_on_creation
 
                         message_suffix = f" Cubierta parcialmente con saldo a favor (${current_credit:,.2f} usados). Pendiente: ${amount - current_credit:,.2f}."
                         logger.info(f"Deuda de {amount} para cliente {client_id} cubierta parcialmente con saldo a favor de {current_credit}.")
                 
-                # Construir la parte de la consulta SQL
                 column_str = ", ".join(sql_columns)
                 placeholder_str = ", ".join(sql_placeholders)
 
-                # Insertar la nueva deuda con el monto pagado y estado inicial
-                cursor.execute(
+                _cursor.execute(
                     f"""
                     INSERT INTO debts ({column_str})
                     VALUES ({placeholder_str})
                     RETURNING id
                     """,
-                    tuple(sql_values) # Pasar valores como una tupla
+                    tuple(sql_values)
                 )
-                debt_id = cursor.fetchone()[0]
+                debt_id = _cursor.fetchone()[0]
+
+                if db_context is not None:
+                    db_context.__exit__(None, None, None)
+
                 return True, f"Deuda registrada exitosamente (ID: {debt_id}).{message_suffix}"
+            finally:
+                if db_context is not None and not db_context.is_committed: # type: ignore
+                    pass 
         except Exception as e:
             logger.error(f"Error al crear deuda: {e}")
             return False, f"Error al crear deuda: {str(e)}"
+
+    @staticmethod
+    def delete_debts_by_appointment_id(appointment_id: int) -> bool:
+        """
+        Elimina todas las deudas asociadas a una cita específica por su appointment_id.
+        """
+        try:
+            with get_db() as cursor:
+                cursor.execute(
+                    """
+                    DELETE FROM debts
+                    WHERE appointment_id = %s;
+                    """,
+                    (appointment_id,)
+                )
+                logger.info(f"Eliminadas {cursor.rowcount} deudas asociadas a la cita {appointment_id}.")
+                return cursor.rowcount > 0
+        except Exception as e:
+            logger.error(f"Error al eliminar deudas para la cita {appointment_id}: {e}")
+            return False
+
+    @staticmethod
+    def delete_payment(payment_id: int) -> Tuple[bool, str]:
+        """
+        Elimina un pago y revierte sus efectos en deudas y saldo a favor del cliente.
+        Esta operación es transaccional.
+        """
+        try:
+            with get_db() as cursor:
+                cursor.execute("BEGIN;") # Iniciar transacción
+
+                # 1. Obtener detalles del pago a eliminar
+                cursor.execute(
+                    "SELECT client_id, amount, payment_date FROM payments WHERE id = %s",
+                    (payment_id,)
+                )
+                payment_details = cursor.fetchone()
+                if not payment_details:
+                    cursor.execute("ROLLBACK;")
+                    return False, "Pago no encontrado."
+
+                client_id, payment_amount, _ = payment_details
+
+                # 2. Revertir las aplicaciones del pago a las deudas
+                cursor.execute(
+                    "SELECT debt_id, amount_applied FROM debt_payments WHERE payment_id = %s",
+                    (payment_id,)
+                )
+                applied_debts = cursor.fetchall()
+
+                for debt_id, amount_applied in applied_debts:
+                    # Obtener estado actual de la deuda
+                    cursor.execute(
+                        "SELECT amount, paid_amount, status FROM debts WHERE id = %s",
+                        (debt_id,)
+                    )
+                    debt_info = cursor.fetchone()
+                    if debt_info:
+                        debt_total_amount, debt_paid_amount, debt_status = debt_info
+                        new_paid_amount = float(debt_paid_amount) - float(amount_applied)
+
+                        new_status = debt_status
+                        # Si el monto pagado después de la reversión es menor que el total de la deuda
+                        # y el estado era 'paid', cambiarlo a 'pending'.
+                        if new_paid_amount < float(debt_total_amount) and debt_status == 'paid':
+                            new_status = 'pending' 
+                        elif new_paid_amount >= float(debt_total_amount) and new_status == 'pending':
+                            # Si, por alguna razón, el pago restante aún cubre la deuda, mantén el estado actual o cámbialo a 'paid'
+                            # Aunque si estamos revirtiendo, lo normal sería que pasara a pendiente si no se cubre
+                            pass # Mantener estado si aún está cubierto
+
+                        cursor.execute(
+                            "UPDATE debts SET paid_amount = %s, status = %s, updated_at = NOW() WHERE id = %s",
+                            (new_paid_amount, new_status, debt_id)
+                        )
+                        logger.info(f"Revertida aplicación de {amount_applied} a deuda {debt_id}. Nuevo pagado: {new_paid_amount}, estado: {new_status}")
+
+                # 3. Eliminar los registros de debt_payments asociados a este pago
+                cursor.execute(
+                    "DELETE FROM debt_payments WHERE payment_id = %s",
+                    (payment_id,)
+                )
+                logger.info(f"Eliminados {cursor.rowcount} registros de debt_payments para el pago {payment_id}.")
+
+                # 4. Ajustar el saldo a favor del cliente si el pago fue un sobrepago
+                total_applied_to_debts = sum(float(a[1]) for a in applied_debts)
+                overpayment_amount = float(payment_amount) - total_applied_to_debts
+
+                if overpayment_amount > 0.001: # Si hubo sobrepago que se fue a crédito
+                    PaymentService._update_client_credit_balance(client_id, -overpayment_amount, cursor)
+                    logger.info(f"Revertido saldo a favor por {overpayment_amount} para cliente {client_id}.")
+
+                # 5. Eliminar el pago de la tabla payments
+                cursor.execute(
+                    "DELETE FROM payments WHERE id = %s",
+                    (payment_id,)
+                )
+                if cursor.rowcount > 0:
+                    cursor.execute("COMMIT;")
+                    logger.info(f"Pago {payment_id} eliminado exitosamente y efectos revertidos.")
+                    return True, "Pago eliminado exitosamente."
+                else:
+                    cursor.execute("ROLLBACK;")
+                    return False, "No se pudo eliminar el pago."
+
+        except Exception as e:
+            # Asegurarse de revertir en caso de cualquier error
+            if cursor: # Verificar si el cursor existe para el rollback
+                cursor.execute("ROLLBACK;") 
+            logger.error(f"Error al eliminar pago {payment_id} y revertir sus efectos: {e}")
+            return False, f"Error al eliminar pago: {str(e)}"
 
     @staticmethod
     def get_client_payments(client_id: int) -> List[dict]:
@@ -215,7 +331,7 @@ class PaymentService:
         with get_db() as cursor:
             cursor.execute(
                 """
-                SELECT id, amount, method, notes, payment_date, created_at
+                SELECT id, amount, method, notes, payment_date, created_at, appointment_id
                 FROM payments
                 WHERE client_id = %s
                 ORDER BY payment_date DESC
@@ -229,7 +345,8 @@ class PaymentService:
                     'method': row[2],
                     'notes': row[3],
                     'payment_date': row[4],
-                    'created_at': row[5]
+                    'created_at': row[5],
+                    'appointment_id': row[6]
                 } for row in cursor.fetchall()
             ]
     
@@ -237,6 +354,7 @@ class PaymentService:
     def get_client_debts(client_id: int) -> List[dict]:
         """
         Obtiene todas las deudas de un cliente, incluyendo el monto pagado.
+        Ahora también incluye appointment_id.
         Args:
             client_id (int): ID del cliente.
         Returns:
@@ -245,7 +363,7 @@ class PaymentService:
         with get_db() as cursor:
             cursor.execute(
                 """
-                SELECT id, amount, description, due_date, created_at, status, paid_amount
+                SELECT id, amount, description, due_date, created_at, status, paid_amount, appointment_id
                 FROM debts
                 WHERE client_id = %s
                 ORDER BY due_date DESC, created_at DESC
@@ -260,7 +378,8 @@ class PaymentService:
                     'due_date': row[3],
                     'created_at': row[4],
                     'status': row[5],
-                    'paid_amount': float(row[6])
+                    'paid_amount': float(row[6]),
+                    'appointment_id': row[7]
                 } for row in cursor.fetchall()
             ]
     
@@ -283,8 +402,8 @@ class PaymentService:
             return {
                 'total_payments': total_payments,
                 'total_pending_debt': total_pending_debts,
-                'remaining_debt_balance': total_pending_debts, # Este es el saldo de deudas a pagar
-                'client_credit_balance': client_credit_balance # Saldo a favor
+                'remaining_debt_balance': total_pending_debts,
+                'client_credit_balance': client_credit_balance
             }
     
     @staticmethod
@@ -310,8 +429,4 @@ class PaymentService:
                 (client_id,)
             )
             return float(cursor.fetchone()[0])
-            
-    # El método create_debt ya está modificado arriba
-    # delete_debt_by_description_and_client no necesita cambios
-    # get_debts_by_client no necesita cambios
-    # get_total_debts_for_client no necesita cambios
+
