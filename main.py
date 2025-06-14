@@ -1,5 +1,8 @@
 import flet as ft
 import logging
+import os
+from datetime import datetime
+import sys # Importar sys para manejar PyInstaller
 from core.config import settings
 from core.database import Database
 from views.auth.login import login_view
@@ -13,43 +16,52 @@ from views.appointments.appointment_form import appointment_form_view
 from views.presupuesto.presup_form import presup_view
 from views.presupuesto.quotes import quotes_view
 from views.tretment.treatments import treatments_view
-import os
 from services.preference_service import PreferenceService # Importar el nuevo servicio
 
 # Configuración de logging
 # Directorio alternativo para logs (ej: AppData/Local)
+# Esto asegura que los logs se guarden en un lugar accesible para el usuario en Windows.
 log_dir = os.path.join(os.getenv('LOCALAPPDATA'), 'GodontoClinic', 'logs')
 os.makedirs(log_dir, exist_ok=True)  # Crea el directorio si no existe
 
 log_file = os.path.join(log_dir, 'godonto.log')
 
-# Configuración de logging
+# Configuración básica de logging
 logging.basicConfig(
     handlers=[
-        logging.FileHandler(log_file),
-        logging.StreamHandler()  # Muestra logs en consola
-    ],  # Nueva ubicación con permisos
-    level=logging.INFO,
+        logging.FileHandler(log_file), # Guardar logs en un archivo
+        logging.StreamHandler(sys.stdout)  # Mostrar logs en la consola/stdout
+    ],
+    level=logging.INFO,  # Nivel de logging: INFO, DEBUG, WARNING, ERROR, CRITICAL
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
+
+# Obtener el logger principal de la aplicación
 logger = logging.getLogger(__name__)
+
+# Función para obtener la ruta de recursos (útil para PyInstaller)
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    try:
+        # PyInstaller crea una carpeta temporal y guarda la ruta en _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        # Si no está "congelada" (ej. en desarrollo), usa el directorio actual
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
 
 def main(page: ft.Page):
     # Configuración inicial de la página
-    #page.logger.setLevel(ft.LoggingLevel.DEBUG)
     page.title = settings.APP_NAME
     page.padding = 0
     page.window_width = 1200
     page.window_height = 800
     
     # Cargar la preferencia de tema al iniciar
-    # Asumimos un user_id fijo (por ejemplo, 1) si no hay un sistema de autenticación
-    # De lo contrario, este user_id debería venir de la sesión del usuario autenticado
     user_id_for_preferences = 1 
     saved_theme = PreferenceService.get_user_theme(user_id_for_preferences)
     page.theme_mode = ft.ThemeMode.DARK if saved_theme == 'dark' else ft.ThemeMode.LIGHT
     logger.info(f"Tema inicial cargado para el usuario {user_id_for_preferences}: {page.theme_mode}")
-
 
     # Manejar el cierre de la ventana
     def window_event(e):
@@ -98,18 +110,13 @@ def main(page: ft.Page):
             current_route = page.route
 
             # Limpiar todas las vistas actuales (excepto la primera si es el login inicial)
-            # Esto evita la acumulación de vistas en la pila.
-            if len(page.views) > 1: # Si hay más de una vista (ej. no es la primera vez en el login)
-                page.views.pop() # Eliminar la vista actual de la pila
-            else: # Si es la primera vista o la única, limpiar toda la pila
+            if len(page.views) > 1:
+                page.views.pop()
+            else:
                 page.views.clear()
 
-            # CRÍTICO: Limpiar explícitamente el overlay de la página.
-            # Esto elimina cualquier FilePicker, SearchBar, DatePicker, etc.
-            # que hayan sido añadidos por vistas anteriores y se encuentren en el overlay.
             page.overlay.clear()
-            page.update() # Asegurarse de que la página se actualice después de limpiar el overlay
-
+            page.update()
 
             try:
                 if page.route == "/login":
@@ -195,3 +202,4 @@ if __name__ == "__main__":
     except Exception as e:
         logger.critical(f"Error crítico al iniciar la aplicación: {e}")
         raise
+

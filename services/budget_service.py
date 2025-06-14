@@ -2,9 +2,19 @@ import logging
 from fpdf import FPDF
 from datetime import datetime
 import os
+import sys # Importar sys
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+# Función para obtener la ruta de recursos (copia esto si no tienes un módulo compartido)
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    try:
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
 
 class BudgetService:
     @staticmethod
@@ -26,9 +36,9 @@ class BudgetService:
 
         # Intenta cargar la imagen de fondo
         try:
-            # Construir la ruta de la imagen de forma robusta
-            # Esto asume que 'pictures' está un nivel arriba del directorio de 'budget_service.py'
-            image_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "pictures", "1.png")
+            # Usa la función resource_path para construir la ruta de la imagen
+            image_path = resource_path(os.path.join("pictures", "1.png"))
+            
             if os.path.exists(image_path):
                 pdf.image(image_path, x=0, y=0, w=210, h=297) # A4 size (210mm x 297mm)
             else:
