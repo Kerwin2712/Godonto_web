@@ -8,6 +8,8 @@ from utils.validators import Validators
 from utils.date_utils import is_working_hours, is_future_datetime
 from .observable import Observable
 import logging
+from services.history_service import HistoryService # Importar HistoryService
+
 logger = logging.getLogger(__name__)
 
 # Define or import the notify_all function
@@ -31,27 +33,57 @@ class AppointmentService(Observable):
     
     @staticmethod
     def update_appointment_status(appointment_id, new_status):
-        """Actualiza los estados de la cita
+        """Actualiza los estados de la cita y, si se completa, marca los tratamientos asociados en el historial.
 
         Args:
             appointment_id (int): identificador de la cita
-            new_status (str): estado de la cita
+            new_status (str): estado de la cita ('pending', 'completed', 'cancelled')
 
         Returns:
-            bool: _description_
+            bool: True si la actualización fue exitosa, False en caso contrario.
         """
-        with get_db() as cursor:
-            cursor.execute(
-                "UPDATE appointments SET status = %s WHERE id = %s",
-                (new_status, appointment_id)
-            )
-            if cursor.rowcount > 0:
-                notify_all('APPOINTMENT_STATUS_CHANGED', {
-                    'id': appointment_id,
-                    'status': new_status
-                })
-                return True
-        return False
+        try:
+            with get_db() as cursor:
+                # Obtener el client_id antes de la actualización
+                cursor.execute(
+                    "SELECT client_id FROM appointments WHERE id = %s",
+                    (appointment_id,)
+                )
+                client_id_row = cursor.fetchone()
+                if not client_id_row:
+                    logger.warning(f"Cita con ID {appointment_id} no encontrada para actualizar estado.")
+                    return False
+                client_id = client_id_row[0]
+
+                cursor.execute(
+                    "UPDATE appointments SET status = %s WHERE id = %s",
+                    (new_status, appointment_id)
+                )
+                if cursor.rowcount > 0:
+                    notify_all('APPOINTMENT_STATUS_CHANGED', {
+                        'id': appointment_id,
+                        'status': new_status
+                    })
+
+                    # Si la cita se marca como 'completed', actualizar los tratamientos en el historial del cliente
+                    if new_status == 'completed':
+                        treatments = AppointmentService.get_appointment_treatments(appointment_id)
+                        for treatment in treatments:
+                            success, msg = HistoryService.add_client_treatment(
+                                client_id=client_id,
+                                treatment_id=treatment['id'],
+                                notes=f"Completado a través de cita ID: {appointment_id} - Originalmente: {treatment.get('notes', 'N/A')}",
+                                treatment_date=date.today() # Usa la fecha actual para el registro de completado
+                            )
+                            if not success:
+                                logger.error(f"Error al marcar tratamiento {treatment['name']} (ID: {treatment['id']}) como completado para cliente {client_id}: {msg}")
+                                # No revertimos toda la operación si falla un tratamiento individual,
+                                # pero registramos el error.
+                    return True
+            return False
+        except Exception as e:
+            logger.error(f"Error al actualizar estado de cita {appointment_id}: {str(e)}")
+            return False
     
     @staticmethod
     def create_appointment(client_id: int, 
@@ -512,4 +544,3 @@ def delete_appointment(*args, **kwargs):
 
 def get_appointment_treatments(*args, **kwargs):
     return AppointmentService.get_appointment_treatments(*args, **kwargs)
-

@@ -15,15 +15,12 @@ class ClientsView:
         self.client_service = ClientService()
         self.all_clients = []
         
-        # Componentes UI
         self.search_bar = self._build_search_bar()
         self.client_list = ft.Column(scroll=ft.ScrollMode.AUTO, expand=True, spacing=10)
         
-        # Cargar datos iniciales
         self.load_clients()
     
     def _build_search_bar(self):
-        """Construye el componente SearchBar responsive con búsqueda en tiempo real"""
         return ft.SearchBar(
             view_elevation=4,
             divider_color=ft.colors.GREY_300,
@@ -38,23 +35,18 @@ class ClientsView:
         )
     
     def _handle_search_change(self, e):
-        """Maneja el cambio en la búsqueda en tiempo real"""
         search_term = e.control.value.strip()
         
         if not search_term:
-            # Si no hay término de búsqueda, mostrar todos los clientes y limpiar sugerencias
             self.update_clients()
-            self.search_bar.controls.clear() # Limpiar sugerencias
-            self.search_bar.update() # Actualizar la SearchBar
+            self.search_bar.controls.clear()
+            self.search_bar.update()
             return
         
-        # Usar el servicio para buscar con unaccent
         filtered_clients = self.client_service.get_all_clients(search_term)
         
-        # Actualizar la lista de clientes mostrados
         self.update_clients(filtered_clients)
         
-        # Actualizar las sugerencias del SearchBar
         self.search_bar.controls = [
             ft.ListTile(
                 title=ft.Text(c.name),
@@ -62,23 +54,18 @@ class ClientsView:
                 on_click=lambda e, c=c: self._select_client(c),
                 data=c
             )
-            for c in filtered_clients[:10]  # Limitar a 10 sugerencias
+            for c in filtered_clients[:10]
         ]
-        self.search_bar.update() # Asegúrate de que la SearchBar se actualice después de cambiar los controles
+        self.search_bar.update()
     
     def _handle_search_submit(self, e):
-        """Maneja la búsqueda al presionar Enter"""
-        # Close the view after submit, if it's open and has controls
-        if self.search_bar.open and self.search_bar.controls: # Check if view is open and has controls
+        if self.search_bar.open and self.search_bar.controls:
             self.search_bar.close_view(e.control.value)
-        # Always call handle_search_change to ensure client list is updated
         self._handle_search_change(e)
     
     def _build_view_controls(self):
-        """Construye los controles superiores responsive"""
         return ft.ResponsiveRow(
             controls=[
-                # Search bar y botones
                 ft.Column(
                     col={"sm": 12, "md": 8},
                     controls=[
@@ -88,7 +75,7 @@ class ClientsView:
                                 ft.IconButton(
                                     icon=ft.icons.CLEAR,
                                     tooltip="Limpiar",
-                                    on_click=lambda e: self._reset_search(e), # Pasar el evento
+                                    on_click=lambda e: self._reset_search(e),
                                     icon_color=ft.colors.GREY_600
                                 ),
                             ],
@@ -99,7 +86,6 @@ class ClientsView:
                     ],
                     expand=True
                 ),
-                # Botón de nuevo cliente
                 ft.Column(
                     col={"sm": 12, "md": 4},
                     controls=[
@@ -120,7 +106,6 @@ class ClientsView:
         )
     
     def _build_icon_button(self, icon, tooltip, on_click, color=None):
-        """Helper para construir botones de icono"""
         return ft.IconButton(
             icon=icon,
             tooltip=tooltip,
@@ -129,14 +114,12 @@ class ClientsView:
         )
     
     def _build_client_card(self, client: Client):
-        """Construye una tarjeta de cliente responsive"""
         return ft.ResponsiveRow(
             controls=[
                 ft.Card(
                     content=ft.Container(
                         content=ft.Column(
                             controls=[
-                                # Primera fila: Información básica
                                 ft.ResponsiveRow(
                                     controls=[
                                         ft.Column(
@@ -148,7 +131,6 @@ class ClientsView:
                                             ],
                                             spacing=5,
                                         ),
-                                        # Segunda columna: Botones de acción
                                         ft.Column(
                                             col={"sm": 12, "md": 4},
                                             controls=[
@@ -170,7 +152,12 @@ class ClientsView:
                                                                 ft.PopupMenuItem(
                                                                     text="Ver Historial",
                                                                     icon=ft.icons.HISTORY,
-                                                                    on_click=lambda e, c=client: self._show_history(c)
+                                                                    on_click=lambda e, c=client: self.page.go(f"/clients/{c.id}/history"), # RUTA ACTUALIZADA
+                                                                ),
+                                                                ft.PopupMenuItem(
+                                                                    text="Cuentas",
+                                                                    icon=ft.icons.ATTACH_MONEY,
+                                                                    on_click=lambda e, c=client: self._show_payments(c)
                                                                 ),
                                                                 ft.PopupMenuItem(),
                                                                 ft.PopupMenuItem(
@@ -178,7 +165,7 @@ class ClientsView:
                                                                     icon=ft.icons.PICTURE_AS_PDF,
                                                                     on_click=lambda e, c=client: self.page.go(f"/presupuesto/{c.id}")
                                                                 ),
-                                                                ft.PopupMenuItem(),  # Separador
+                                                                ft.PopupMenuItem(),
                                                                 ft.PopupMenuItem(
                                                                     text="Editar",
                                                                     icon=ft.icons.EDIT,
@@ -200,7 +187,6 @@ class ClientsView:
                                     spacing=10,
                                     vertical_alignment=ft.CrossAxisAlignment.CENTER
                                 ),
-                                # Email (se muestra en una línea separada en móviles)
                                 ft.ResponsiveRow(
                                     controls=[
                                         ft.Column(
@@ -223,8 +209,6 @@ class ClientsView:
         )
     
     def _show_payment_dialog(self, client):
-        """Muestra diálogo para registrar un pago y aplica a deudas pendientes."""
-        
         amount_field = ft.TextField(label="Monto", keyboard_type=ft.KeyboardType.NUMBER)
         method_field = ft.Dropdown(
             label="Método de pago",
@@ -249,12 +233,9 @@ class ClientsView:
                 
                 payment_service = PaymentService()
                 
-                # Obtener el resumen de deudas pendientes antes del pago
-                # Ahora usamos 'total_pending_debt'
                 initial_summary = payment_service.get_payment_summary(client.id)
                 initial_pending_debt = initial_summary.get('total_pending_debt', 0.0)
                 
-                # Registrar el pago (que ahora incluye la lógica de aplicación a deudas)
                 success, message = payment_service.create_payment(
                     client_id=client.id,
                     amount=amount,
@@ -263,13 +244,12 @@ class ClientsView:
                 )
                 
                 if success:
-                    # Obtener el nuevo resumen para el mensaje de feedback
                     new_summary = payment_service.get_payment_summary(client.id)
                     new_pending_debt = new_summary.get('total_pending_debt', 0.0)
                     
                     debt_applied_by_this_payment = initial_pending_debt - new_pending_debt
                     
-                    if debt_applied_by_this_payment > 0.001: # Usar una pequeña tolerancia para flotantes
+                    if debt_applied_by_this_payment > 0.001:
                         msg = f"Pago de ${amount:,.2f} registrado. Se aplicó ${debt_applied_by_this_payment:,.2f} a deudas pendientes."
                         if new_pending_debt > 0:
                             msg += f" Saldo pendiente de deudas: ${new_pending_debt:,.2f}"
@@ -283,10 +263,10 @@ class ClientsView:
                             msg += " No había deudas pendientes a las cuales aplicar el pago."
 
                     show_success(self.page, msg)
-                    self.load_clients() # Recargar clientes para actualizar la vista de deudas/pagos
+                    self.load_clients()
                     close_dialog(e)
                 else:
-                    show_error(self.page, message) # Mostrar el mensaje de error del servicio
+                    show_error(self.page, message)
             except ValueError:
                 show_error(self.page, "Ingrese un monto válido")
             except Exception as e:
@@ -311,22 +291,13 @@ class ClientsView:
         self.page.update()
 
     def _show_debt_dialog(self, client):
-        """Muestra diálogo para registrar una deuda"""
-        
         amount_field = ft.TextField(label="Monto", keyboard_type=ft.KeyboardType.NUMBER)
         description_field = ft.TextField(label="Descripción", multiline=True)
-        # Añadir un DatePicker para due_date
         due_date_picker = ft.DatePicker(
             first_date=datetime.now(),
             last_date=datetime(2030, 12, 31)
         )
-        # Asegúrate de que el DatePicker se añada al overlay de la página
-        # solo una vez cuando se crea la vista, o manejar su adición/remoción.
-        # En este caso, al estar en una función, se añade cada vez que se abre el diálogo.
-        # Esto puede causar el RangeError si se añade múltiples veces y el overlay no lo maneja bien.
-        # Se moverá la adición al overlay al constructor de la vista para evitar duplicados.
-
-        self.page.overlay.append(due_date_picker) # Se asume que no se añade duplicado.
+        self.page.overlay.append(due_date_picker)
 
         due_date_text = ft.Text("Seleccionar Fecha de Vencimiento (opcional)")
         
@@ -344,8 +315,6 @@ class ClientsView:
         
         def close_dialog(e):
             dialog.open = False
-            # Remover el datepicker del overlay cuando se cierra el diálogo
-            # Esto es importante para evitar el RangeError si se deja en el overlay
             if due_date_picker in self.page.overlay:
                 self.page.overlay.remove(due_date_picker)
             self.page.update()
@@ -360,10 +329,10 @@ class ClientsView:
                     client_id=client.id,
                     amount=amount,
                     description=description,
-                    due_date=due_date # Pasar la fecha de vencimiento
+                    due_date=due_date
                 )
                 show_success(self.page, f"Deuda de ${amount:,.2f} registrada para {client.name}")
-                self.load_clients() # Recargar clientes para actualizar la vista
+                self.load_clients()
                 close_dialog(e)
             except ValueError:
                 show_error(self.page, "Ingrese un monto válido")
@@ -390,18 +359,13 @@ class ClientsView:
         dialog.open = True
         self.page.update()
 
-    def _show_history(self, client):
-        """Muestra el historial de pagos y deudas del cliente"""
-        
+    def _show_payments(self, client):
         try:
-            # Obtener datos del historial
             payments = PaymentService().get_client_payments(client.id)
-            debts = PaymentService().get_client_debts(client.id) # Usar la función actualizada
+            debts = PaymentService().get_client_debts(client.id)
             
-            # Construir contenido
-            content_column = ft.Column(scroll=ft.ScrollMode.AUTO, height=400) # Añadir altura fija para scroll
+            content_column = ft.Column(scroll=ft.ScrollMode.AUTO, height=400)
             
-            # Sección de pagos
             if payments:
                 content_column.controls.append(ft.Text("PAGOS RECIENTES", weight="bold"))
                 for payment in payments:
@@ -410,7 +374,7 @@ class ClientsView:
                             leading=ft.Icon(ft.icons.ATTACH_MONEY, color=ft.colors.GREEN),
                             title=ft.Text(f"${payment['amount']:,.2f}"),
                             subtitle=ft.Text(f"{payment['method']} - {payment['payment_date'].strftime('%d/%m/%Y %H:%M')}"),
-                            trailing=ft.PopupMenuButton( # Menú para eliminar pago
+                            trailing=ft.PopupMenuButton(
                                 icon=ft.icons.MORE_VERT,
                                 items=[
                                     ft.PopupMenuItem(
@@ -427,7 +391,6 @@ class ClientsView:
             
             content_column.controls.append(ft.Divider())
             
-            # Sección de deudas
             if debts:
                 content_column.controls.append(ft.Text("DEUDAS", weight="bold"))
                 for debt in debts:
@@ -436,7 +399,7 @@ class ClientsView:
                     if debt['status'] == 'paid':
                         status_text = "Pagada"
                     elif debt['status'] == 'pending' and (debt['amount'] - debt['paid_amount']) <= 0.01:
-                        status_text = "Pagada (Aplicado)" # Si el monto pagado cubre casi todo y sigue pendiente
+                        status_text = "Pagada (Aplicado)"
                     elif debt['status'] == 'pending':
                         status_text = f"Pendiente (${debt['amount'] - debt['paid_amount']:,.2f} restantes)"
 
@@ -444,7 +407,17 @@ class ClientsView:
                         ft.ListTile(
                             leading=ft.Icon(ft.icons.MONEY_OFF, color=debt_status_color),
                             title=ft.Text(f"${debt['amount']:,.2f} ({status_text})"),
-                            subtitle=ft.Text(f"Descripción: {debt['description']} - Creada: {debt['created_at'].strftime('%d/%m/%Y')} - Vence: {debt['due_date'].strftime('%d/%m/%Y') if debt['due_date'] else 'N/A'} - Pagado: ${debt['paid_amount']:,.2f}")
+                            subtitle=ft.Text(f"Descripción: {debt['description']} - Creada: {debt['created_at'].strftime('%d/%m/%Y')} - Vence: {debt['due_date'].strftime('%d/%m/%Y') if debt['due_date'] else 'N/A'} - Pagado: ${debt['paid_amount']:,.2f}"),
+                            trailing=ft.PopupMenuButton( # Añadido el botón de menú para deudas
+                                icon=ft.icons.MORE_VERT,
+                                items=[
+                                    ft.PopupMenuItem(
+                                        text="Eliminar Deuda",
+                                        icon=ft.icons.DELETE,
+                                        on_click=lambda e, d=debt: self._confirm_delete_debt(d, client)
+                                    ),
+                                ]
+                            )
                         )
                     )
             else:
@@ -454,11 +427,10 @@ class ClientsView:
                 dialog.open = False
                 self.page.update()
             
-            # Mostrar diálogo
             dialog = ft.AlertDialog(
                 modal=True,
                 title=ft.Text(f"Historial de {client.name}"),
-                content=content_column, # Usar el Column que contiene los controles
+                content=content_column,
                 actions=[
                     ft.TextButton("Cerrar", on_click=close_dialog)
                 ]
@@ -472,16 +444,13 @@ class ClientsView:
             show_error(self.page, f"Error al cargar historial: {str(e)}")
     
     def _confirm_delete_payment(self, payment: dict, client: Client):
-        """Muestra un diálogo de confirmación antes de eliminar un pago."""
         def delete_confirmed(e):
-            if e.control.data: # Si el botón "Sí" fue presionado
+            if e.control.data:
                 self._delete_payment(payment, client)
-            # Cerrar el diálogo
             if self.page.dialog and self.page.dialog.open:
                 self.page.dialog.open = False
                 self.page.update()
 
-        # Ajusta colores del diálogo de confirmación
         dialog_bg_color = ft.colors.WHITE if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_800
         dialog_text_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
 
@@ -502,19 +471,12 @@ class ClientsView:
         self.page.update()
 
     def _delete_payment(self, payment: dict, client: Client):
-        """Elimina un pago y actualiza la vista."""
         try:
             success, message = PaymentService().delete_payment(payment['id'])
             if success:
                 show_success(self.page, message)
-                # Recargar el historial del cliente específico en el diálogo
-                # Asumo que el diálogo de historial sigue abierto o se puede reabrir
-                # de forma segura para refrescar los datos.
-                # Para simplificar y asegurar que se refresca, cerraremos el diálogo de historial
-                # y luego lo reabriremos si es necesario, o simplemente recargamos toda la vista de clientes.
-                # Una recarga de la vista de clientes es más robusta.
-                self.load_clients() # Recarga todos los clientes y su historial
-                # Cierra el diálogo de historial si está abierto.
+                # Recargar la lista de clientes para actualizar la vista de cuentas
+                self._show_payments(client) 
                 if self.page.dialog and self.page.dialog.open:
                     self.page.dialog.open = False
                     self.page.update()
@@ -525,8 +487,50 @@ class ClientsView:
             logger.error(f"Error al eliminar pago: {str(e)}")
             show_error(self.page, f"Error al eliminar pago: {str(e)}")
     
+    def _confirm_delete_debt(self, debt: dict, client: Client):
+        def delete_confirmed(e):
+            if e.control.data:
+                self._delete_debt(debt, client)
+            if self.page.dialog and self.page.dialog.open:
+                self.page.dialog.open = False
+                self.page.update()
+
+        dialog_bg_color = ft.colors.WHITE if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_800
+        dialog_text_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
+
+        self.page.dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Confirmar Eliminación de Deuda", color=dialog_text_color),
+            content=ft.Text(f"¿Está seguro de que desea eliminar la deuda de ${debt['amount']:,.2f} con descripción '{debt['description']}'?", color=dialog_text_color),
+            actions=[
+                ft.TextButton("No", on_click=delete_confirmed, data=False,
+                              style=ft.ButtonStyle(color=dialog_text_color)),
+                ft.FilledButton("Sí", on_click=delete_confirmed, data=True, 
+                                style=ft.ButtonStyle(bgcolor=ft.colors.RED_500)),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+            bgcolor=dialog_bg_color
+        )
+        self.page.open(self.page.dialog)
+        self.page.update()
+
+    def _delete_debt(self, debt: dict, client: Client):
+        try:
+            success, message = PaymentService().delete_debt(debt['id'])
+            if success:
+                show_success(self.page, message)
+                # Recargar la vista de cuentas del cliente para reflejar el cambio
+                self._show_payments(client) 
+                if self.page.dialog and self.page.dialog.open:
+                    self.page.dialog.open = False
+                    self.page.update()
+            else:
+                show_error(self.page, message)
+        except Exception as e:
+            logger.error(f"Error al eliminar deuda: {str(e)}")
+            show_error(self.page, f"Error al eliminar deuda: {str(e)}")
+
     def _build_appbar(self):
-        """Construye la barra de aplicación responsive"""
         return ft.AppBar(
             title=ft.Text("Gestión de Clientes", weight=ft.FontWeight.BOLD),
             center_title=False,
@@ -547,36 +551,29 @@ class ClientsView:
         )
     
     def load_clients(self, search_term=None):
-        """Carga los clientes desde el servicio"""
         self.all_clients = self.client_service.get_all_clients(search_term)
         self.update_clients()
     
     def update_clients(self, clients=None):
-        """Actualiza la lista de clientes mostrados"""
         display_clients = clients or self.all_clients
-        # Asegúrate de que client_list siempre contenga controles válidos
         self.client_list.controls = [
             self._build_client_card(client) for client in display_clients
         ]
         self.page.update()
     
     def _filter_clients(self, e):
-        """Filtra clientes en tiempo real según término de búsqueda"""
         search_term = e.control.value.strip()
         
         if not search_term:
             self.update_clients()
-            self.search_bar.controls.clear() # Limpiar sugerencias
-            self.search_bar.update() # Actualizar la SearchBar
+            self.search_bar.controls.clear()
+            self.search_bar.update()
             return
         
-        # Usar el servicio para buscar con unaccent
         filtered_clients = self.client_service.get_all_clients(search_term)
         
-        # Actualizar la lista de clientes mostrados
         self.update_clients(filtered_clients)
         
-        # Actualizar las sugerencias del SearchBar
         self.search_bar.controls = [
             ft.ListTile(
                 title=ft.Text(c.name),
@@ -589,39 +586,33 @@ class ClientsView:
         self.search_bar.update()
     
     def _select_client(self, client: Client):
-        """Selecciona un cliente del search bar"""
         self.search_bar.value = f"{client.name} - {client.cedula}"
         self.search_bar.close_view(self.search_bar.value)
         self.update_clients([client])
-        self.search_bar.controls.clear() # Limpiar sugerencias después de seleccionar
-        self.search_bar.update() # Actualizar la SearchBar
+        self.search_bar.controls.clear()
+        self.search_bar.update()
     
     def _open_search_view(self, e):
-        """Abre la vista de sugerencias del search bar"""
         self.search_bar.open_view()
     
     def _reset_search(self, e):
-        """Resetea la búsqueda y muestra todos los clientes"""
         self.search_bar.value = ""
-        self.search_bar.controls.clear() # Limpiar sugerencias
-        self.search_bar.update() # Actualizar la SearchBar
+        self.search_bar.controls.clear()
+        self.search_bar.update()
         self.update_clients()
     
     def _create_pdf(self, client: Client):
         pass
     
     def _edit_client(self, client: Client):
-        """Navega al formulario de edición"""
         self.page.go(f"/client_form/{client.id}")
     
     def _delete_client(self, client: Client):
-        """Muestra confirmación para eliminar cliente con verificación de dependencias"""
         def check_dependencies():
             has_appointments = ClientService.has_appointments(client.id)
             has_payments_or_debts = ClientService.has_payments_or_debts(client.id)
             
             if has_appointments or has_payments_or_debts:
-                # Mostrar diálogo de confirmación para dependencias
                 message = f"El cliente {client.name} tiene "
                 dependencies = []
                 if has_appointments:
@@ -647,7 +638,6 @@ class ClientsView:
                 dlg_confirm_dependencies.open = True
                 self.page.update()
             else:
-                # No hay dependencias, proceder con eliminación normal
                 _delete_client_confirmed(client)
 
         def _delete_client_confirmed(client: Client):
@@ -679,7 +669,6 @@ class ClientsView:
             dialog.open = False
             self.page.update()
 
-        # Diálogo principal
         dlg_main = ft.AlertDialog(
             modal=True,
             title=ft.Text("Confirmar eliminación"),
@@ -699,7 +688,6 @@ class ClientsView:
             actions_alignment=ft.MainAxisAlignment.END,
         )
 
-        # Diálogo para dependencias (se crea pero no se muestra todavía)
         dlg_confirm_dependencies = ft.AlertDialog(
             modal=True,
             title=ft.Text("Registros asociados encontrados"),
@@ -711,7 +699,6 @@ class ClientsView:
         self.page.update()
     
     def build_view(self):
-        """Construye la vista completa responsive"""
         return ft.View(
             "/clients",
             controls=[
@@ -738,7 +725,6 @@ class ClientsView:
             padding=0,
         )
 
-
 def clients_view(page: ft.Page):
-    """Función de fábrica para crear la vista de clientes"""
     return ClientsView(page).build_view()
+

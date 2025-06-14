@@ -2,7 +2,7 @@ import flet as ft
 import logging
 import os
 from datetime import datetime
-import sys # Importar sys para manejar PyInstaller
+import sys
 from core.config import settings
 from core.database import Database
 from views.auth.login import login_view
@@ -16,54 +16,45 @@ from views.appointments.appointment_form import appointment_form_view
 from views.presupuesto.presup_form import presup_view
 from views.presupuesto.quotes import quotes_view
 from views.tretment.treatments import treatments_view
-from services.preference_service import PreferenceService # Importar el nuevo servicio
+from services.preference_service import PreferenceService
+from views.clients.history import client_history_view # Importar la nueva vista
 
 # Configuración de logging
-# Directorio alternativo para logs (ej: AppData/Local)
-# Esto asegura que los logs se guarden en un lugar accesible para el usuario en Windows.
 log_dir = os.path.join(os.getenv('LOCALAPPDATA'), 'GodontoClinic', 'logs')
-os.makedirs(log_dir, exist_ok=True)  # Crea el directorio si no existe
+os.makedirs(log_dir, exist_ok=True)
 
 log_file = os.path.join(log_dir, 'godonto.log')
 
-# Configuración básica de logging
 logging.basicConfig(
     handlers=[
-        logging.FileHandler(log_file), # Guardar logs en un archivo
-        logging.StreamHandler(sys.stdout)  # Mostrar logs en la consola/stdout
+        logging.FileHandler(log_file),
+        logging.StreamHandler(sys.stdout)
     ],
-    level=logging.INFO,  # Nivel de logging: INFO, DEBUG, WARNING, ERROR, CRITICAL
+    level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 
-# Obtener el logger principal de la aplicación
 logger = logging.getLogger(__name__)
 
-# Función para obtener la ruta de recursos (útil para PyInstaller)
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
     try:
-        # PyInstaller crea una carpeta temporal y guarda la ruta en _MEIPASS
         base_path = sys._MEIPASS
     except Exception:
-        # Si no está "congelada" (ej. en desarrollo), usa el directorio actual
         base_path = os.path.abspath(".")
     return os.path.join(base_path, relative_path)
 
 def main(page: ft.Page):
-    # Configuración inicial de la página
     page.title = settings.APP_NAME
     page.padding = 0
     page.window_width = 1200
     page.window_height = 800
     
-    # Cargar la preferencia de tema al iniciar
     user_id_for_preferences = 1 
     saved_theme = PreferenceService.get_user_theme(user_id_for_preferences)
     page.theme_mode = ft.ThemeMode.DARK if saved_theme == 'dark' else ft.ThemeMode.LIGHT
     logger.info(f"Tema inicial cargado para el usuario {user_id_for_preferences}: {page.theme_mode}")
 
-    # Manejar el cierre de la ventana
     def window_event(e):
         if e.data == "close":
             logger.info("Cerrando aplicación...")
@@ -84,7 +75,7 @@ def main(page: ft.Page):
         def close_dialog(e):
             error_dialog.open = False
             page.update()
-            page.go("/dashboard")  # Redirigir a una ruta segura
+            page.go("/dashboard")
         
         error_dialog = ft.AlertDialog(
             modal=True, 
@@ -98,7 +89,6 @@ def main(page: ft.Page):
             ],
         )
         
-        # Asegurarse de que la página existe
         if page and not page.close:
             page.open(error_dialog)
             error_dialog.open = True
@@ -109,7 +99,6 @@ def main(page: ft.Page):
         try:
             current_route = page.route
 
-            # Limpiar todas las vistas actuales (excepto la primera si es el login inicial)
             if len(page.views) > 1:
                 page.views.pop()
             else:
@@ -135,6 +124,13 @@ def main(page: ft.Page):
                         except ValueError:
                             pass
                     page.views.append(client_form_view(page, client_id))
+                elif page.route.startswith("/clients/") and current_route.endswith("/history"): # Nueva ruta para historial
+                    client_id = None
+                    try:
+                        client_id = int(current_route.split("/")[2])
+                    except (IndexError, ValueError):
+                        logger.error(f"Error al parsear ID de cliente de la ruta de historial: {page.route}")
+                    page.views.append(client_history_view(page, client_id))
                 elif page.route == "/appointments":
                     page.views.append(appointments_view(page))
                 elif page.route == "/presupuesto" or page.route.startswith("/presupuesto/"):
@@ -181,19 +177,15 @@ def main(page: ft.Page):
             logger.error(f"Error en route_change: {str(e)}", exc_info=True)
             handle_error(e)
     
-    # Configurar manejadores de eventos
     page.on_route_change = route_change
     page.on_error = lambda e: handle_error(e)
     
-    # Iniciar con la ruta de login
     page.go("/login")
     
-    # Cerrar conexiones al salir
     page.on_close = Database.close_all_connections
 
 if __name__ == "__main__":
     try:
-        # Inicializar la base de datos
         try:
             Database.initialize()
             ft.app(target=main, view=ft.AppView.FLET_APP)
@@ -202,4 +194,3 @@ if __name__ == "__main__":
     except Exception as e:
         logger.critical(f"Error crítico al iniciar la aplicación: {e}")
         raise
-

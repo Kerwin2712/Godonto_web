@@ -325,6 +325,88 @@ class PaymentService:
                 cursor.execute("ROLLBACK;") 
             logger.error(f"Error al eliminar pago {payment_id} y revertir sus efectos: {e}")
             return False, f"Error al eliminar pago: {str(e)}"
+            
+    @staticmethod
+    def delete_debt(debt_id: int) -> Tuple[bool, str]:
+        """
+        Elimina una deuda y revierte cualquier saldo a favor que se haya usado para pagarla,
+        o reactiva pagos si estaban asociados a ella.
+        Esta operación es transaccional.
+        """
+        try:
+            with get_db() as cursor:
+                cursor.execute("BEGIN;")  # Iniciar transacción
+
+                # 1. Obtener detalles de la deuda a eliminar
+                cursor.execute(
+                    "SELECT client_id, amount, paid_amount, status FROM debts WHERE id = %s",
+                    (debt_id,)
+                )
+                debt_details = cursor.fetchone()
+                if not debt_details:
+                    cursor.execute("ROLLBACK;")
+                    return False, "Deuda no encontrada."
+
+                client_id, debt_amount, paid_amount_on_debt, debt_status = debt_details
+                debt_amount = float(debt_amount)
+                paid_amount_on_debt = float(paid_amount_on_debt)
+
+                # 2. Revertir el saldo a favor si la deuda fue pagada por crédito al crearse
+                # Esto ocurre si la deuda fue creada y pagada con saldo a favor.
+                # Si el `paid_amount_on_debt` es > 0 y la deuda fue cubierta por crédito al crearse,
+                # ese monto debe ser devuelto al crédito del cliente.
+                if paid_amount_on_debt > 0.001:
+                    # Verificar si este paid_amount_on_debt vino de una aplicación inicial de crédito
+                    # Esto es un poco más complejo, ya que el crédito se aplica al crear la deuda.
+                    # Para simplificar, asumiremos que si paid_amount_on_debt > 0, es porque se usó crédito
+                    # o se pagó con un pago directo.
+                    # Aquí solo nos ocupamos del crédito que se pudo haber usado *al crear la deuda*.
+
+                    # Si el estado de la deuda es 'paid' o se ha pagado parcialmente con crédito
+                    # y no hay pagos directos registrados, entonces es crédito.
+                    
+                    # Buscamos si hay pagos directos asociados a esta deuda.
+                    cursor.execute(
+                        "SELECT SUM(amount_applied) FROM debt_payments WHERE debt_id = %s",
+                        (debt_id,)
+                    )
+                    payments_applied_to_debt = cursor.fetchone()[0] or 0.0
+                    payments_applied_to_debt = float(payments_applied_to_debt)
+
+                    # La diferencia entre paid_amount_on_debt y payments_applied_to_debt
+                    # podría ser el crédito usado al crear la deuda.
+                    credit_to_revert = paid_amount_on_debt - payments_applied_to_debt
+
+                    if credit_to_revert > 0.001:
+                        PaymentService._update_client_credit_balance(client_id, credit_to_revert, cursor)
+                        logger.info(f"Revertido saldo a favor por {credit_to_revert} para cliente {client_id} al eliminar deuda {debt_id}.")
+
+                # 3. Eliminar las asociaciones de pagos a esta deuda (debt_payments)
+                cursor.execute(
+                    "DELETE FROM debt_payments WHERE debt_id = %s",
+                    (debt_id,)
+                )
+                logger.info(f"Eliminados {cursor.rowcount} registros de debt_payments para la deuda {debt_id}.")
+
+                # 4. Eliminar la deuda de la tabla debts
+                cursor.execute(
+                    "DELETE FROM debts WHERE id = %s",
+                    (debt_id,)
+                )
+                if cursor.rowcount > 0:
+                    cursor.execute("COMMIT;")
+                    logger.info(f"Deuda {debt_id} eliminada exitosamente y efectos revertidos.")
+                    return True, "Deuda eliminada exitosamente."
+                else:
+                    cursor.execute("ROLLBACK;")
+                    return False, "No se pudo eliminar la deuda."
+
+        except Exception as e:
+            if cursor:
+                cursor.execute("ROLLBACK;")
+            logger.error(f"Error al eliminar deuda {debt_id} y revertir sus efectos: {e}")
+            return False, f"Error al eliminar deuda: {str(e)}"
+            
 
     @staticmethod
     def get_client_payments(client_id: int) -> List[dict]:
@@ -436,3 +518,4 @@ class PaymentService:
                 (client_id,)
             )
             return float(cursor.fetchone()[0])
+
