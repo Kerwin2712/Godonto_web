@@ -182,6 +182,17 @@ class AppointmentsView:
         else:
             treatments_controls.append(ft.Text("Sin tratamientos", size=12, italic=True))
 
+        # Añadir la sección de notas
+        notes_controls = []
+        if appointment.notes:
+            notes_controls.append(ft.Divider(height=1))
+            notes_controls.append(ft.Text("Notas:", size=12, weight=ft.FontWeight.BOLD))
+            notes_controls.append(ft.Text(appointment.notes, size=12, selectable=True))
+        else:
+            notes_controls.append(ft.Divider(height=1))
+            notes_controls.append(ft.Text("Sin notas", size=12, italic=True))
+
+
         return ft.Card(
             content=ft.Container(
                 content=ft.Column([
@@ -208,8 +219,10 @@ class AppointmentsView:
                                        color=self._get_status_color(appointment.status),
                                        size=14)
                             ]),
-                            # Añadir la sección de tratamientos aquí
-                            *treatments_controls 
+                            # Sección de tratamientos
+                            *treatments_controls,
+                            # Sección de notas
+                            *notes_controls
                         ], spacing=5),
                         padding=ft.padding.symmetric(horizontal=10)
                     ),
@@ -454,3 +467,4 @@ class AppointmentsView:
 def appointments_view(page: ft.Page):
     """Función de fábrica para crear la vista de citas"""
     return AppointmentsView(page).build_view()
+
