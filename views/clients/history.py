@@ -383,6 +383,8 @@ class ClientHistoryView:
                                         ft.Row(actions)
                                     ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                                     ft.Text(f"Precio: ${ct['price']:,.2f}"),
+                                    # Asegurarse de que 'quantity' exista antes de mostrarla, si aplica
+                                    ft.Text(f"Cantidad: {ct['quantity']}" if 'quantity' in ct and ct['quantity'] is not None else "Cantidad: N/A"),
                                     ft.Text(notes_display),
                                     ft.Text(date_display),
                                     ft.Text(f"Origen: {ct['source'].capitalize()}", size=12, color=ft.colors.GREY_500)
@@ -403,7 +405,8 @@ class ClientHistoryView:
         self.appointments_list.controls.clear()
         if self.client_history["appointments"]:
             for appointment in self.client_history["appointments"]:
-                treatments_text = ", ".join([t['name'] for t in appointment['treatments']]) if appointment['treatments'] else "Sin tratamientos"
+                # Modificado para incluir la cantidad si está disponible en los tratamientos de la cita
+                treatments_text = ", ".join([f"{t['name']} (x{t.get('quantity', 1)})" for t in appointment['treatments']]) if appointment['treatments'] else "Sin tratamientos"
                 self.appointments_list.controls.append(
                     ft.Card(
                         content=ft.Container(
@@ -560,3 +563,4 @@ class ClientHistoryView:
 def client_history_view(page: ft.Page, client_id: int):
     """Función de fábrica para crear la vista de historial del cliente."""
     return ClientHistoryView(page, client_id).build_view()
+

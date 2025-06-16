@@ -336,8 +336,9 @@ class QuotesView:
         if parsed_treatments:
             for i, t in enumerate(parsed_treatments):
                 if i < 2: # Show first 2 treatments
+                    # Modificado para incluir la cantidad
                     treatments_display.append(
-                        ft.Text(f"- {t.get('name', 'N/A')} (${t.get('price_at_quote', 0.0):.2f})", size=11, color=secondary_text_color, overflow=ft.TextOverflow.ELLIPSIS)
+                        ft.Text(f"- {t.get('name', 'N/A')} (x{t.get('quantity', 1)}) (${t.get('price_at_quote', 0.0):.2f})", size=11, color=secondary_text_color, overflow=ft.TextOverflow.ELLIPSIS)
                     )
                 else:
                     treatments_display.append(
