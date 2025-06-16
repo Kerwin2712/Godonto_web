@@ -7,6 +7,7 @@ from services.budget_service import BudgetService
 from services.quote_service import QuoteService
 from services.treatment_service import TreatmentService
 from typing import Optional, List # Importar Optional y List para tipos
+
 import os
 import asyncio # Necesario para asyncio.sleep
 
@@ -30,22 +31,6 @@ class PresupFormView:
         self.treatments_column = ft.Column() # Columna para mostrar los tratamientos seleccionados
         self.total_amount_text = ft.Text("Total: $0.00", size=18, weight=ft.FontWeight.BOLD)
         
-        # ELIMINADO: Campos de fecha de expiración y notas
-        # self.expiration_date_picker = ft.DatePicker(
-        #     first_date=datetime.now(),
-        #     last_date=datetime(2099, 12, 31),
-        #     on_change=self._handle_expiration_date_change
-        # )
-        # self.page.overlay.append(self.expiration_date_picker)
-        # self.expiration_date_text = ft.Text("No seleccionada")
-        # self.notes_field = ft.TextField(
-        #     label="Notas",
-        #     multiline=True,
-        #     min_lines=3,
-        #     max_lines=5,
-        #     hint_text="Notas adicionales sobre el presupuesto..."
-        # )
-
         # Componente de búsqueda de clientes
         self.client_search = self._build_client_search()
         self.selected_client_text = ft.Text(
@@ -87,21 +72,13 @@ class PresupFormView:
                         'name': t['name'],
                         'price': t['price'],
                         'quantity': t['quantity'],
-                        'unique_key': f"{t['id']}-{idx}-{datetime.now().timestamp()}" # Generar clave única
+                        # Generar clave única al cargar, si no existe.
+                        # Esto es vital para manejar tratamientos de la BD que no tienen esta clave.
+                        'unique_key': f"{t['id']}-{idx}-{datetime.now().timestamp()}" 
                     } for idx, t in enumerate(quote_data.get('treatments', []))
                 ]
                 self._update_treatments_display()
                 self._update_total_amount()
-
-                # ELIMINADO: Cargar fecha de expiración
-                # if quote_data['expiration_date']:
-                #     self.expiration_date_picker.value = datetime.combine(quote_data['expiration_date'], datetime.min.time())
-                #     self.expiration_date_text.value = quote_data['expiration_date'].strftime("%d/%m/%Y")
-                # else:
-                #     self.expiration_date_text.value = "No seleccionada"
-
-                # ELIMINADO: Cargar notas
-                # self.notes_field.value = quote_data.get('notes', '')
 
                 # Habilitar botones de guardar y PDF
                 if self.save_budget_button_ref.current:
@@ -119,10 +96,6 @@ class PresupFormView:
                 self.selected_treatments = []
                 self._update_treatments_display()
                 self._update_total_amount()
-                # ELIMINADO: Resetear fecha de expiración y notas
-                # self.expiration_date_picker.value = None
-                # self.expiration_date_text.value = "No seleccionada"
-                # self.notes_field.value = ""
                 self.page.update()
 
         except Exception as e:
@@ -135,10 +108,6 @@ class PresupFormView:
             self.selected_treatments = []
             self._update_treatments_display()
             self._update_total_amount()
-            # ELIMINADO: Resetear fecha de expiración y notas
-            # self.expiration_date_picker.value = None
-            # self.expiration_date_text.value = "No seleccionada"
-            # self.notes_field.value = ""
             self.page.update()
 
     def _build_client_search(self):
@@ -353,7 +322,8 @@ class PresupFormView:
             self.page.update()
             return
 
-        self.selected_treatments.append({'id': treatment_id, 'name': name, 'price': price, 'quantity': 1})
+        # Generar una clave única al añadir un nuevo tratamiento
+        self.selected_treatments.append({'id': treatment_id, 'name': name, 'price': price, 'quantity': 1, 'unique_key': f"{treatment_id}-{len(self.selected_treatments)}-{datetime.now().timestamp()}"})
         self._update_treatments_display()
         self.treatment_search.value = ""
         self.treatment_search.controls = []
@@ -378,6 +348,85 @@ class PresupFormView:
             self.download_pdf_button_ref.current.disabled = (not self.selected_treatments) or (self.quote_id is None)
             self.page.update()
 
+    def _get_treatment_by_unique_key(self, unique_key: str) -> Optional[dict]:
+        """Obtiene un tratamiento de selected_treatments por su unique_key."""
+        for item in self.selected_treatments:
+            if item.get('unique_key') == unique_key:
+                return item
+        return None
+
+    def _handle_treatment_name_change(self, e: ft.ControlEvent, item_unique_key: str):
+        """Maneja el cambio en el nombre de un tratamiento."""
+        item = self._get_treatment_by_unique_key(item_unique_key)
+        if item:
+            item['name'] = e.control.value
+            self.page.update()
+
+    def _handle_treatment_price_change(self, e: ft.ControlEvent, item_unique_key: str):
+        """Maneja el cambio en el precio de un tratamiento."""
+        item = self._get_treatment_by_unique_key(item_unique_key)
+        if item:
+            try:
+                new_price = float(e.control.value) if e.control.value.strip() else 0.0
+                if new_price < 0:
+                    show_error(self.page, "El precio no puede ser negativo.")
+                    e.control.value = f"{item['price']:.2f}"
+                    e.control.update()
+                    return
+
+                item['price'] = new_price
+                self._update_total_amount()
+            except ValueError:
+                show_error(self.page, "Por favor, introduce un número válido para el precio.")
+                e.control.value = f"{item['price']:.2f}"
+                e.control.update()
+
+    def _handle_treatment_price_focus(self, e: ft.ControlEvent):
+        """Maneja el foco en el campo de precio."""
+        if e.control.value == "0.00":
+            e.control.value = ""
+            e.control.update()
+
+    def _handle_treatment_quantity_change(self, e: ft.ControlEvent, item_unique_key: str, quantity_field_ref: ft.Ref[ft.TextField]):
+        """Maneja el cambio en la cantidad de un tratamiento."""
+        item = self._get_treatment_by_unique_key(item_unique_key)
+        if item:
+            try:
+                new_quantity = int(e.control.value) if e.control.value.strip() else 0
+                if new_quantity <= 0:
+                    show_error(self.page, "La cantidad debe ser mayor a 0.")
+                    new_quantity = 1
+                    quantity_field_ref.current.value = str(new_quantity)
+                    quantity_field_ref.current.update()
+                
+                item['quantity'] = new_quantity
+                self._update_total_amount()
+            except ValueError:
+                show_error(self.page, "Por favor, introduce un número entero válido para la cantidad.")
+                e.control.value = str(item['quantity'])
+                e.control.update()
+
+    def _increment_treatment_quantity(self, e: ft.ControlEvent, item_unique_key: str, quantity_field_ref: ft.Ref[ft.TextField]):
+        """Incrementa la cantidad de un tratamiento."""
+        item = self._get_treatment_by_unique_key(item_unique_key)
+        if item:
+            item['quantity'] += 1
+            quantity_field_ref.current.value = str(item['quantity'])
+            quantity_field_ref.current.update()
+            self._update_total_amount()
+
+    def _decrement_treatment_quantity(self, e: ft.ControlEvent, item_unique_key: str, quantity_field_ref: ft.Ref[ft.TextField]):
+        """Decrementa la cantidad de un tratamiento."""
+        item = self._get_treatment_by_unique_key(item_unique_key)
+        if item:
+            if item['quantity'] > 1:
+                item['quantity'] -= 1
+                quantity_field_ref.current.value = str(item['quantity'])
+                quantity_field_ref.current.update()
+            else:
+                show_error(self.page, "La cantidad no puede ser menor a 1.")
+            self._update_total_amount()
+
 
     def _update_treatments_display(self):
         """Actualiza la visualización de los tratamientos seleccionados en la columna"""
@@ -398,84 +447,16 @@ class PresupFormView:
             )
         else:
             for idx, t in enumerate(self.selected_treatments):
+                # Asegurar que cada tratamiento tenga una unique_key.
+                # Esto es crucial si se carga desde la DB donde 'unique_key' no existe inicialmente.
                 if 'unique_key' not in t:
                     t['unique_key'] = f"{t.get('id', 'new')}-{idx}-{datetime.now().timestamp()}"
 
+                # Usa Ref para cada TextField de cantidad.
+                # También refs para name y price para consistencia, aunque no sean estrictamente necesarios para este bug.
                 name_field_ref = ft.Ref[ft.TextField]()
                 price_field_ref = ft.Ref[ft.TextField]()
-                quantity_field_ref = ft.Ref[ft.TextField]()
-
-                def on_name_change(e, item_unique_key=t['unique_key']):
-                    for item in self.selected_treatments:
-                        if item.get('unique_key') == item_unique_key:
-                            item['name'] = e.control.value
-                            break
-                    self.page.update()
-
-                def on_price_change(e, item_unique_key=t['unique_key']):
-                    try:
-                        new_price = float(e.control.value) if e.control.value.strip() else 0.0
-                        if new_price < 0:
-                            show_error(self.page, "El precio no puede ser negativo.")
-                            e.control.value = f"{t['price']:.2f}" if 'price' in t else "0.00"
-                            e.control.update()
-                            return
-
-                        for item in self.selected_treatments:
-                            if item.get('unique_key') == item_unique_key:
-                                item['price'] = new_price
-                                break
-                        self._update_total_amount()
-                    except ValueError:
-                        show_error(self.page, "Por favor, introduce un número válido para el precio.")
-                        e.control.value = f"{t['price']:.2f}" if 'price' in t else "0.00"
-                        e.control.update()
-
-                def on_price_focus(e):
-                    if e.control.value == "0.00":
-                        e.control.value = ""
-                        e.control.update()
-
-                def on_quantity_change(e, item_unique_key=t['unique_key']):
-                    try:
-                        new_quantity = int(e.control.value) if e.control.value.strip() else 0
-                        if new_quantity <= 0:
-                            show_error(self.page, "La cantidad debe ser mayor a 0.")
-                            e.control.value = "1"
-                            new_quantity = 1
-                            e.control.update()
-
-                        for item in self.selected_treatments:
-                            if item.get('unique_key') == item_unique_key:
-                                item['quantity'] = new_quantity
-                                break
-                        self._update_total_amount()
-                    except ValueError:
-                        show_error(self.page, "Por favor, introduce un número entero válido para la cantidad.")
-                        e.control.value = str(t['quantity']) if 'quantity' in t else "1"
-                        e.control.update()
-
-                def increment_quantity(e, item_unique_key):
-                    for item in self.selected_treatments:
-                        if item.get('unique_key') == item_unique_key:
-                            item['quantity'] += 1
-                            quantity_field_ref.current.value = str(item['quantity'])
-                            quantity_field_ref.current.update()
-                            break
-                    self._update_total_amount()
-
-                def decrement_quantity(e, item_unique_key):
-                    for item in self.selected_treatments:
-                        if item.get('unique_key') == item_unique_key:
-                            if item['quantity'] > 1:
-                                item['quantity'] -= 1
-                                quantity_field_ref.current.value = str(item['quantity'])
-                                quantity_field_ref.current.update()
-                            else:
-                                show_error(self.page, "La cantidad no puede ser menor a 1.")
-                            break
-                    self._update_total_amount()
-
+                quantity_field_ref = ft.Ref[ft.TextField]() # Esta es la clave para la cantidad
 
                 self.treatments_column.controls.append(
                     ft.Card(
@@ -485,22 +466,22 @@ class PresupFormView:
                                     ft.Row(
                                         [
                                             ft.TextField(
-                                                ref=name_field_ref,
+                                                ref=name_field_ref, # Asignar la referencia
                                                 label="Nombre del Tratamiento",
                                                 value=t['name'],
                                                 expand=True,
-                                                on_change=on_name_change,
-                                                read_only=t['id'] is not None
+                                                on_change=lambda e, key=t['unique_key']: self._handle_treatment_name_change(e, key),
+                                                read_only=t['id'] is not None # Solo lectura si viene de la DB
                                             ),
                                             ft.TextField(
-                                                ref=price_field_ref,
+                                                ref=price_field_ref, # Asignar la referencia
                                                 label="Precio ($)",
                                                 value=f"{t['price']:.2f}",
                                                 width=120,
                                                 keyboard_type=ft.KeyboardType.NUMBER,
-                                                on_change=on_price_change,
-                                                on_focus=on_price_focus,
-                                                read_only=t['id'] is not None
+                                                on_change=lambda e, key=t['unique_key']: self._handle_treatment_price_change(e, key),
+                                                on_focus=self._handle_treatment_price_focus,
+                                                read_only=t['id'] is not None # Solo lectura si viene de la DB
                                             ),
                                         ],
                                         spacing=10
@@ -509,22 +490,22 @@ class PresupFormView:
                                         [
                                             ft.IconButton(
                                                 icon=ft.icons.REMOVE,
-                                                on_click=lambda e: decrement_quantity(e, t['unique_key']),
+                                                on_click=lambda e, key=t['unique_key'], q_ref=quantity_field_ref: self._decrement_treatment_quantity(e, key, q_ref),
                                                 tooltip="Disminuir cantidad",
                                                 icon_color=icon_color_quantity
                                             ),
                                             ft.TextField(
-                                                ref=quantity_field_ref,
+                                                ref=quantity_field_ref, # Asignar la referencia aquí
                                                 label="Cantidad",
                                                 value=str(t['quantity']),
                                                 width=100,
                                                 keyboard_type=ft.KeyboardType.NUMBER,
-                                                on_change=on_quantity_change,
+                                                on_change=lambda e, key=t['unique_key'], q_ref=quantity_field_ref: self._handle_treatment_quantity_change(e, key, q_ref),
                                                 text_align=ft.TextAlign.CENTER,
                                             ),
                                             ft.IconButton(
                                                 icon=ft.icons.ADD,
-                                                on_click=lambda e: increment_quantity(e, t['unique_key']),
+                                                on_click=lambda e, key=t['unique_key'], q_ref=quantity_field_ref: self._increment_treatment_quantity(e, key, q_ref),
                                                 tooltip="Aumentar cantidad",
                                                 icon_color=icon_color_quantity
                                             ),
@@ -553,20 +534,11 @@ class PresupFormView:
 
     def add_new_treatment_item(self, e=None):
         """Añade un nuevo item de tratamiento vacío para que el usuario lo rellene"""
-        self.selected_treatments.append({'id': None, 'name': '', 'price': 0.0, 'quantity': 1})
+        # Asegurarse de que el nuevo tratamiento también tenga una unique_key
+        self.selected_treatments.append({'id': None, 'name': '', 'price': 0.0, 'quantity': 1, 'unique_key': f"new-{len(self.selected_treatments)}-{datetime.now().timestamp()}"})
         self._update_treatments_display()
         self._update_total_amount()
         self.page.update()
-
-    # ELIMINADO: _handle_expiration_date_change
-    # def _handle_expiration_date_change(self, e):
-    #     """Maneja el cambio de fecha de expiración del DatePicker."""
-    #     if self.expiration_date_picker.value:
-    #         self.expiration_date_text.value = self.expiration_date_picker.value.strftime("%d/%m/%Y")
-    #     else:
-    #         self.expiration_date_text.value = "No seleccionada"
-    #     self.page.update()
-
 
     def _validate_budget_data(self) -> bool:
         """Valida los datos del presupuesto antes de guardar o generar PDF."""
@@ -582,11 +554,26 @@ class PresupFormView:
             if not item['name'].strip():
                 show_error(self.page, "Todos los tratamientos deben tener un nombre.")
                 return False
-            if not isinstance(item['price'], (int, float)) or item['price'] < 0:
-                show_error(self.page, f"El precio para '{item['name']}' no es válido.")
+            # Validar que el precio sea un número y no negativo
+            try:
+                price = float(item['price'])
+                if price < 0:
+                    show_error(self.page, f"El precio para '{item['name']}' no puede ser negativo.")
+                    return False
+                item['price'] = price # Asegurar que el tipo sea float después de la validación
+            except ValueError:
+                show_error(self.page, f"El precio para '{item['name']}' no es un número válido.")
                 return False
-            if not isinstance(item['quantity'], int) or item['quantity'] <= 0:
-                show_error(self.page, f"La cantidad para '{item['name']}' no es válida (debe ser un entero positivo).")
+
+            # Validar que la cantidad sea un entero positivo
+            try:
+                quantity = int(item['quantity'])
+                if quantity <= 0:
+                    show_error(self.page, f"La cantidad para '{item['name']}' debe ser un entero positivo.")
+                    return False
+                item['quantity'] = quantity # Asegurar que el tipo sea int después de la validación
+            except ValueError:
+                show_error(self.page, f"La cantidad para '{item['name']}' no es un número entero válido.")
                 return False
         return True
 
@@ -596,10 +583,6 @@ class PresupFormView:
             return
 
         try:
-            # ELIMINADO: Obtener fecha de expiración y notas
-            # expiration_date_obj = self.expiration_date_picker.value.date() if self.expiration_date_picker.value else None
-            # notes_text = self.notes_field.value.strip() if self.notes_field.value else None
-
             if self.quote_id: # Es una edición
                 success = QuoteService.update_quote(
                     quote_id=self.quote_id,
@@ -669,7 +652,6 @@ class PresupFormView:
                 "items": items_for_pdf,
                 "date": quote_details['quote_date'], # Usar la fecha del presupuesto desde la BD
                 "total_amount": quote_details['total_amount'],
-                # ELIMINADO: "notes": quote_details.get('notes', '') # Añadir las notas del presupuesto
             }
 
             # Abrir el diálogo para guardar el archivo. El resultado se manejará en _on_file_picker_result
@@ -696,8 +678,6 @@ class PresupFormView:
                     BudgetService.generate_pdf_to_path(e.path, self._temp_pdf_data)
                     show_success(self.page, f"PDF generado exitosamente en {e.path}")
                     self._temp_pdf_data = None # Limpiar datos temporales
-                    # No navegar automáticamente, permitir al usuario seguir en el formulario
-                    # self.page.go("/clients") 
                 except Exception as ex:
                     logger.error(f"Error al generar PDF en _on_file_picker_result: {ex}")
                     show_error(self.page, f"Error al generar PDF: {ex}")
@@ -776,27 +756,6 @@ class PresupFormView:
                                 alignment=ft.alignment.center_right,
                                 padding=ft.padding.only(right=10, top=10)
                             ),
-                            # ELIMINADO: Información Adicional (fecha de expiración y notas)
-                            # ft.Text("Información Adicional", weight="bold", color=section_title_color),
-                            # ft.Row([
-                            #     ft.Text("Fecha de Expiración:", size=12, color=section_title_color),
-                            #     ft.ElevatedButton(
-                            #         "Seleccionar Fecha",
-                            #         icon=ft.icons.CALENDAR_TODAY,
-                            #         on_click=lambda e: self.page.open(self.expiration_date_picker),
-                            #         style=ft.ButtonStyle(bgcolor=ft.colors.BLUE_500 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_800,
-                            #                              color=ft.colors.WHITE)
-                            #     ),
-                            #     ft.Container(
-                            #         content=self.expiration_date_text,
-                            #         padding=ft.padding.all(10),
-                            #         bgcolor=ft.colors.GREY_100 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_700,
-                            #         border_radius=5,
-                            #         expand=True
-                            #     )
-                            # ], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                            # self.notes_field, # Campo de notas
-
                             ft.ResponsiveRow(
                                 controls=[
                                     ft.Column(col={"xs": 12, "sm": 6}, alignment=ft.MainAxisAlignment.END,
