@@ -2,6 +2,7 @@
 import flet as ft
 from services.history_service import HistoryService
 from services.treatment_service import TreatmentService
+from services.payment_service import PaymentService # <-- Importar PaymentService
 from utils.alerts import show_success, show_error
 from datetime import datetime, date
 from typing import Optional
@@ -15,6 +16,7 @@ class ClientHistoryView:
         self.client_id = client_id
         self.history_service = HistoryService()
         self.treatment_service = TreatmentService()
+        self.payment_service = PaymentService() # <-- Instanciar PaymentService
         self.client_history = None
         self.selected_treatment_for_add = None # Para el combobox de añadir tratamiento
 
@@ -263,6 +265,8 @@ class ClientHistoryView:
     def load_history_data(self): # Ya no es asíncrona
         """Carga todos los datos del historial del cliente."""
         self.client_history = self.history_service.get_client_full_history(self.client_id)
+        # <-- Obtener resumen de pagos y deudas
+        self.client_payment_summary = self.payment_service.get_payment_summary(self.client_id)
         
         if not self.client_history["client_info"]:
             show_error(self.page, "Cliente no encontrado.")
@@ -300,7 +304,12 @@ class ClientHistoryView:
                         ft.Text(f"Teléfono: {client.phone}", size=16),
                         ft.Text(f"Email: {client.email}", size=16),
                         ft.Text(f"Dirección: {client.address if client.address else 'N/A'}", size=16),
-                        ft.Text(f"Registrado el: {client.created_at.strftime('%d/%m/%Y')}", size=14, color=ft.colors.GREY_600)
+                        ft.Text(f"Registrado el: {client.created_at.strftime('%d/%m/%Y')}", size=14, color=ft.colors.GREY_600),
+                        ft.Divider(), # Separador
+                        ft.Text("Estado de Cuenta:", weight="bold", size=16),
+                        ft.Text(f"Saldo a Favor: ${self.client_payment_summary.get('client_credit_balance', 0.0):,.2f}", size=14, color=ft.colors.GREEN_700),
+                        ft.Text(f"Pagos Realizados: ${self.client_payment_summary.get('total_payments', 0.0):,.2f}", size=14),
+                        ft.Text(f"Deuda Pendiente: ${self.client_payment_summary.get('total_pending_debt', 0.0):,.2f}", size=14, color=ft.colors.RED_700),
                     ],
                     spacing=8
                 ),
@@ -486,7 +495,7 @@ class ClientHistoryView:
     def build_view(self):
         """Construye la vista completa del historial médico."""
         return ft.View(
-            f"/clients/{self.client_id}/history",
+            f"/clients/{self.client_id}/history", # Corrección: self->client_id a self.client_id
             controls=[
                 ft.AppBar(
                     title=ft.Text(f"Historial de {self.client_history['client_info'].name if self.client_history and self.client_history['client_info'] else 'Cliente'}", weight=ft.FontWeight.BOLD),

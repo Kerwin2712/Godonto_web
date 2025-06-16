@@ -14,17 +14,34 @@ class PaymentService:
         Actualiza el saldo a favor del cliente en la tabla client_credits.
         amount puede ser positivo (añadir crédito) o negativo (usar crédito).
         Se requiere el cursor de la transacción existente.
+
+        Esta función ahora asegura que el saldo a favor nunca sea negativo.
         """
+        # Primero, obtén el saldo actual
+        cursor.execute(
+            "SELECT COALESCE(amount, 0) FROM client_credits WHERE client_id = %s",
+            (client_id,)
+        )
+        current_balance = float(cursor.fetchone()[0]) if cursor.rowcount > 0 else 0.0
+
+        new_balance = current_balance + amount
+
+        # Asegúrate de que el saldo a favor nunca sea negativo
+        if new_balance < 0:
+            new_balance = 0.0 # O registra la diferencia como una deuda, pero para saldo a favor, no debe ser negativo.
+            logger.warning(f"Intento de reducir el saldo a favor del cliente {client_id} por debajo de cero. Saldo establecido a 0.")
+
+
         cursor.execute(
             """
             INSERT INTO client_credits (client_id, amount, created_at, updated_at)
             VALUES (%s, %s, NOW(), NOW())
             ON CONFLICT (client_id) DO UPDATE
-            SET amount = client_credits.amount + EXCLUDED.amount, updated_at = NOW()
+            SET amount = EXCLUDED.amount, updated_at = NOW() -- Usamos EXCLUDED.amount directamente para el nuevo saldo calculado
             """,
-            (client_id, amount)
+            (client_id, new_balance) # Pasa el nuevo_balance calculado
         )
-        logger.info(f"Saldo a favor del cliente {client_id} actualizado por: {amount}. Nuevo saldo calculado en DB.")
+        logger.info(f"Saldo a favor del cliente {client_id} actualizado a: {new_balance}.")
 
 
     @staticmethod
@@ -172,11 +189,11 @@ class PaymentService:
                     sql_placeholders.append("%s")
                     sql_values.append(quote_id)
 
-                if current_credit > 0.001:
+                if current_credit > 0.001: # Solo usar crédito si es positivo
                     if current_credit >= amount:
                         paid_amount_on_creation = amount
                         initial_status = 'paid'
-                        PaymentService._update_client_credit_balance(client_id, -amount, _cursor)
+                        PaymentService._update_client_credit_balance(client_id, -amount, _cursor) # Reduce el crédito
                         
                         if "paid_at" not in sql_columns:
                             sql_columns.append("paid_at")
@@ -190,12 +207,14 @@ class PaymentService:
                     else:
                         paid_amount_on_creation = current_credit
                         initial_status = 'pending'
-                        PaymentService._update_client_credit_balance(client_id, -current_credit, _cursor)
+                        PaymentService._update_client_credit_balance(client_id, -current_credit, _cursor) # Reduce el crédito a cero
+                        amount_after_credit = amount - current_credit
 
                         sql_values[sql_columns.index("status")] = initial_status
                         sql_values[sql_columns.index("paid_amount")] = paid_amount_on_creation
+                        # La cantidad de la deuda sigue siendo el 'amount' original, pero el 'paid_amount' refleja el crédito usado.
 
-                        message_suffix = f" Cubierta parcialmente con saldo a favor (${current_credit:,.2f} usados). Pendiente: ${amount - current_credit:,.2f}."
+                        message_suffix = f" Cubierta parcialmente con saldo a favor (${current_credit:,.2f} usados). Pendiente: ${amount_after_credit:,.2f}."
                         logger.info(f"Deuda de {amount} para cliente {client_id} cubierta parcialmente con saldo a favor de {current_credit}.")
                 
                 column_str = ", ".join(sql_columns)
@@ -405,7 +424,6 @@ class PaymentService:
             logger.error(f"Error al eliminar deuda {debt_id} y revertir sus efectos: {e}")
             return False, f"Error al eliminar deuda: {str(e)}"
             
-
     @staticmethod
     def get_client_payments(client_id: int) -> List[dict]:
         """
