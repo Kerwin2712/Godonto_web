@@ -110,7 +110,10 @@ class ClientHistoryView:
             self.new_medical_record_next_appointment_text.value = "Próxima cita: N/A"
         self.page.update()
 
-    def _add_client_treatment(self, e, treatment_id_to_add: Optional[int] = None):
+    def _add_client_treatment(self, e, treatment_id_to_add: Optional[int] = None,
+                           appointment_id_to_add: Optional[int] = None, # <-- NUEVO PARÁMETRO
+                           quote_id_to_add: Optional[int] = None,       # <-- NUEVO PARÁMETRO
+                           quantity_to_mark_completed: int = 1):        # <-- NUEVO PARÁMETRO (por defecto 1)
         """Añade un tratamiento directamente al historial del cliente o marca uno como completado."""
         if treatment_id_to_add is None and self.selected_treatment_for_add is None:
             show_error(self.page, "Por favor, seleccione un tratamiento.")
@@ -120,29 +123,35 @@ class ClientHistoryView:
         final_treatment_id = treatment_id_to_add if treatment_id_to_add is not None else self.selected_treatment_for_add
 
         notes = self.new_history_treatment_notes.value
-        # Obtener las notas del tratamiento si se marcó como completado desde una fuente externa
-        if treatment_id_to_add is not None:
-            # Buscar el tratamiento en la lista de all_client_treatments para obtener sus notas actuales
-            # Esto es para mantener la descripción original si se marca como completado
-            found_treatment = next((t for t in self.client_history["all_client_treatments"] if t['id'] == treatment_id_to_add), None)
-            if found_treatment and found_treatment['notes']:
-                notes = found_treatment['notes']
-            if found_treatment and found_treatment['source'] == 'cita':
-                notes = f"Tratamiento completado (originalmente de cita)."
-            elif found_treatment and found_treatment['source'] == 'presupuesto':
-                notes = f"Tratamiento completado (originalmente de presupuesto)."
+        if treatment_id_to_add is not None: # Si se está marcando como completado desde un elemento existente
+            found_treatment = next((t for t in self.client_history["all_client_treatments"]
+                                    if t['id'] == treatment_id_to_add and
+                                    t.get('appointment_id') == appointment_id_to_add and
+                                    t.get('quote_id') == quote_id_to_add), None)
+            if found_treatment:
+                original_notes = found_treatment.get('notes', '')
+                source_origin = found_treatment.get('source', 'N/A')
+                notes_prefix = f"Completado (origen: {source_origin})."
+                notes = f"{notes_prefix} {original_notes}" if original_notes else notes_prefix
+            else:
+                notes = "Completado."
+        else: # Si es una adición manual desde el dropdown
+            notes = self.new_history_treatment_notes.value
 
 
-        treatment_date = self.new_history_treatment_date_picker.value.date() if self.new_history_treatment_date_picker.value else None
-        if treatment_id_to_add is not None: # Si se marca como completado, usar la fecha actual si no se seleccionó otra
-             treatment_date = date.today()
-
+        treatment_date = self.new_history_treatment_date_picker.value.date() if self.new_history_treatment_date_picker.value else date.today()
+        # Si se está marcando un tratamiento ya existente, la fecha debe ser hoy si no se ha seleccionado otra
+        if treatment_id_to_add is not None and self.new_history_treatment_date_picker.value is None:
+            treatment_date = date.today()
 
         success, message = self.history_service.add_client_treatment(
             client_id=self.client_id,
             treatment_id=final_treatment_id,
             notes=notes,
-            treatment_date=treatment_date
+            treatment_date=treatment_date,
+            appointment_id=appointment_id_to_add, # <-- PASAR ESTE VALOR
+            quote_id=quote_id_to_add,             # <-- PASAR ESTE VALOR
+            quantity_to_mark_completed=quantity_to_mark_completed # <-- PASAR ESTE VALOR
         )
 
         if success:
@@ -345,19 +354,35 @@ class ClientHistoryView:
         if self.client_history["all_client_treatments"]:
             for ct in self.client_history["all_client_treatments"]:
                 status_color = ft.colors.GREEN_700 if ct['status'] == 'completed' else ft.colors.AMBER_700
-                status_text = "Completado" if ct['status'] == 'completed' else "Pendiente"
                 
+                # Calcular cantidades para el texto del estado
+                completed_qty = ct.get('completed_quantity', 0)
+                total_qty = ct.get('total_quantity', 1)
+                
+                status_text = f"Completado ({completed_qty} de {total_qty})"
+                if completed_qty < total_qty:
+                    status_text = f"Pendiente ({completed_qty} de {total_qty})"
+
+                # Definir notes_display y date_display dentro del bucle
                 notes_display = f"Notas: {ct['notes']}" if ct['notes'] else "Notas: N/A"
                 date_display = f"Fecha: {ct['treatment_date'].strftime('%d/%m/%Y')}" if ct['treatment_date'] else "Fecha: N/A"
 
                 actions = []
-                if ct['status'] == 'pending':
+                if completed_qty < total_qty:
                     actions.append(
                         ft.IconButton(
                             icon=ft.icons.CHECK_CIRCLE,
                             icon_color=ft.colors.GREEN_500,
-                            tooltip="Marcar como Completado",
-                            on_click=lambda e, tr_id=ct['id']: self._add_client_treatment(e, tr_id)
+                            tooltip=f"Marcar 1 unidad como Completada", # El tooltip ahora es más genérico
+                            on_click=lambda e, 
+                                            _treatment_id=ct['id'],
+                                            _appointment_id=ct.get('appointment_id'), # Pasar appointment_id
+                                            _quote_id=ct.get('quote_id'):             # Pasar quote_id
+                                self._add_client_treatment(e, 
+                                                            treatment_id_to_add=_treatment_id, 
+                                                            appointment_id_to_add=_appointment_id, 
+                                                            quote_id_to_add=_quote_id,
+                                                            quantity_to_mark_completed=1) # Marca 1 unidad por click
                         )
                     )
                 # Modificación aquí: el botón de eliminar se muestra si el tratamiento está 'completed'
@@ -379,12 +404,12 @@ class ClientHistoryView:
                                 controls=[
                                     ft.Row([
                                         ft.Text(f"Tratamiento: {ct['name']}", weight="bold"),
-                                        ft.Text(f"Estado: {status_text}", color=status_color),
+                                        ft.Text(f"Estado: {status_text}", color=status_color), # Usar el status_text actualizado
                                         ft.Row(actions)
                                     ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                                     ft.Text(f"Precio: ${ct['price']:,.2f}"),
-                                    # Asegurarse de que 'quantity' exista antes de mostrarla, si aplica
-                                    ft.Text(f"Cantidad: {ct['quantity']}" if 'quantity' in ct and ct['quantity'] is not None else "Cantidad: N/A"),
+                                    # Mostrar la cantidad completada y total aquí
+                                    ft.Text(f"Cantidad: {completed_qty} / {total_qty}"), 
                                     ft.Text(notes_display),
                                     ft.Text(date_display),
                                     ft.Text(f"Origen: {ct['source'].capitalize()}", size=12, color=ft.colors.GREY_500)

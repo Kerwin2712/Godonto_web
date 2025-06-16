@@ -239,10 +239,10 @@ class AppointmentsView:
                             tooltip="Eliminar",
                             on_click=lambda e, a=appointment: self.confirm_delete(a.id, a.client_name)
                         )
-                    ], alignment=ft.MainAxisAlignment.END)
+                    ], alignment=ft.MainAxisAlignment.SPACE_EVENLY)
                 ], spacing=5),
                 padding=10,
-                width=400,
+                # Se eliminó la línea "width=ft.WEB_BROWSER_AUTO_DETECT"
             ),
             elevation=8,
             col={"sm": 12, "md": 6, "lg": 4}
