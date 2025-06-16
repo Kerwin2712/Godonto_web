@@ -132,6 +132,7 @@ class PaymentService:
     @staticmethod
     def create_debt(client_id: int, amount: float, description: Optional[str] = None, 
                     due_date: Optional[datetime] = None, appointment_id: Optional[int] = None,
+                    quote_id: Optional[int] = None, # Añadir quote_id
                     cursor=None) -> Tuple[bool, str]:
         """
         Registra una deuda para un cliente, intentando usar el saldo a favor del cliente primero.
@@ -164,6 +165,12 @@ class PaymentService:
                     sql_columns.append("appointment_id")
                     sql_placeholders.append("%s")
                     sql_values.append(appointment_id)
+                
+                # Añadir quote_id si se proporciona
+                if quote_id is not None:
+                    sql_columns.append("quote_id")
+                    sql_placeholders.append("%s")
+                    sql_values.append(quote_id)
 
                 if current_credit > 0.001:
                     if current_credit >= amount:
@@ -355,31 +362,22 @@ class PaymentService:
                 # Esto ocurre si la deuda fue creada y pagada con saldo a favor.
                 # Si el `paid_amount_on_debt` es > 0 y la deuda fue cubierta por crédito al crearse,
                 # ese monto debe ser devuelto al crédito del cliente.
-                if paid_amount_on_debt > 0.001:
-                    # Verificar si este paid_amount_on_debt vino de una aplicación inicial de crédito
-                    # Esto es un poco más complejo, ya que el crédito se aplica al crear la deuda.
-                    # Para simplificar, asumiremos que si paid_amount_on_debt > 0, es porque se usó crédito
-                    # o se pagó con un pago directo.
-                    # Aquí solo nos ocupamos del crédito que se pudo haber usado *al crear la deuda*.
 
-                    # Si el estado de la deuda es 'paid' o se ha pagado parcialmente con crédito
-                    # y no hay pagos directos registrados, entonces es crédito.
-                    
-                    # Buscamos si hay pagos directos asociados a esta deuda.
-                    cursor.execute(
-                        "SELECT SUM(amount_applied) FROM debt_payments WHERE debt_id = %s",
-                        (debt_id,)
-                    )
-                    payments_applied_to_debt = cursor.fetchone()[0] or 0.0
-                    payments_applied_to_debt = float(payments_applied_to_debt)
+                # Buscamos si hay pagos directos asociados a esta deuda.
+                cursor.execute(
+                    "SELECT SUM(amount_applied) FROM debt_payments WHERE debt_id = %s",
+                    (debt_id,)
+                )
+                payments_applied_to_debt = cursor.fetchone()[0] or 0.0
+                payments_applied_to_debt = float(payments_applied_to_debt)
 
-                    # La diferencia entre paid_amount_on_debt y payments_applied_to_debt
-                    # podría ser el crédito usado al crear la deuda.
-                    credit_to_revert = paid_amount_on_debt - payments_applied_to_debt
+                # La diferencia entre paid_amount_on_debt y payments_applied_to_debt
+                # podría ser el crédito usado al crear la deuda.
+                credit_to_revert = paid_amount_on_debt - payments_applied_to_debt
 
-                    if credit_to_revert > 0.001:
-                        PaymentService._update_client_credit_balance(client_id, credit_to_revert, cursor)
-                        logger.info(f"Revertido saldo a favor por {credit_to_revert} para cliente {client_id} al eliminar deuda {debt_id}.")
+                if credit_to_revert > 0.001:
+                    PaymentService._update_client_credit_balance(client_id, credit_to_revert, cursor)
+                    logger.info(f"Revertido saldo a favor por {credit_to_revert} para cliente {client_id} al eliminar deuda {debt_id}.")
 
                 # 3. Eliminar las asociaciones de pagos a esta deuda (debt_payments)
                 cursor.execute(
@@ -452,7 +450,7 @@ class PaymentService:
         with get_db() as cursor:
             cursor.execute(
                 """
-                SELECT id, amount, description, due_date, created_at, status, paid_amount, appointment_id
+                SELECT id, amount, description, due_date, created_at, status, paid_amount, appointment_id, quote_id
                 FROM debts
                 WHERE client_id = %s
                 ORDER BY due_date DESC, created_at DESC
@@ -468,7 +466,8 @@ class PaymentService:
                     'created_at': row[4],
                     'status': row[5],
                     'paid_amount': float(row[6]),
-                    'appointment_id': row[7]
+                    'appointment_id': row[7],
+                    'quote_id': row[8]
                 } for row in cursor.fetchall()
             ]
     

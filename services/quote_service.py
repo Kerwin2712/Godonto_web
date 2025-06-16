@@ -3,6 +3,7 @@ from datetime import date, datetime
 from core.database import get_db, Database # Asegúrate de que get_db y Database estén correctamente importados
 from typing import List, Dict, Optional
 from services.treatment_service import TreatmentService
+from services.payment_service import PaymentService # Importar PaymentService
 import logging
 import json
 # Para usar RealDictCursor si estás con psycopg2 para obtener diccionarios
@@ -23,7 +24,7 @@ class QuoteService:
         expiration_date: Optional[date] = None,
         notes: Optional[str] = None
     ) -> Optional[int]:
-        """Crea un nuevo presupuesto con tratamientos"""
+        """Crea un nuevo presupuesto con tratamientos y genera una deuda para el cliente."""
         try:
             # Calcular el total_amount
             total_amount = sum(t['price'] * t['quantity'] for t in treatments)
@@ -57,6 +58,16 @@ class QuoteService:
                         (quote_id, treatment_id, treatment['quantity'], treatment['price'])
                     )
                 
+                # Crear deuda asociada al presupuesto
+                # La descripción de la deuda debería reflejar que es por un presupuesto
+                PaymentService.create_debt(
+                    client_id=client_id,
+                    amount=total_amount,
+                    description=f"Presupuesto #{quote_id} - {total_amount:.2f}",
+                    quote_id=quote_id, # Asociar la deuda con el ID del presupuesto
+                    cursor=cursor # Pasar el cursor para que sea parte de la misma transacción
+                )
+
                 return quote_id
         except Exception as e:
             logger.error(f"Error al crear presupuesto: {str(e)}")
@@ -273,11 +284,18 @@ class QuoteService:
         notes: Optional[str] = None,
         status: str = 'pending' # Permite actualizar el estado
     ) -> bool:
-        """Actualiza un presupuesto existente."""
+        """Actualiza un presupuesto existente y su deuda asociada."""
         try:
-            total_amount = sum(t['price'] * t['quantity'] for t in treatments)
+            new_total_amount = sum(t['price'] * t['quantity'] for t in treatments)
             
             with Database.get_cursor() as cursor: # Usar Database.get_cursor() directamente
+                # Obtener el total_amount actual para calcular la diferencia
+                cursor.execute(
+                    "SELECT total_amount FROM quotes WHERE id = %s",
+                    (quote_id,)
+                )
+                old_total_amount = float(cursor.fetchone()[0]) if cursor.rowcount > 0 else 0.0
+
                 # Actualizar presupuesto
                 cursor.execute(
                     """
@@ -290,7 +308,7 @@ class QuoteService:
                         updated_at = NOW()
                     WHERE id = %s
                     """,
-                    (client_id, expiration_date, total_amount, status, notes, quote_id)
+                    (client_id, expiration_date, new_total_amount, status, notes, quote_id)
                 )
                 
                 # Eliminar tratamientos existentes del presupuesto
@@ -314,6 +332,23 @@ class QuoteService:
                         """,
                         (quote_id, treatment_id, treatment['quantity'], treatment['price'])
                     )
+
+                # Actualizar la deuda asociada al presupuesto
+                # Primero, elimina cualquier deuda anterior asociada a este presupuesto
+                cursor.execute(
+                    "DELETE FROM debts WHERE quote_id = %s",
+                    (quote_id,)
+                )
+                
+                # Luego, crea una nueva deuda con el nuevo total_amount
+                PaymentService.create_debt(
+                    client_id=client_id,
+                    amount=new_total_amount,
+                    description=f"Presupuesto #{quote_id} - {new_total_amount:.2f}",
+                    quote_id=quote_id,
+                    cursor=cursor
+                )
+
                 return True
         except Exception as e:
             logger.error(f"Error al actualizar presupuesto {quote_id}: {str(e)}")
@@ -321,12 +356,17 @@ class QuoteService:
 
     @staticmethod
     def delete_quote(quote_id: int) -> bool:
-        """Elimina un presupuesto y sus tratamientos asociados."""
+        """Elimina un presupuesto y sus tratamientos asociados, y la deuda asociada."""
         try:
             with Database.get_cursor() as cursor: # Usar Database.get_cursor() directamente
-                # La restricción ON DELETE CASCADE en quote_treatments debería manejar esto,
-                # pero se puede hacer explícitamente para mayor claridad o si no hay CASCADE.
+                # Eliminar las deudas asociadas al presupuesto primero
+                cursor.execute("DELETE FROM debts WHERE quote_id = %s", (quote_id,))
+                logger.info(f"Eliminadas {cursor.rowcount} deudas asociadas al presupuesto {quote_id}.")
+
+                # Eliminar tratamientos del presupuesto (ON DELETE CASCADE se encargará de esto)
                 cursor.execute("DELETE FROM quote_treatments WHERE quote_id = %s", (quote_id,))
+                
+                # Eliminar el presupuesto
                 cursor.execute("DELETE FROM quotes WHERE id = %s RETURNING id", (quote_id,))
                 return cursor.fetchone() is not None
         except Exception as e:
@@ -401,3 +441,4 @@ class QuoteService:
         except Exception as e:
             logger.error(f"Error al obtener información del cliente {client_id} para PDF: {str(e)}")
             return None
+

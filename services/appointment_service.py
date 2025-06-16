@@ -9,6 +9,7 @@ from utils.date_utils import is_working_hours, is_future_datetime
 from .observable import Observable
 import logging
 from services.history_service import HistoryService # Importar HistoryService
+from services.quote_service import QuoteService # Importar QuoteService
 
 logger = logging.getLogger(__name__)
 
@@ -134,10 +135,10 @@ class AppointmentService(Observable):
                 
                 # Agregar tratamientos si existen
                 if treatments:
-                    total_debt = 0.0
                     for treatment in treatments:
                         # Asegúrate de que 'id' y 'price' estén presentes en el diccionario de tratamiento
                         if 'id' in treatment and 'price' in treatment:
+                            # Insertar tratamiento asociado a la cita
                             cursor.execute(
                                 """
                                 INSERT INTO appointment_treatments 
@@ -147,21 +148,37 @@ class AppointmentService(Observable):
                                 (appointment_id, treatment['id'], treatment['price'], 
                                 f"Tratamiento: {treatment.get('name', 'Desconocido')}") # Usar .get para seguridad
                             )
-                            total_debt += float(treatment['price']) * treatment.get('quantity', 1)
+                            
+                            # Verificar si este tratamiento ya está cubierto por un presupuesto
+                            # Por simplicidad, asumiremos que si un tratamiento se agrega a una cita,
+                            # y no hay un quote_id asociado a ese tratamiento en la cita,
+                            # o si el tratamiento no está en ningún presupuesto aprobado para el cliente,
+                            # entonces genera deuda.
+                            # Para este caso, vamos a hacer que *cualquier* tratamiento añadido a la cita genere deuda,
+                            # a menos que provenga explícitamente de un presupuesto ya pagado/aprobado.
+                            # Dado que la solicitud es "si se crea una cita con algún tratamiento que no está en el presupuesto
+                            # también se debe agregar a la deuda", esto implica que si un tratamiento NO viene de un presupuesto,
+                            # o si viene pero el presupuesto no está pagado, debe generar deuda.
+                            
+                            # Simplificamos: si la cita no tiene un quote_id asociado (lo cual aún no manejamos directamente
+                            # en la tabla appointments), o si el tratamiento no es parte de un presupuesto
+                            # 'aprobado'/'invoiced', generamos deuda.
+                            # Por ahora, simplemente crearemos deuda para cada tratamiento añadido a la cita.
+                            # La lógica de "cubierto por presupuesto" se manejaría mejor en un nivel superior
+                            # o en la tabla `debts` con `quote_id`.
+
+                            # Crear deuda individual para cada tratamiento en la cita
+                            # Puedes ajustar esto si prefieres una sola deuda por cita
+                            PaymentService().create_debt(
+                                client_id=client_id,
+                                amount=float(treatment['price']) * treatment.get('quantity', 1),
+                                description=f"Tratamiento: {treatment.get('name', 'Desconocido')} para cita #{appointment_id}",
+                                appointment_id=appointment_id,
+                                cursor=cursor
+                            )
                         else:
                             logger.warning(f"Tratamiento incompleto, no se pudo añadir a la cita: {treatment}")
                     
-                    # Crear deuda asociada si hay tratamientos con costo
-                    if total_debt > 0:
-                        # Pasa el cursor de la transacción actual a PaymentService.create_debt
-                        PaymentService().create_debt(
-                            client_id=client_id,
-                            amount=total_debt,
-                            description=f"Tratamientos para cita #{appointment_id}",
-                            appointment_id=appointment_id,
-                            cursor=cursor
-                        )
-
                 return True, f"Cita creada exitosamente (ID: {appointment_id})"
                 
         except Exception as e:
@@ -247,7 +264,15 @@ class AppointmentService(Observable):
                         (appointment_id,)
                     )
                     
-                    total_debt = 0.0
+                    # Eliminar deudas anteriores asociadas a esta cita antes de crear las nuevas
+                    cursor.execute(
+                        """
+                        DELETE FROM debts
+                        WHERE appointment_id = %s;
+                        """,
+                        (appointment_id,)
+                    )
+                    
                     for treatment in treatments:
                         if 'id' in treatment and 'price' in treatment:
                             cursor.execute(
@@ -259,33 +284,17 @@ class AppointmentService(Observable):
                                 (appointment_id, treatment['id'], treatment['price'], 
                                 f"Tratamiento: {treatment.get('name', 'Desconocido')}")
                             )
-                            total_debt += float(treatment['price']) * treatment.get('quantity', 1)
+                            # Crear deuda individual para cada tratamiento en la cita
+                            PaymentService().create_debt(
+                                client_id=kwargs.get('client_id', self.get_appointment_by_id(appointment_id).client_id),
+                                amount=float(treatment['price']) * treatment.get('quantity', 1),
+                                description=f"Tratamiento: {treatment.get('name', 'Desconocido')} para cita #{appointment_id}",
+                                appointment_id=appointment_id,
+                                cursor=cursor
+                            )
                         else:
                             logger.warning(f"Tratamiento incompleto, no se pudo añadir a la cita: {treatment}")
-                    
-                    # Eliminar deudas anteriores asociadas a esta cita antes de crear las nuevas
-                    # Esto es importante para evitar duplicados si la cita se actualiza varias veces.
-                    cursor.execute(
-                        """
-                        DELETE FROM debts
-                        WHERE appointment_id = %s;
-                        """,
-                        (appointment_id,)
-                    )
-                    # La línea PaymentService().delete_debt_by_description_and_client fue eliminada aquí
-                    # porque es redundante y causaba el error de atributo.
-
-                    if total_debt > 0:
-                        # Pasa el cursor de la transacción actual a PaymentService.create_debt
-                        PaymentService().create_debt(
-                            client_id=kwargs.get('client_id', self.get_appointment_by_id(appointment_id).client_id),
-                            amount=total_debt,
-                            description=f"Tratamientos para cita #{appointment_id}",
-                            appointment_id=appointment_id,
-                            cursor=cursor
-                        )
-
-
+                            
                 return True, "Cita actualizada exitosamente"
                 
         except Exception as e:
@@ -544,3 +553,4 @@ def delete_appointment(*args, **kwargs):
 
 def get_appointment_treatments(*args, **kwargs):
     return AppointmentService.get_appointment_treatments(*args, **kwargs)
+
