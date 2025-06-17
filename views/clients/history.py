@@ -23,10 +23,25 @@ class ClientHistoryView:
         # Componentes UI
         self.client_info_card = ft.Card()
         self.medical_records_list = ft.Column(scroll=ft.ScrollMode.AUTO, expand=True)
-        # Cambiado de client_treatments_list a all_client_treatments_list
         self.all_client_treatments_list = ft.Column(scroll=ft.ScrollMode.AUTO, expand=True)
-        self.appointments_list = ft.Column(scroll=ft.ScrollMode.AUTO, expand=True)
-        self.quotes_list = ft.Column(scroll=ft.ScrollMode.AUTO, expand=True)
+        # Cambiado a ft.GridView para mostrar citas una al lado de la otra
+        self.appointments_list = ft.GridView(
+            expand=True,
+            runs_count=3,  # Muestra hasta 3 columnas de tarjetas
+            max_extent=400, # Ancho máximo para cada tarjeta antes de pasar a la siguiente fila
+            child_aspect_ratio=1.2, # Relación de aspecto de las tarjetas (ancho/alto)
+            spacing=15,
+            run_spacing=15,
+        )
+        # Cambiado a ft.GridView para mostrar presupuestos una al lado de la otra
+        self.quotes_list = ft.GridView(
+            expand=True,
+            runs_count=3, # Muestra hasta 3 columnas de tarjetas
+            max_extent=400, # Ancho máximo para cada tarjeta antes de pasar a la siguiente fila
+            child_aspect_ratio=1.2, # Relación de aspecto de las tarjetas (ancho/alto)
+            spacing=15,
+            run_spacing=15,
+        )
         
         # Controles para añadir nuevo tratamiento al historial del cliente
         self.new_history_treatment_dropdown = ft.Dropdown(
@@ -435,67 +450,71 @@ class ClientHistoryView:
         self.page.update()
 
     def _update_appointments_list(self):
-        """Actualiza la lista de citas del cliente."""
+        """Actualiza la lista de citas del cliente para mostrar tarjetas una al lado de la otra."""
         self.appointments_list.controls.clear()
-        if self.client_history["appointments"]:
-            for appointment in self.client_history["appointments"]:
-                # Modificado para incluir la cantidad si está disponible en los tratamientos de la cita
-                treatments_text = ", ".join([f"{t['name']} (x{t.get('quantity', 1)})" for t in appointment['treatments']]) if appointment['treatments'] else "Sin tratamientos"
-                self.appointments_list.controls.append(
-                    ft.Card(
-                        content=ft.Container(
-                            content=ft.Column(
-                                controls=[
-                                    ft.Text(f"Cita ID: {appointment['id']}", weight="bold"),
-                                    ft.Text(f"Fecha: {appointment['date'].strftime('%d/%m/%Y')} {appointment['time']}"),
-                                    ft.Text(f"Estado: {appointment['status'].capitalize()}"),
-                                    ft.Text(f"Tratamientos: {treatments_text}"),
-                                    ft.Text(f"Notas: {appointment['notes'] if appointment['notes'] else 'N/A'}"),
-                                ],
-                                spacing=5
-                            ),
-                            padding=15
-                        ),
-                        margin=ft.margin.symmetric(vertical=5)
-                    )
-                )
-        else:
+        
+        if not self.client_history["appointments"]:
             self.appointments_list.controls.append(ft.Text("No hay citas registradas para este cliente."))
+            self.page.update()
+            return
+
+        for appointment in self.client_history["appointments"]:
+            treatments_text = ", ".join([f"{t['name']} (x{t.get('quantity', 1)})" for t in appointment['treatments']]) if appointment['treatments'] else "Sin tratamientos"
+            card = ft.Card(
+                content=ft.Container(
+                    content=ft.Column(
+                        controls=[
+                            ft.Text(f"Cita ID: {appointment['id']}", weight="bold"),
+                            ft.Text(f"Fecha: {appointment['date'].strftime('%d/%m/%Y')} {appointment['time']}"),
+                            ft.Text(f"Estado: {appointment['status'].capitalize()}"),
+                            ft.Text(f"Tratamientos: {treatments_text}"),
+                            ft.Text(f"Notas: {appointment['notes'] if appointment['notes'] else 'N/A'}"),
+                        ],
+                        spacing=5
+                    ),
+                    padding=15
+                ),
+                margin=ft.margin.symmetric(vertical=5),
+                # Eliminado el ancho fijo para permitir que GridView lo maneje
+                # width=250 
+            )
+            self.appointments_list.controls.append(card)
         self.page.update()
 
     def _update_quotes_list(self):
         """Actualiza la lista de presupuestos del cliente."""
         self.quotes_list.controls.clear()
-        if self.client_history["quotes"]:
-            for quote in self.client_history["quotes"]:
-                treatments_text = ", ".join([f"{t['name']} (x{t['quantity']})" for t in quote['treatments']]) if quote['treatments'] else "Sin tratamientos"
-                self.quotes_list.controls.append(
-                    ft.Card(
-                        content=ft.Container(
-                            content=ft.Column(
-                                controls=[
-                                    ft.Text(f"Presupuesto ID: {quote['id']}", weight="bold"),
-                                    ft.Text(f"Fecha: {quote['quote_date'].strftime('%d/%m/%Y')}"),
-                                    ft.Text(f"Total: ${quote['total_amount']:,.2f}"),
-                                    ft.Text(f"Estado: {quote['status'].capitalize()}"),
-                                    ft.Text(f"Tratamientos: {treatments_text}"),
-                                    ft.Text(f"Notas: {quote['notes'] if quote['notes'] else 'N/A'}"),
-                                ],
-                                spacing=5
-                            ),
-                            padding=15
-                        ),
-                        margin=ft.margin.symmetric(vertical=5)
-                    )
-                )
-        else:
+        if not self.client_history["quotes"]:
             self.quotes_list.controls.append(ft.Text("No hay presupuestos registrados para este cliente."))
+            self.page.update()
+            return
+
+        for quote in self.client_history["quotes"]:
+            treatments_text = ", ".join([f"{t['name']} (x{t['quantity']})" for t in quote['treatments']]) if quote['treatments'] else "Sin tratamientos"
+            card = ft.Card(
+                content=ft.Container(
+                    content=ft.Column(
+                        controls=[
+                            ft.Text(f"Presupuesto ID: {quote['id']}", weight="bold"),
+                            ft.Text(f"Fecha: {quote['quote_date'].strftime('%d/%m/%Y')}"),
+                            ft.Text(f"Total: ${quote['total_amount']:,.2f}"),
+                            ft.Text(f"Estado: {quote['status'].capitalize()}"),
+                            ft.Text(f"Tratamientos: {treatments_text}"),
+                            ft.Text(f"Notas: {quote['notes'] if quote['notes'] else 'N/A'}"),
+                        ],
+                        spacing=5
+                    ),
+                    padding=15
+                ),
+                margin=ft.margin.symmetric(vertical=5),
+            )
+            self.quotes_list.controls.append(card)
         self.page.update()
 
     def build_view(self):
         """Construye la vista completa del historial médico."""
         return ft.View(
-            f"/clients/{self.client_id}/history", # Corrección: self->client_id a self.client_id
+            f"/clients/{self.client_id}/history", 
             controls=[
                 ft.AppBar(
                     title=ft.Text(f"Historial de {self.client_history['client_info'].name if self.client_history and self.client_history['client_info'] else 'Cliente'}", weight=ft.FontWeight.BOLD),
@@ -510,84 +529,110 @@ class ClientHistoryView:
                         ft.IconButton(
                             icon=ft.icons.REFRESH,
                             tooltip="Recargar Historial",
-                            on_click=lambda _: self.load_history_data() # Síncrono ahora
+                            on_click=lambda _: self.load_history_data() 
                         )
                     ]
                 ),
                 ft.Container(
                     expand=True,
                     padding=ft.padding.all(15),
-                    content=ft.Column(
+                    content=ft.Column( 
                         controls=[
                             # Información del Cliente
                             ft.Text("Información del Cliente", size=22, weight="bold"),
                             self.client_info_card,
                             ft.Divider(height=20),
 
-                            # Tratamientos del Historial (Directos al Cliente y Pendientes de Citas/Presupuestos)
-                            ft.Text("Tratamientos del Historial", size=22, weight="bold"),
-                            ft.Container(self.all_client_treatments_list, expand=True, height=250),
-                            ft.Divider(height=20),
-
-                            # Añadir tratamiento al historial del cliente (Movido debajo de la lista de tratamientos)
-                            ft.ExpansionTile(
-                                title=ft.Text("Añadir Tratamiento al Historial del Cliente", weight="bold"),
-                                leading=ft.Icon(ft.icons.MEDICAL_SERVICES),
-                                controls=[
-                                    self.new_history_treatment_dropdown,
-                                    self.new_history_treatment_notes,
-                                    ft.Row([
-                                        ft.ElevatedButton(
-                                            "Seleccionar Fecha",
-                                            icon=ft.icons.CALENDAR_MONTH,
-                                            on_click=self._pick_new_history_treatment_date
+                            # Pestañas para organizar las secciones de historial
+                            ft.Tabs(
+                                selected_index=0,
+                                animation_duration=300,
+                                tabs=[
+                                    ft.Tab(
+                                        text="Tratamientos",
+                                        content=ft.Column([
+                                            ft.Text("Tratamientos del Historial", size=20, weight="bold"),
+                                            # Formulario para añadir tratamiento movido aquí
+                                            ft.ExpansionTile(
+                                                title=ft.Text("Añadir Tratamiento al Historial del Cliente", weight="bold"),
+                                                leading=ft.Icon(ft.icons.MEDICAL_SERVICES),
+                                                controls=[
+                                                    self.new_history_treatment_dropdown,
+                                                    self.new_history_treatment_notes,
+                                                    ft.Row([
+                                                        ft.ElevatedButton(
+                                                            "Seleccionar Fecha",
+                                                            icon=ft.icons.CALENDAR_MONTH,
+                                                            on_click=self._pick_new_history_treatment_date
+                                                        ),
+                                                        self.new_history_treatment_date_text
+                                                    ]),
+                                                    ft.ElevatedButton("Añadir Tratamiento", on_click=self._add_client_treatment),
+                                                ]
+                                            ),
+                                            ft.Divider(height=10), # El divisor se queda después del formulario
+                                            ft.Container(self.all_client_treatments_list, expand=True), 
+                                        ], spacing=15, horizontal_alignment=ft.CrossAxisAlignment.START,
+                                        scroll=ft.ScrollMode.AUTO, expand=True 
                                         ),
-                                        self.new_history_treatment_date_text
-                                    ]),
-                                    ft.ElevatedButton("Añadir Tratamiento", on_click=self._add_client_treatment),
-                                ]
-                            ),
-                            ft.Divider(height=20),
-
-                            # Secciones de Historial (resto)
-                            ft.Text("Registros Médicos", size=22, weight="bold"),
-                            ft.Container(self.medical_records_list, expand=True, height=250),
-                            ft.Divider(height=20),
-                            
-                            # Añadir nuevo registro médico (Movido aquí)
-                            ft.ExpansionTile(
-                                title=ft.Text("Añadir Nuevo Registro Médico", weight="bold"),
-                                leading=ft.Icon(ft.icons.ADD_BOX),
-                                controls=[
-                                    self.new_medical_record_title,
-                                    self.new_medical_record_reason,
-                                    self.new_medical_record_diagnosis,
-                                    self.new_medical_record_procedures,
-                                    self.new_medical_record_prescription,
-                                    self.new_medical_record_notes,
-                                    ft.Row([
-                                        ft.ElevatedButton(
-                                            "Seleccionar Próxima Cita",
-                                            icon=ft.icons.CALENDAR_MONTH,
-                                            on_click=self._pick_new_medical_record_next_appointment_date
+                                    ),
+                                    ft.Tab(
+                                        text="Registros Médicos",
+                                        content=ft.Column([
+                                            ft.Text("Registros Médicos", size=20, weight="bold"),
+                                            # Añadir nuevo registro médico (movido arriba de la lista)
+                                            ft.ExpansionTile(
+                                                title=ft.Text("Añadir Nuevo Registro Médico", weight="bold"),
+                                                leading=ft.Icon(ft.icons.ADD_BOX),
+                                                controls=[
+                                                    self.new_medical_record_title,
+                                                    self.new_medical_record_reason,
+                                                    self.new_medical_record_diagnosis,
+                                                    self.new_medical_record_procedures,
+                                                    self.new_medical_record_prescription,
+                                                    self.new_medical_record_notes,
+                                                    ft.Row([
+                                                        ft.ElevatedButton(
+                                                            "Seleccionar Próxima Cita",
+                                                            icon=ft.icons.CALENDAR_MONTH,
+                                                            on_click=self._pick_new_medical_record_next_appointment_date
+                                                        ),
+                                                        self.new_medical_record_next_appointment_text
+                                                    ]),
+                                                    ft.ElevatedButton("Guardar Registro Médico", on_click=self._add_medical_record),
+                                                ]
+                                            ),
+                                            ft.Divider(height=10), # Divisor después del formulario
+                                            ft.Container(self.medical_records_list, expand=True), 
+                                        ], spacing=15, horizontal_alignment=ft.CrossAxisAlignment.START,
+                                        scroll=ft.ScrollMode.AUTO, expand=True 
                                         ),
-                                        self.new_medical_record_next_appointment_text
-                                    ]),
-                                    ft.ElevatedButton("Guardar Registro Médico", on_click=self._add_medical_record),
-                                ]
+                                    ),
+                                    ft.Tab(
+                                        text="Citas",
+                                        content=ft.Column([ # El Column aquí maneja el scroll de esta pestaña
+                                            ft.Text("Citas del Cliente", size=20, weight="bold"),
+                                            # La lista de citas ahora usa ft.GridView y ya no tiene altura fija
+                                            ft.Container(self.appointments_list, expand=True), 
+                                        ], spacing=15, horizontal_alignment=ft.CrossAxisAlignment.START,
+                                        scroll=ft.ScrollMode.AUTO, expand=True # Asegura que el contenido de esta pestaña tenga scroll si es necesario
+                                        ),
+                                    ),
+                                    ft.Tab(
+                                        text="Presupuestos",
+                                        content=ft.Column([
+                                            ft.Text("Presupuestos del Cliente", size=20, weight="bold"),
+                                            ft.Container(self.quotes_list, expand=True), # <-- Se eliminó height=250
+                                        ], spacing=15, horizontal_alignment=ft.CrossAxisAlignment.START,
+                                        scroll=ft.ScrollMode.AUTO, expand=True 
+                                        ),
+                                    ),
+                                ],
+                                expand=1,
                             ),
-                            ft.Divider(height=20),
-
-                            ft.Text("Citas del Cliente", size=22, weight="bold"),
-                            ft.Container(self.appointments_list, expand=True, height=250),
-                            ft.Divider(height=20),
-
-                            ft.Text("Presupuestos del Cliente", size=22, weight="bold"),
-                            ft.Container(self.quotes_list, expand=True, height=250),
                         ],
                         spacing=20,
                         horizontal_alignment=ft.CrossAxisAlignment.START,
-                        scroll=ft.ScrollMode.ADAPTIVE
                     )
                 )
             ],
@@ -597,4 +642,3 @@ class ClientHistoryView:
 def client_history_view(page: ft.Page, client_id: int):
     """Función de fábrica para crear la vista de historial del cliente."""
     return ClientHistoryView(page, client_id).build_view()
-

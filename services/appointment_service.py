@@ -227,7 +227,7 @@ class AppointmentService(Observable):
             return None
 
     @staticmethod
-    def update_appointment(self, appointment_id: int, treatments: List[dict] = None, **kwargs) -> Tuple[bool, str]:
+    def update_appointment(appointment_id: int, treatments: List[dict] = None, **kwargs) -> Tuple[bool, str]:
         """Actualiza una cita existente"""
         valid_fields = ['client_id', 'date', 'time', 'notes', 'status']
         updates = {k: v for k, v in kwargs.items() if k in valid_fields and v is not None}
@@ -286,7 +286,7 @@ class AppointmentService(Observable):
                             )
                             # Crear deuda individual para cada tratamiento en la cita
                             PaymentService().create_debt(
-                                client_id=kwargs.get('client_id', self.get_appointment_by_id(appointment_id).client_id),
+                                client_id=kwargs.get('client_id', get_appointment_by_id(appointment_id).client_id),
                                 amount=float(treatment['price']) * treatment.get('quantity', 1),
                                 description=f"Tratamiento: {treatment.get('name', 'Desconocido')} para cita #{appointment_id}",
                                 appointment_id=appointment_id,
@@ -318,13 +318,13 @@ class AppointmentService(Observable):
             
             # Generar slots cada 30 minutos
             current_time = start_time
+            current_datetime = datetime.combine(date.today(), current_time) # Initialize current_datetime
             while current_time <= end_time:
                 slots.append((
                     current_time,
                     current_time not in booked_times
                 ))
                 # Añadir 30 minutos
-                current_datetime = datetime.combine(date.today(), current_time)
                 current_datetime += timedelta(minutes=30)
                 current_time = current_datetime.time()
                 
@@ -553,4 +553,3 @@ def delete_appointment(*args, **kwargs):
 
 def get_appointment_treatments(*args, **kwargs):
     return AppointmentService.get_appointment_treatments(*args, **kwargs)
-

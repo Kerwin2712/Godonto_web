@@ -12,9 +12,11 @@ from services.appointment_service import (
 from services.treatment_service import (
     search_treatment
 )
+import logging
 from utils.alerts import show_error, show_success
 from utils.date_utils import to_local_time
 
+logger = logging.getLogger(__name__)
 
 class AppointmentFormView:
     def __init__(self, page: ft.Page, appointment_id: Optional[int] = None):
@@ -472,6 +474,7 @@ class AppointmentFormView:
                     show_error(self.page, message)
         
         except Exception as e:
+            logger.error(f"Error al guardar cita: {str(e)}")
             show_error(self.page, f"Error al guardar: {str(e)}")
     
     def _build_date_time_controls(self):
