@@ -1,4 +1,3 @@
-# services/history_service.py
 from datetime import datetime, date
 from typing import List, Dict, Optional, Tuple
 from core.database import get_db, Database
@@ -21,129 +20,126 @@ class HistoryService:
         all_treatments_map = {} # Usando un diccionario para rastrear la unicidad por (treatment_id, source_id, source_type)
 
         with get_db() as cursor:
-            # 1. Obtener tratamientos de client_treatments (tratamientos ya completados)
-            # Estos son registros "finales" en el historial, que pueden venir de citas, presupuestos o ser directos.
-            cursor.execute(
-                """
-                SELECT 
-                    ct.id AS client_treatment_record_id,
-                    ct.treatment_id, 
-                    t.name, 
-                    t.price, 
-                    ct.notes, 
-                    ct.treatment_date,
-                    ct.completed_quantity, 
-                    ct.total_quantity,     
-                    ct.appointment_id,
-                    ct.quote_id       
-                FROM client_treatments ct
-                JOIN treatments t ON ct.treatment_id = t.id
-                WHERE ct.client_id = %s
-                """,
-                (client_id,)
-            )
-            for row in cursor.fetchall():
-                treatment_id = row[1]
-                source_id = None
-                source_type = "historial_directo"
+            # ORIGINALMENTE: 1. Obtener tratamientos de client_treatments (tratamientos ya completados)
+            # Esta sección se comenta o elimina si solo se quieren ver tratamientos de presupuestos
+            # cursor.execute(
+            #     """
+            #     SELECT
+            #         ct.id AS client_treatment_record_id,
+            #         ct.treatment_id,
+            #         t.name,
+            #         t.price,
+            #         ct.notes,
+            #         ct.treatment_date,
+            #         ct.completed_quantity,
+            #         ct.total_quantity,
+            #         ct.appointment_id,
+            #         ct.quote_id
+            #     FROM client_treatments ct
+            #     JOIN treatments t ON ct.treatment_id = t.id
+            #     WHERE ct.client_id = %s
+            #     """,
+            #     (client_id,)
+            # )
+            # for row in cursor.fetchall():
+            #     treatment_id = row[1]
+            #     source_id = None
+            #     source_type = "historial_directo"
 
-                if row[8] is not None: # appointment_id
-                    source_id = row[8]
-                    source_type = "cita"
-                elif row[9] is not None: # quote_id
-                    source_id = row[9]
-                    source_type = "presupuesto"
-                
-                # Usamos una clave compuesta para identificar tratamientos únicos por su origen.
-                # Si es directo del historial, usamos el client_treatment_record_id como source_id para unicidad.
-                unique_key = (treatment_id, source_id if source_id is not None else row[0], source_type)
+            #     if row[8] is not None: # appointment_id
+            #         source_id = row[8]
+            #         source_type = "cita"
+            #     elif row[9] is not None: # quote_id
+            #         source_id = row[9]
+            #         source_type = "presupuesto"
 
-                all_treatments_map[unique_key] = {
-                    "id": treatment_id, 
-                    "name": row[2],
-                    "price": float(row[3]),
-                    "notes": row[4],
-                    "status": "completed", # Ya que está en client_treatments, se considera completado
-                    "source": source_type,
-                    "client_treatment_record_id": row[0],
-                    "treatment_date": row[5],
-                    "completed_quantity": row[6],
-                    "total_quantity": row[7],
-                    "appointment_id": row[8],
-                    "quote_id": row[9]
-                }
+            #     unique_key = (treatment_id, source_id, source_type, row[0]) # Añadir record_id para unicidad aún mayor
 
-            # 2. Obtener tratamientos de appointment_treatments (potencialmente pendientes)
-            cursor.execute(
-                """
-                SELECT 
-                    at.treatment_id, 
-                    t.name, 
-                    t.price, 
-                    at.quantity, 
-                    a.id AS appointment_id
-                FROM appointment_treatments at
-                JOIN appointments a ON at.appointment_id = a.id
-                JOIN treatments t ON at.treatment_id = t.id
-                WHERE a.client_id = %s AND a.status = 'pending' -- Solo citas pendientes para sugerir
-                """,
-                (client_id,)
-            )
-            for row in cursor.fetchall():
-                treatment_id = row[0]
-                total_expected_quantity = row[3]
-                appointment_id = row[4]
-                
-                unique_key = (treatment_id, appointment_id, "cita")
-                
-                # Si este tratamiento de cita ya fue completamente completado y registrado en client_treatments,
-                # no lo añadimos aquí de nuevo como "pendiente".
-                if unique_key in all_treatments_map and all_treatments_map[unique_key]["status"] == "completed":
-                    continue
+            #     all_treatments_map[unique_key] = {
+            #         "id": treatment_id,
+            #         "name": row[2],
+            #         "price": float(row[3]),
+            #         "notes": row[4],
+            #         "status": "completed",
+            #         "source": source_type,
+            #         "client_treatment_record_id": row[0],
+            #         "treatment_date": row[5],
+            #         "completed_quantity": row[6],
+            #         "total_quantity": row[7],
+            #         "appointment_id": row[8],
+            #         "quote_id": row[9]
+            #     }
 
-                # Obtener la cantidad ya completada para este tratamiento y cita
-                cursor.execute(
-                    """
-                    SELECT COALESCE(SUM(completed_quantity), 0)
-                    FROM client_treatments
-                    WHERE client_id = %s AND treatment_id = %s AND appointment_id = %s
-                    """,
-                    (client_id, treatment_id, appointment_id)
-                )
-                completed_qty_for_source = cursor.fetchone()[0]
+            # ORIGINALMENTE: 2. Obtener tratamientos de appointment_treatments (potencialmente pendientes)
+            # Esta sección se comenta o elimina si solo se quieren ver tratamientos de presupuestos
+            # cursor.execute(
+            #     """
+            #     SELECT
+            #         at.treatment_id,
+            #         t.name,
+            #         t.price,
+            #         at.quantity,
+            #         a.id AS appointment_id
+            #     FROM appointment_treatments at
+            #     JOIN appointments a ON at.appointment_id = a.id
+            #     JOIN treatments t ON at.treatment_id = t.id
+            #     WHERE a.client_id = %s -- No filtrar por status, la vista unificada se encarga
+            #     """,
+            #     (client_id,)
+            # )
+            # for row in cursor.fetchall():
+            #     treatment_id = row[0]
+            #     total_expected_quantity = row[3]
+            #     appointment_id = row[4]
 
-                status = "pending"
-                if completed_qty_for_source >= total_expected_quantity:
-                    status = "completed"
+            #     unique_key = (treatment_id, appointment_id, "cita", None) # None para client_treatment_record_id
 
-                all_treatments_map[unique_key] = {
-                    "id": treatment_id,
-                    "name": row[1],
-                    "price": float(row[2]),
-                    "notes": "Asociado a cita", 
-                    "status": status,
-                    "source": "cita",
-                    "client_treatment_record_id": None, 
-                    "treatment_date": None,
-                    "total_quantity": total_expected_quantity,
-                    "completed_quantity": completed_qty_for_source,
-                    "appointment_id": appointment_id,
-                    "quote_id": None
-                }
+            #     if unique_key in all_treatments_map and all_treatments_map[unique_key]["status"] == "completed" and \
+            #        all_treatments_map[unique_key]["completed_quantity"] >= total_expected_quantity:
+            #         continue
+
+            #     cursor.execute(
+            #         """
+            #         SELECT COALESCE(SUM(completed_quantity), 0)
+            #         FROM client_treatments
+            #         WHERE client_id = %s AND treatment_id = %s AND appointment_id = %s
+            #         """,
+            #         (client_id, treatment_id, appointment_id)
+            #     )
+            #     completed_qty_for_source = cursor.fetchone()[0]
+
+            #     status = "pending"
+            #     if completed_qty_for_source >= total_expected_quantity:
+            #         status = "completed"
+
+            #     all_treatments_map[unique_key] = {
+            #         "id": treatment_id,
+            #         "name": row[1],
+            #         "price": float(row[2]),
+            #         "notes": f"Asociado a cita #{appointment_id}",
+            #         "status": status,
+            #         "source": "cita",
+            #         "client_treatment_record_id": None,
+            #         "treatment_date": None,
+            #         "total_quantity": total_expected_quantity,
+            #         "completed_quantity": completed_qty_for_source,
+            #         "appointment_id": appointment_id,
+            #         "quote_id": None
+            #     }
 
             # 3. Obtener tratamientos de quote_treatments (potencialmente pendientes)
             cursor.execute(
                 """
-                SELECT 
-                    qt.treatment_id, 
-                    t.name, 
-                    t.price, 
-                    qt.quantity, 
+                SELECT
+                    qt.treatment_id,
+                    t.name,
+                    t.price,
+                    qt.quantity,
                     q.id AS quote_id
                 FROM quote_treatments qt
                 JOIN quotes q ON qt.quote_id = q.id
                 JOIN treatments t ON qt.treatment_id = t.id
-                WHERE q.client_id = %s AND q.status IN ('pending', 'approved') -- Presupuestos pendientes o aprobados para sugerir
+                WHERE q.client_id = %s
                 """,
                 (client_id,)
             )
@@ -151,12 +147,15 @@ class HistoryService:
                 treatment_id = row[0]
                 total_expected_quantity = row[3]
                 quote_id = row[4]
-                
-                unique_key = (treatment_id, quote_id, "presupuesto")
 
-                # Si este tratamiento de presupuesto ya fue completamente completado y registrado en client_treatments,
-                # no lo añadimos aquí de nuevo como "pendiente".
-                if unique_key in all_treatments_map and all_treatments_map[unique_key]["status"] == "completed":
+                unique_key = (treatment_id, quote_id, "presupuesto", None)
+
+                # Si este tratamiento ya está en el mapa como completado (desde client_treatments),
+                # no lo añadimos de nuevo como "pendiente" a menos que la cantidad esperada sea mayor.
+                # Esta lógica se mantiene por si en el futuro decides reintroducir client_treatments,
+                # pero para este caso, puedes asumirla menos relevante si solo te enfocas en presupuestos.
+                if unique_key in all_treatments_map and all_treatments_map[unique_key]["status"] == "completed" and \
+                   all_treatments_map[unique_key]["completed_quantity"] >= total_expected_quantity:
                     continue
 
                 # Obtener la cantidad ya completada para este tratamiento y presupuesto
@@ -178,7 +177,7 @@ class HistoryService:
                     "id": treatment_id,
                     "name": row[1],
                     "price": float(row[2]),
-                    "notes": "Asociado a presupuesto", 
+                    "notes": f"Asociado a presupuesto #{quote_id}",
                     "status": status,
                     "source": "presupuesto",
                     "client_treatment_record_id": None,
@@ -188,21 +187,11 @@ class HistoryService:
                     "appointment_id": None,
                     "quote_id": quote_id
                 }
-        
+
         # Filtrar y ordenar los tratamientos finales.
-        # Quitaremos las entradas del mapa que ya están completamente completadas en client_treatments
-        # y solo mostraremos las pendientes o las que acaban de ser completadas directamente.
         final_treatments = []
         for key, treatment_data in all_treatments_map.items():
-            # Si el tratamiento es de 'historial_directo', siempre se añade
-            if treatment_data["source"] == "historial_directo":
-                final_treatments.append(treatment_data)
-            else:
-                # Para tratamientos de cita o presupuesto, solo añadimos si hay pendientes
-                # o si acaba de ser marcado como "completado" en esta pasada.
-                if treatment_data["completed_quantity"] < treatment_data["total_quantity"] or \
-                   (treatment_data["completed_quantity"] >= treatment_data["total_quantity"] and treatment_data["status"] == "completed"):
-                    final_treatments.append(treatment_data)
+            final_treatments.append(treatment_data)
 
         # Ordenar los tratamientos: pendientes primero, luego completados, y finalmente por nombre
         sorted_treatments = sorted(
@@ -332,8 +321,9 @@ class HistoryService:
                     "treatments": quote_row[5] if quote_row[5] else []
                 }
                 history_data["quotes"].append(quote_dict)
-        
+
         # 5. Obtener tratamientos unificados (pendientes y completados)
+        # Aquí se llama a la función modificada para obtener solo los tratamientos de presupuestos
         history_data["all_client_treatments"] = HistoryService.get_suggested_and_completed_treatments(client_id)
 
         return history_data
@@ -403,14 +393,14 @@ class HistoryService:
                     record_id = existing_record[0]
                     current_completed_qty = existing_record[1]
                     current_total_qty = existing_record[2]
-                    
+
                     new_completed_qty = current_completed_qty + quantity_to_mark_completed
-                    
+
                     # No permitir que completed_quantity exceda el total_quantity existente o el recién determinado
                     final_total_qty = max(current_total_qty, total_expected_quantity) # Asegura que total_qty no disminuya
                     if new_completed_qty > final_total_qty:
                         new_completed_qty = final_total_qty
-                        
+
                     cursor.execute(
                         """
                         UPDATE client_treatments
@@ -426,16 +416,16 @@ class HistoryService:
                     cursor.execute(
                         """
                         INSERT INTO client_treatments (
-                            client_id, treatment_id, treatment_date, notes, 
-                            created_at, updated_at, appointment_id, quote_id, 
+                            client_id, treatment_id, treatment_date, notes,
+                            created_at, updated_at, appointment_id, quote_id,
                             completed_quantity, total_quantity
                         )
                         VALUES (%s, %s, %s, %s, NOW(), NOW(), %s, %s, %s, %s)
                         RETURNING id
                         """,
                         (
-                            client_id, treatment_id, treatment_date, notes, 
-                            appointment_id, quote_id, 
+                            client_id, treatment_id, treatment_date, notes,
+                            appointment_id, quote_id,
                             quantity_to_mark_completed, total_expected_quantity
                         )
                     )
@@ -444,7 +434,7 @@ class HistoryService:
         except Exception as e:
             logger.error(f"Error al añadir/actualizar tratamiento de historial: {str(e)}")
             return False, f"Error al añadir/actualizar tratamiento de historial: {str(e)}"
-    
+
     @staticmethod
     def delete_client_treatment(client_treatment_id: int) -> Tuple[bool, str]:
         """
@@ -463,7 +453,7 @@ class HistoryService:
         except Exception as e:
             logger.error(f"Error al eliminar tratamiento de historial {client_treatment_id}: {str(e)}")
             return False, f"Error al eliminar tratamiento de historial: {str(e)}"
-    
+
     @staticmethod
     def delete_client_treatments_by_appointment(appointment_id: int, cursor) -> bool:
         """
@@ -527,7 +517,7 @@ class HistoryService:
         except Exception as e:
             logger.error(f"Error al añadir registro médico: {str(e)}")
             return False, f"Error al añadir registro médico: {str(e)}"
-    
+
     @staticmethod
     def update_medical_record(
         record_id: int,
@@ -571,7 +561,7 @@ class HistoryService:
             if next_appointment_date is not None:
                 updates.append("next_appointment_date = %s")
                 params.append(next_appointment_date)
-            
+
             if not updates:
                 return False, "No hay campos para actualizar."
 
@@ -614,4 +604,3 @@ class HistoryService:
         except Exception as e:
             logger.error(f"Error al eliminar registro médico {record_id}: {str(e)}")
             return False, f"Error al eliminar registro médico: {str(e)}"
-

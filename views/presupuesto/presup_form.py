@@ -30,7 +30,17 @@ class PresupFormView:
         self.selected_treatments: List[dict] = []
         self.treatments_column = ft.Column() # Columna para mostrar los tratamientos seleccionados
         self.total_amount_text = ft.Text("Total: $0.00", size=18, weight=ft.FontWeight.BOLD)
-        
+        self.discount_field = ft.TextField(
+            label="Descuento ($)",
+            value="0.00",
+            width=150,
+            keyboard_type=ft.KeyboardType.NUMBER,
+            text_align=ft.TextAlign.RIGHT,
+            on_change=self._on_discount_change, # Manejar cambios para recalcular el total
+            on_focus=self._handle_discount_focus # Para limpiar el 0.00 al enfocar
+        )
+        self.current_discount = 0.0 # Variable para almacenar el descuento actual
+
         # Componente de búsqueda de clientes
         self.client_search = self._build_client_search()
         self.selected_client_text = ft.Text(
@@ -78,6 +88,12 @@ class PresupFormView:
                     } for idx, t in enumerate(quote_data.get('treatments', []))
                 ]
                 self._update_treatments_display()
+                
+                # Cargar descuento y actualizar el campo de texto
+                self.current_discount = float(quote_data.get('discount', 0.0))
+                self.discount_field.value = f"{self.current_discount:.2f}"
+                self.discount_field.update()
+
                 self._update_total_amount()
 
                 # Habilitar botones de guardar y PDF
@@ -332,10 +348,36 @@ class PresupFormView:
         self._update_total_amount()
 
     def _update_total_amount(self):
-        """Actualiza el monto total del presupuesto"""
-        total = sum(item['price'] * item['quantity'] for item in self.selected_treatments if 'price' in item and 'quantity' in item)
-        self.total_amount_text.value = f"Total: ${total:,.2f}"
+        """Actualiza el monto total del presupuesto, aplicando el descuento."""
+        subtotal = sum(item['price'] * item['quantity'] for item in self.selected_treatments if 'price' in item and 'quantity' in item)
+        final_total = subtotal - self.current_discount
+        if final_total < 0:
+            final_total = 0
+        self.total_amount_text.value = f"Total: ${final_total:,.2f}"
         self.page.update()
+
+    def _on_discount_change(self, e: ft.ControlEvent):
+        """Maneja el cambio en el campo de descuento."""
+        try:
+            new_discount = float(e.control.value) if e.control.value.strip() else 0.0
+            if new_discount < 0:
+                show_error(self.page, "El descuento no puede ser negativo.")
+                e.control.value = f"{self.current_discount:.2f}"
+                e.control.update()
+                return
+            self.current_discount = new_discount
+            self._update_total_amount()
+        except ValueError:
+            show_error(self.page, "Por favor, introduce un número válido para el descuento.")
+            e.control.value = f"{self.current_discount:.2f}"
+            e.control.update()
+
+    def _handle_discount_focus(self, e: ft.ControlEvent):
+        """Maneja el foco en el campo de descuento para limpiar el valor por defecto."""
+        if e.control.value == "0.00":
+            e.control.value = ""
+            e.control.update()
+
 
     def _remove_treatment(self, unique_key: str):
         """Elimina un tratamiento de la lista de seleccionados por su clave única"""
@@ -575,6 +617,17 @@ class PresupFormView:
             except ValueError:
                 show_error(self.page, f"La cantidad para '{item['name']}' no es un número entero válido.")
                 return False
+        
+        # Validar el descuento
+        try:
+            discount = float(self.discount_field.value)
+            if discount < 0:
+                show_error(self.page, "El descuento no puede ser negativo.")
+                return False
+        except ValueError:
+            show_error(self.page, "El valor del descuento no es un número válido.")
+            return False
+
         return True
 
     async def _save_budget(self, e):
@@ -583,13 +636,17 @@ class PresupFormView:
             return
 
         try:
+            # Obtener el descuento del campo de texto
+            discount_to_save = float(self.discount_field.value)
+
             if self.quote_id: # Es una edición
                 success = QuoteService.update_quote(
                     quote_id=self.quote_id,
                     client_id=self.client_id,
                     treatments=self.selected_treatments,
                     expiration_date=None, # Siempre None ya que se eliminó el campo
-                    notes=None # Siempre None ya que se eliminó el campo
+                    notes=None, # Siempre None ya que se eliminó el campo
+                    discount=discount_to_save # Pasar el descuento
                 )
                 if success:
                     show_success(self.page, f"Presupuesto #{self.quote_id} actualizado exitosamente.")
@@ -600,7 +657,8 @@ class PresupFormView:
                     client_id=self.client_id,
                     treatments=self.selected_treatments,
                     expiration_date=None, # Siempre None ya que se eliminó el campo
-                    notes=None # Siempre None ya que se eliminó el campo
+                    notes=None, # Siempre None ya que se eliminó el campo
+                    discount=discount_to_save # Pasar el descuento
                 )
 
                 if self.quote_id:
@@ -652,6 +710,7 @@ class PresupFormView:
                 "items": items_for_pdf,
                 "date": quote_details['quote_date'], # Usar la fecha del presupuesto desde la BD
                 "total_amount": quote_details['total_amount'],
+                "discount": quote_details.get('discount', 0.0) # Incluir el descuento en los datos del PDF
             }
 
             # Abrir el diálogo para guardar el archivo. El resultado se manejará en _on_file_picker_result
@@ -752,7 +811,11 @@ class PresupFormView:
                             self.treatments_column,
                             ft.Divider(color=divider_color),
                             ft.Container(
-                                content=self.total_amount_text,
+                                content=ft.Row([
+                                    self.discount_field, # Campo para el descuento
+                                    ft.VerticalDivider(),
+                                    self.total_amount_text,
+                                ], alignment=ft.MainAxisAlignment.END),
                                 alignment=ft.alignment.center_right,
                                 padding=ft.padding.only(right=10, top=10)
                             ),
@@ -803,4 +866,3 @@ class PresupFormView:
 def presup_view(page: ft.Page, client_id: Optional[int] = None, quote_id: Optional[int] = None):
     """Función de fábrica para crear la vista del formulario de presupuesto"""
     return PresupFormView(page, client_id=client_id, quote_id=quote_id).build_view()
-

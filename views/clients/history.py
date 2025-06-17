@@ -148,10 +148,16 @@ class ClientHistoryView:
             if found_treatment:
                 original_notes = found_treatment.get('notes', '')
                 source_origin = found_treatment.get('source', 'N/A')
-                notes_prefix = f"Completado (origen: {source_origin})."
+                
+                # Modificar el prefijo de las notas dependiendo de si se suma o resta
+                if quantity_to_mark_completed > 0:
+                    notes_prefix = f"Completado (origen: {source_origin})."
+                else:
+                    notes_prefix = f"Cantidad reducida (origen: {source_origin})."
+
                 notes = f"{notes_prefix} {original_notes}" if original_notes else notes_prefix
             else:
-                notes = "Completado."
+                notes = "Completado." if quantity_to_mark_completed > 0 else "Cantidad reducida."
         else: # Si es una adición manual desde el dropdown
             notes = self.new_history_treatment_notes.value
 
@@ -392,34 +398,57 @@ class ClientHistoryView:
                 date_display = f"Fecha: {ct['treatment_date'].strftime('%d/%m/%Y')}" if ct['treatment_date'] else "Fecha: N/A"
 
                 actions = []
+                # Botón para marcar como completado (o aumentar cantidad)
                 if completed_qty < total_qty:
                     actions.append(
                         ft.IconButton(
                             icon=ft.icons.CHECK_CIRCLE,
                             icon_color=ft.colors.GREEN_500,
-                            tooltip=f"Marcar 1 unidad como Completada", # El tooltip ahora es más genérico
+                            tooltip=f"Marcar 1 unidad como Completada",
                             on_click=lambda e, 
                                             _treatment_id=ct['id'],
-                                            _appointment_id=ct.get('appointment_id'), # Pasar appointment_id
-                                            _quote_id=ct.get('quote_id'):             # Pasar quote_id
+                                            _appointment_id=ct.get('appointment_id'),
+                                            _quote_id=ct.get('quote_id'):             
                                 self._add_client_treatment(e, 
                                                             treatment_id_to_add=_treatment_id, 
                                                             appointment_id_to_add=_appointment_id, 
                                                             quote_id_to_add=_quote_id,
-                                                            quantity_to_mark_completed=1) # Marca 1 unidad por click
+                                                            quantity_to_mark_completed=1)
                         )
                     )
-                # Modificación aquí: el botón de eliminar se muestra si el tratamiento está 'completed'
-                # y tiene un 'client_treatment_record_id' (es decir, está en la tabla client_treatments)
-                if ct['status'] == 'completed' and ct['client_treatment_record_id'] is not None:
+                
+                # Nuevo botón para reducir la cantidad completada
+                if completed_qty > 0: # Solo si hay al menos una unidad completada
                     actions.append(
                         ft.IconButton(
-                            icon=ft.icons.DELETE,
-                            icon_color=ft.colors.RED_500,
-                            tooltip="Eliminar tratamiento de historial",
-                            on_click=lambda e, tr_id=ct['client_treatment_record_id']: self._delete_client_treatment(e, tr_id)
+                            icon=ft.icons.REMOVE_CIRCLE,
+                            icon_color=ft.colors.RED_500, # Color rojo para restar
+                            tooltip=f"Restar 1 unidad completada",
+                            on_click=lambda e, 
+                                            _treatment_id=ct['id'],
+                                            _appointment_id=ct.get('appointment_id'),
+                                            _quote_id=ct.get('quote_id'):             
+                                self._add_client_treatment(e, 
+                                                            treatment_id_to_add=_treatment_id, 
+                                                            appointment_id_to_add=_appointment_id, 
+                                                            quote_id_to_add=_quote_id,
+                                                            quantity_to_mark_completed=-1) # Pasa -1 para restar
                         )
                     )
+
+                # El botón de eliminar se muestra si el tratamiento está 'completed'
+                # y tiene un 'client_treatment_record_id' (es decir, está en la tabla client_treatments)
+                # O si la cantidad completada es 0 y se desea eliminar el registro "pendiente"
+                if ct['client_treatment_record_id'] is not None:
+                     actions.append(
+                         ft.IconButton(
+                             icon=ft.icons.DELETE,
+                             icon_color=ft.colors.GREY_500, # Color gris para eliminar el registro completo
+                             tooltip="Eliminar registro de historial",
+                             on_click=lambda e, tr_id=ct['client_treatment_record_id']: self._delete_client_treatment(e, tr_id)
+                         )
+                     )
+
 
                 self.all_client_treatments_list.controls.append(
                     ft.Card(

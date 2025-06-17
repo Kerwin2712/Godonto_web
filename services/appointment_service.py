@@ -74,7 +74,9 @@ class AppointmentService(Observable):
                                 client_id=client_id,
                                 treatment_id=treatment['id'],
                                 notes=f"Completado a través de cita ID: {appointment_id} - Originalmente: {treatment.get('notes', 'N/A')}",
-                                treatment_date=date.today() # Usa la fecha actual para el registro de completado
+                                treatment_date=date.today(), # Usa la fecha actual para el registro de completado
+                                appointment_id=appointment_id, # Pasa el ID de la cita
+                                quantity_to_mark_completed=treatment.get('quantity', 1) # Pasa la cantidad de la cita
                             )
                             if not success:
                                 logger.error(f"Error al marcar tratamiento {treatment['name']} (ID: {treatment['id']}) como completado para cliente {client_id}: {msg}")
@@ -139,39 +141,32 @@ class AppointmentService(Observable):
                         # Asegúrate de que 'id' y 'price' estén presentes en el diccionario de tratamiento
                         if 'id' in treatment and 'price' in treatment:
                             # Insertar tratamiento asociado a la cita
+                            quantity = treatment.get('quantity', 1) # Obtener la cantidad del tratamiento
                             cursor.execute(
                                 """
                                 INSERT INTO appointment_treatments 
-                                (appointment_id, treatment_id, price, notes)
-                                VALUES (%s, %s, %s, %s)
+                                (appointment_id, treatment_id, price, notes, quantity)
+                                VALUES (%s, %s, %s, %s, %s)
                                 """,
                                 (appointment_id, treatment['id'], treatment['price'], 
-                                f"Tratamiento: {treatment.get('name', 'Desconocido')}") # Usar .get para seguridad
+                                f"Tratamiento: {treatment.get('name', 'Desconocido')}", quantity) # Usar .get para seguridad
                             )
                             
-                            # Verificar si este tratamiento ya está cubierto por un presupuesto
-                            # Por simplicidad, asumiremos que si un tratamiento se agrega a una cita,
-                            # y no hay un quote_id asociado a ese tratamiento en la cita,
-                            # o si el tratamiento no está en ningún presupuesto aprobado para el cliente,
-                            # entonces genera deuda.
-                            # Para este caso, vamos a hacer que *cualquier* tratamiento añadido a la cita genere deuda,
-                            # a menos que provenga explícitamente de un presupuesto ya pagado/aprobado.
-                            # Dado que la solicitud es "si se crea una cita con algún tratamiento que no está en el presupuesto
-                            # también se debe agregar a la deuda", esto implica que si un tratamiento NO viene de un presupuesto,
-                            # o si viene pero el presupuesto no está pagado, debe generar deuda.
-                            
-                            # Simplificamos: si la cita no tiene un quote_id asociado (lo cual aún no manejamos directamente
-                            # en la tabla appointments), o si el tratamiento no es parte de un presupuesto
-                            # 'aprobado'/'invoiced', generamos deuda.
-                            # Por ahora, simplemente crearemos deuda para cada tratamiento añadido a la cita.
-                            # La lógica de "cubierto por presupuesto" se manejaría mejor en un nivel superior
-                            # o en la tabla `debts` con `quote_id`.
+                            # Al crear una cita, también se añade el tratamiento al historial del cliente
+                            # inicialmente con completed_quantity = 0, y total_quantity = quantity
+                            HistoryService.add_client_treatment(
+                                client_id=client_id,
+                                treatment_id=treatment['id'],
+                                notes=f"Asociado a cita ID: {appointment_id}",
+                                treatment_date=appointment_date, # Fecha de la cita como fecha de origen
+                                appointment_id=appointment_id,
+                                quantity_to_mark_completed=0 # Inicialmente, no hay cantidad completada
+                            )
 
                             # Crear deuda individual para cada tratamiento en la cita
-                            # Puedes ajustar esto si prefieres una sola deuda por cita
                             PaymentService().create_debt(
                                 client_id=client_id,
-                                amount=float(treatment['price']) * treatment.get('quantity', 1),
+                                amount=float(treatment['price']) * quantity,
                                 description=f"Tratamiento: {treatment.get('name', 'Desconocido')} para cita #{appointment_id}",
                                 appointment_id=appointment_id,
                                 cursor=cursor
@@ -191,7 +186,7 @@ class AppointmentService(Observable):
         with get_db() as cursor:
             cursor.execute(
                 """
-                SELECT t.id, t.name, at.price, at.notes
+                SELECT t.id, t.name, at.price, at.notes, at.quantity
                 FROM appointment_treatments at
                 JOIN treatments t ON at.treatment_id = t.id
                 WHERE at.appointment_id = %s
@@ -203,7 +198,8 @@ class AppointmentService(Observable):
                     'id': row[0],
                     'name': row[1],
                     'price': float(row[2]),
-                    'notes': row[3]
+                    'notes': row[3],
+                    'quantity': row[4] # Incluir la cantidad
                 } for row in cursor.fetchall()
             ]
     
@@ -237,6 +233,17 @@ class AppointmentService(Observable):
             
         try:
             with get_db() as cursor: # Inicia la transacción para la actualización
+                # Obtener client_id si no se pasa en kwargs
+                client_id = kwargs.get('client_id')
+                if client_id is None:
+                    # Si no se pasó client_id, recuperarlo de la cita existente
+                    current_appointment = AppointmentService.get_appointment_by_id(appointment_id)
+                    if current_appointment:
+                        client_id = current_appointment.client_id
+                    else:
+                        return False, "Cita no encontrada."
+
+
                 # Actualizar campos de la cita principal
                 if updates:
                     set_clause = ", ".join([f"{field} = %s" for field in updates.keys()])
@@ -272,22 +279,36 @@ class AppointmentService(Observable):
                         """,
                         (appointment_id,)
                     )
+
+                    # Eliminar tratamientos de historial asociados a esta cita
+                    HistoryService.delete_client_treatments_by_appointment(appointment_id, cursor)
                     
                     for treatment in treatments:
                         if 'id' in treatment and 'price' in treatment:
+                            quantity = treatment.get('quantity', 1)
                             cursor.execute(
                                 """
                                 INSERT INTO appointment_treatments 
-                                (appointment_id, treatment_id, price, notes)
-                                VALUES (%s, %s, %s, %s)
+                                (appointment_id, treatment_id, price, notes, quantity)
+                                VALUES (%s, %s, %s, %s, %s)
                                 """,
                                 (appointment_id, treatment['id'], treatment['price'], 
-                                f"Tratamiento: {treatment.get('name', 'Desconocido')}")
+                                f"Tratamiento: {treatment.get('name', 'Desconocido')}", quantity)
                             )
+                            # Añadir el tratamiento al historial del cliente (si no existe ya)
+                            HistoryService.add_client_treatment(
+                                client_id=client_id,
+                                treatment_id=treatment['id'],
+                                notes=f"Asociado a cita ID: {appointment_id}",
+                                treatment_date=kwargs.get('date', date.today()), # Usar la nueva fecha si se actualiza, sino hoy
+                                appointment_id=appointment_id,
+                                quantity_to_mark_completed=0 # No se completa al actualizar la cita
+                            )
+
                             # Crear deuda individual para cada tratamiento en la cita
                             PaymentService().create_debt(
-                                client_id=kwargs.get('client_id', get_appointment_by_id(appointment_id).client_id),
-                                amount=float(treatment['price']) * treatment.get('quantity', 1),
+                                client_id=client_id,
+                                amount=float(treatment['price']) * quantity,
                                 description=f"Tratamiento: {treatment.get('name', 'Desconocido')} para cita #{appointment_id}",
                                 appointment_id=appointment_id,
                                 cursor=cursor
@@ -482,15 +503,17 @@ class AppointmentService(Observable):
     @staticmethod
     def delete_appointment(appointment_id: int) -> bool:
         """
-        Elimina una cita por su ID y todas las deudas asociadas a ella.
+        Elimina una cita por su ID y todas las deudas y tratamientos de historial asociados a ella.
         """
         try:
             with get_db() as cursor:
                 # Iniciar una transacción
                 cursor.execute("BEGIN;") 
                 
-                # Paso 1: Eliminar las deudas asociadas a esta cita
-                # Esta consulta ahora funcionará una vez que la tabla 'debts' tenga 'appointment_id'
+                # Paso 1: Eliminar los tratamientos de historial asociados a esta cita
+                HistoryService.delete_client_treatments_by_appointment(appointment_id, cursor)
+
+                # Paso 2: Eliminar las deudas asociadas a esta cita
                 cursor.execute(
                     """
                     DELETE FROM debts
@@ -500,7 +523,18 @@ class AppointmentService(Observable):
                 )
                 logger.info(f"Eliminadas {cursor.rowcount} deudas asociadas a la cita {appointment_id}.")
 
-                # Paso 2: Eliminar la cita
+                # Paso 3: Eliminar los tratamientos de la tabla appointment_treatments
+                cursor.execute(
+                    """
+                    DELETE FROM appointment_treatments
+                    WHERE appointment_id = %s;
+                    """,
+                    (appointment_id,)
+                )
+                logger.info(f"Eliminados {cursor.rowcount} tratamientos de appointment_treatments para la cita {appointment_id}.")
+
+
+                # Paso 4: Eliminar la cita
                 cursor.execute(
                     """
                     DELETE FROM appointments

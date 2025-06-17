@@ -1,9 +1,9 @@
-# quote_service.py
 from datetime import date, datetime
 from core.database import get_db, Database # Asegúrate de que get_db y Database estén correctamente importados
 from typing import List, Dict, Optional
 from services.treatment_service import TreatmentService
 from services.payment_service import PaymentService # Importar PaymentService
+from services.history_service import HistoryService # Importar HistoryService
 import logging
 import json
 # Para usar RealDictCursor si estás con psycopg2 para obtener diccionarios
@@ -22,23 +22,29 @@ class QuoteService:
         treatments: List[Dict],
         user_id: Optional[int] = None,
         expiration_date: Optional[date] = None,
-        notes: Optional[str] = None
+        notes: Optional[str] = None,
+        discount: Optional[float] = 0.0 # Nuevo parámetro para el descuento
     ) -> Optional[int]:
-        """Crea un nuevo presupuesto con tratamientos y genera una deuda para el cliente."""
+        """Crea un nuevo presupuesto con tratamientos, aplica un descuento y genera una deuda para el cliente."""
         try:
-            # Calcular el total_amount
-            total_amount = sum(t['price'] * t['quantity'] for t in treatments)
+            # Calcular el total_amount antes del descuento
+            total_amount_before_discount = sum(t['price'] * t['quantity'] for t in treatments)
             
+            # Aplicar el descuento
+            final_total_amount = total_amount_before_discount - discount
+            if final_total_amount < 0:
+                final_total_amount = 0 # Evitar totales negativos
+
             with Database.get_cursor() as cursor: # Usar Database.get_cursor() directamente
                 # Crear presupuesto
                 cursor.execute(
                     """
                     INSERT INTO quotes 
-                    (client_id, user_id, quote_date, expiration_date, total_amount, status, notes, created_at, updated_at)
-                    VALUES (%s, %s, CURRENT_DATE, %s, %s, 'pending', %s, NOW(), NOW())
+                    (client_id, user_id, quote_date, expiration_date, total_amount, status, notes, discount, created_at, updated_at)
+                    VALUES (%s, %s, CURRENT_DATE, %s, %s, 'pending', %s, %s, NOW(), NOW())
                     RETURNING id
                     """,
-                    (client_id, user_id, expiration_date, total_amount, notes)
+                    (client_id, user_id, expiration_date, final_total_amount, notes, discount) # Se añade discount aquí
                 )
                 quote_id = cursor.fetchone()[0]
                 
@@ -57,13 +63,22 @@ class QuoteService:
                         """,
                         (quote_id, treatment_id, treatment['quantity'], treatment['price'])
                     )
+
+                    # Añadir el tratamiento al historial del cliente como "pendiente" del presupuesto
+                    HistoryService.add_client_treatment(
+                        client_id=client_id,
+                        treatment_id=treatment_id,
+                        notes=f"Asociado a presupuesto ID: {quote_id}",
+                        treatment_date=date.today(), # Fecha actual como fecha de registro en historial
+                        quote_id=quote_id,
+                        quantity_to_mark_completed=0 # Inicialmente, no hay cantidad completada de este presupuesto
+                    )
                 
-                # Crear deuda asociada al presupuesto
-                # La descripción de la deuda debería reflejar que es por un presupuesto
+                # Crear deuda asociada al presupuesto con el monto final (descontado)
                 PaymentService.create_debt(
                     client_id=client_id,
-                    amount=total_amount,
-                    description=f"Presupuesto #{quote_id} - {total_amount:.2f}",
+                    amount=final_total_amount, # Se usa el monto final después del descuento
+                    description=f"Presupuesto #{quote_id} - {final_total_amount:.2f}",
                     quote_id=quote_id, # Asociar la deuda con el ID del presupuesto
                     cursor=cursor # Pasar el cursor para que sea parte de la misma transacción
                 )
@@ -75,15 +90,14 @@ class QuoteService:
 
     @staticmethod
     def get_quote(quote_id: int) -> Optional[Dict]:
-        """Obtiene un presupuesto por ID con sus tratamientos y nombre de cliente."""
-        # Usar Database.get_cursor() directamente, asumiendo que no toma cursor_factory
-        with get_db() as cursor: # Modificado: Eliminado cursor_factory
+        """Obtiene un presupuesto por ID con sus tratamientos, descuento y nombre de cliente."""
+        with get_db() as cursor:
             # Obtener datos del presupuesto y nombre/cédula del cliente
             cursor.execute(
                 """
                 SELECT q.id, q.client_id, c.name, c.cedula, q.quote_date, 
                        q.expiration_date, q.total_amount, q.status, q.notes,
-                       q.created_at, q.updated_at,
+                       q.created_at, q.updated_at, q.discount,
                        c.phone, c.email, c.address
                 FROM quotes q
                 JOIN clients c ON q.client_id = c.id
@@ -91,7 +105,7 @@ class QuoteService:
                 """,
                 (quote_id,)
             )
-            quote_data_tuple = cursor.fetchone() # Ahora devolverá una tupla
+            quote_data_tuple = cursor.fetchone()
             if not quote_data_tuple:
                 return None
             
@@ -108,9 +122,10 @@ class QuoteService:
                 'notes': quote_data_tuple[8],
                 'created_at': quote_data_tuple[9],
                 'updated_at': quote_data_tuple[10],
-                'phone': quote_data_tuple[11],
-                'email': quote_data_tuple[12],
-                'address': quote_data_tuple[13],
+                'discount': float(quote_data_tuple[11]),
+                'phone': quote_data_tuple[12],
+                'email': quote_data_tuple[13],
+                'address': quote_data_tuple[14],
             }
 
 
@@ -125,7 +140,6 @@ class QuoteService:
                 """,
                 (quote_id,)
             )
-            # Fetchall devolverá tuplas, mapearlas a diccionarios
             treatments = [
                 {
                     'id': row[0],
@@ -148,6 +162,7 @@ class QuoteService:
                 'notes': quote_data['notes'],
                 'created_at': quote_data['created_at'],
                 'updated_at': quote_data['updated_at'],
+                'discount': float(quote_data['discount']),
                 'client_phone': quote_data['phone'],
                 'client_email': quote_data['email'],
                 'client_address': quote_data['address'],
@@ -166,7 +181,7 @@ class QuoteService:
         """Obtiene todos los presupuestos con filtros opcionales, paginación y detalles extendidos."""
         query = """
             SELECT 
-                q.id, q.client_id, q.quote_date, q.expiration_date, q.total_amount, q.status, q.notes,
+                q.id, q.client_id, q.quote_date, q.expiration_date, q.total_amount, q.status, q.notes, q.discount,
                 c.name AS client_name, c.cedula AS client_cedula, c.phone AS client_phone, c.email AS client_email, c.address AS client_address,
                 COALESCE(
                     JSON_AGG(
@@ -206,7 +221,7 @@ class QuoteService:
             params.append(end_date)
             
         query += """
-            GROUP BY q.id, q.client_id, q.quote_date, q.expiration_date, q.total_amount, q.status, q.notes,
+            GROUP BY q.id, q.client_id, q.quote_date, q.expiration_date, q.total_amount, q.status, q.notes, q.discount,
                      c.name, c.cedula, c.phone, c.email, c.address
             ORDER BY q.quote_date DESC
         """
@@ -215,19 +230,20 @@ class QuoteService:
             query += " LIMIT %s OFFSET %s"
             params.extend([limit, offset])
 
-        # Usar el cursor predeterminado y luego mapear a diccionarios
-        with get_db() as cursor: # Modificado: Eliminado cursor_factory
+        with get_db() as cursor:
             cursor.execute(query, params)
             
-            # Obtener nombres de las columnas para mapear resultados a diccionarios
             col_names = [desc[0] for desc in cursor.description]
             results = []
             for row in cursor.fetchall():
-                # Crear diccionario a partir de la tupla y los nombres de las columnas
                 row_dict = dict(zip(col_names, row))
-                # Convertir total_amount a float
+                
+                # Convertir a float los campos numéricos que lo requieran
                 if 'total_amount' in row_dict:
                     row_dict['total_amount'] = float(row_dict['total_amount'])
+                if 'discount' in row_dict: # Asegura que el descuento sea un float
+                    row_dict['discount'] = float(row_dict['discount'])
+
                 # Cargar treatments_summary si es una cadena JSON
                 if isinstance(row_dict.get('treatments_summary'), str):
                     try:
@@ -270,7 +286,7 @@ class QuoteService:
             query += " AND q.quote_date <= %s"
             params.append(end_date)
             
-        with get_db() as cursor: # Usar Database.get_cursor() directamente
+        with get_db() as cursor:
             cursor.execute(query, params)
             count = cursor.fetchone()[0]
             return count
@@ -282,20 +298,20 @@ class QuoteService:
         treatments: List[Dict],
         expiration_date: Optional[date] = None,
         notes: Optional[str] = None,
-        status: str = 'pending' # Permite actualizar el estado
+        status: str = 'pending', # Permite actualizar el estado
+        discount: Optional[float] = 0.0 # Nuevo parámetro para el descuento
     ) -> bool:
-        """Actualiza un presupuesto existente y su deuda asociada."""
+        """Actualiza un presupuesto existente y su deuda asociada, incluyendo el descuento."""
         try:
-            new_total_amount = sum(t['price'] * t['quantity'] for t in treatments)
+            # Calcular el total_amount antes del descuento
+            total_amount_before_discount = sum(t['price'] * t['quantity'] for t in treatments)
             
-            with Database.get_cursor() as cursor: # Usar Database.get_cursor() directamente
-                # Obtener el total_amount actual para calcular la diferencia
-                cursor.execute(
-                    "SELECT total_amount FROM quotes WHERE id = %s",
-                    (quote_id,)
-                )
-                old_total_amount = float(cursor.fetchone()[0]) if cursor.rowcount > 0 else 0.0
-
+            # Aplicar el descuento
+            new_final_total_amount = total_amount_before_discount - discount
+            if new_final_total_amount < 0:
+                new_final_total_amount = 0 # Evitar totales negativos
+            
+            with Database.get_cursor() as cursor:
                 # Actualizar presupuesto
                 cursor.execute(
                     """
@@ -305,10 +321,11 @@ class QuoteService:
                         total_amount = %s,
                         status = %s,
                         notes = %s,
+                        discount = %s,
                         updated_at = NOW()
                     WHERE id = %s
                     """,
-                    (client_id, expiration_date, new_total_amount, status, notes, quote_id)
+                    (client_id, expiration_date, new_final_total_amount, status, notes, discount, quote_id)
                 )
                 
                 # Eliminar tratamientos existentes del presupuesto
@@ -317,6 +334,15 @@ class QuoteService:
                     (quote_id,)
                 )
                 
+                # Eliminar tratamientos de historial asociados a este presupuesto
+                cursor.execute(
+                    """
+                    DELETE FROM client_treatments
+                    WHERE quote_id = %s;
+                    """,
+                    (quote_id,)
+                )
+
                 # Insertar tratamientos actualizados
                 for treatment in treatments:
                     # Crear tratamiento si no existe y obtener su ID
@@ -332,6 +358,15 @@ class QuoteService:
                         """,
                         (quote_id, treatment_id, treatment['quantity'], treatment['price'])
                     )
+                    # Añadir el tratamiento al historial del cliente como "pendiente" del presupuesto
+                    HistoryService.add_client_treatment(
+                        client_id=client_id,
+                        treatment_id=treatment_id,
+                        notes=f"Asociado a presupuesto ID: {quote_id}",
+                        treatment_date=date.today(), # Fecha actual como fecha de registro en historial
+                        quote_id=quote_id,
+                        quantity_to_mark_completed=0 # Inicialmente, no hay cantidad completada de este presupuesto
+                    )
 
                 # Actualizar la deuda asociada al presupuesto
                 # Primero, elimina cualquier deuda anterior asociada a este presupuesto
@@ -340,11 +375,11 @@ class QuoteService:
                     (quote_id,)
                 )
                 
-                # Luego, crea una nueva deuda con el nuevo total_amount
+                # Luego, crea una nueva deuda con el nuevo total_amount (descontado)
                 PaymentService.create_debt(
                     client_id=client_id,
-                    amount=new_total_amount,
-                    description=f"Presupuesto #{quote_id} - {new_total_amount:.2f}",
+                    amount=new_final_total_amount, # Se usa el monto final después del descuento
+                    description=f"Presupuesto #{quote_id} - {new_final_total_amount:.2f}",
                     quote_id=quote_id,
                     cursor=cursor
                 )
@@ -358,10 +393,21 @@ class QuoteService:
     def delete_quote(quote_id: int) -> bool:
         """Elimina un presupuesto y sus tratamientos asociados, y la deuda asociada."""
         try:
-            with Database.get_cursor() as cursor: # Usar Database.get_cursor() directamente
+            with Database.get_cursor() as cursor:
                 # Eliminar las deudas asociadas al presupuesto primero
                 cursor.execute("DELETE FROM debts WHERE quote_id = %s", (quote_id,))
                 logger.info(f"Eliminadas {cursor.rowcount} deudas asociadas al presupuesto {quote_id}.")
+
+                # Eliminar tratamientos de historial asociados a este presupuesto
+                cursor.execute(
+                    """
+                    DELETE FROM client_treatments
+                    WHERE quote_id = %s;
+                    """,
+                    (quote_id,)
+                )
+                logger.info(f"Eliminados {cursor.rowcount} registros de historial para presupuesto {quote_id}.")
+
 
                 # Eliminar tratamientos del presupuesto (ON DELETE CASCADE se encargará de esto)
                 cursor.execute("DELETE FROM quote_treatments WHERE quote_id = %s", (quote_id,))
@@ -377,7 +423,7 @@ class QuoteService:
     def update_quote_status(quote_id: int, new_status: str) -> bool:
         """Actualiza el estado de un presupuesto."""
         try:
-            with Database.get_cursor() as cursor: # Usar Database.get_cursor() directamente
+            with Database.get_cursor() as cursor:
                 cursor.execute(
                     "UPDATE quotes SET status = %s, updated_at = NOW() WHERE id = %s",
                     (new_status, quote_id)
@@ -390,7 +436,7 @@ class QuoteService:
     @staticmethod
     def get_quote_treatments(quote_id: int) -> List[Dict]:
         """Obtiene los tratamientos asociados a un presupuesto."""
-        with get_db() as cursor: # Modificado: Eliminado cursor_factory
+        with get_db() as cursor:
             cursor.execute(
                 """
                 SELECT t.id, t.name, qt.quantity, qt.price_at_quote, qt.subtotal
@@ -441,4 +487,3 @@ class QuoteService:
         except Exception as e:
             logger.error(f"Error al obtener información del cliente {client_id} para PDF: {str(e)}")
             return None
-

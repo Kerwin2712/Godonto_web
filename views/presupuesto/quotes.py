@@ -373,6 +373,10 @@ class QuotesView:
                                     ft.Text(f"Fecha: {format_date(quote['quote_date'])}", size=12, color=text_color)
                                 ]),
                                 ft.Row([
+                                    ft.Icon(ft.icons.MONEY_OFF), # Icono para el descuento
+                                    ft.Text(f"Descuento: ${quote.get('discount', 0.0):,.2f}", size=12, color=text_color) # Mostrar el descuento
+                                ]),
+                                ft.Row([
                                     ft.Icon(ft.icons.ATTACH_MONEY, size=16, color=secondary_text_color),
                                     ft.Text(f"Total: ${quote['total_amount']:,.2f}", size=14, weight=ft.FontWeight.BOLD, color=text_color)
                                 ]),
@@ -489,7 +493,8 @@ class QuotesView:
                 "client_address": client_info.get('address', ''),
                 "items": items_for_pdf,
                 "date": format_date(quote_date), # Usar la fecha del presupuesto
-                "total_amount": quote_details['total_amount']
+                "total_amount": quote_details['total_amount'],
+                "discount": quote_details.get('discount', 0.0) # Incluir el descuento
             }
 
             # VERIFICACIÓN Y CORRECCIÓN: Asegurarse de que self.file_picker y su método save_file no sean None
