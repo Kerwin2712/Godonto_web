@@ -1,5 +1,5 @@
 import flet as ft
-from datetime import datetime, time # Importar 'time' explícitamente
+from datetime import datetime, time
 from services.appointment_service import AppointmentService, get_appointment_treatments
 from utils.alerts import AlertManager
 from utils.widgets import build_appointment_card
@@ -10,10 +10,8 @@ class AppointmentsView:
         self.page = page
         self.appointment_service = AppointmentService()
         
-        # Estado de la vista
-        self.current_page = 1
-        self.items_per_page = 10
-        self.total_items = 0
+        # Estado de la vista (eliminamos current_page y items_per_page ya que no hay paginación)
+        self.total_items = 0 # Todavía útil para conteo, pero no para paginación
         self.filters = {
             'date_from': None,
             'date_to': None,
@@ -34,7 +32,7 @@ class AppointmentsView:
         # Inicializar componentes
         self._init_date_pickers()
         self._init_search_controls()
-        self._init_pagination_controls()
+        # self._init_pagination_controls() # Eliminamos la inicialización de paginación
         
         # Cargar datos iniciales
         self.update_appointments()
@@ -94,9 +92,10 @@ class AppointmentsView:
             width=150
         )
 
-    def _init_pagination_controls(self):
-        """Inicializa los controles de paginación"""
-        self.pagination_row = ft.Row(alignment=ft.MainAxisAlignment.CENTER)
+    # Eliminamos _init_pagination_controls
+    # def _init_pagination_controls(self):
+    #     """Inicializa los controles de paginación"""
+    #     self.pagination_row = ft.Row(alignment=ft.MainAxisAlignment.CENTER)
 
     def update_filters(self):
         """Actualiza los filtros basados en los controles UI"""
@@ -104,7 +103,7 @@ class AppointmentsView:
             'search_term': self.search_bar.value if self.search_bar.value else None,
             'status': self.status_dropdown.value if self.status_dropdown.value != "Todas" else None
         })
-        self.current_page = 1  # Resetear a primera página
+        # self.current_page = 1  # Resetear a primera página (ya no es necesario)
         self.update_appointments()
 
     def apply_search_filter(self, term):
@@ -123,15 +122,13 @@ class AppointmentsView:
 
     def update_appointments(self):
         """Actualiza la lista de citas con los filtros actuales"""
-        offset = (self.current_page - 1) * self.items_per_page
+        # Eliminamos limit y offset para obtener todas las citas
         appointments = self.appointment_service.get_appointments(
-            limit=self.items_per_page,
-            offset=offset,
             filters=self.filters
         )
         self.total_items = self.appointment_service.count_appointments(self.filters)
         self._render_appointments(appointments)
-        self._update_pagination_controls()
+        # self._update_pagination_controls() # Eliminamos la actualización de los controles de paginación
 
     def _render_appointments(self, appointments):
         """Renderiza las citas en el grid"""
@@ -257,56 +254,58 @@ class AppointmentsView:
         }
         return status_colors.get(status.lower(), ft.colors.GREY)
 
-    def _update_pagination_controls(self):
-        """Actualiza los controles de paginación"""
-        total_pages = max(1, (self.total_items + self.items_per_page - 1) // self.items_per_page)
+    # Eliminamos _update_pagination_controls ya que no se usa la paginación
+    # def _update_pagination_controls(self):
+    #     """Actualiza los controles de paginación"""
+    #     total_pages = max(1, (self.total_items + self.items_per_page - 1) // self.items_per_page)
         
-        self.pagination_row.controls = [
-            ft.IconButton(
-                icon=ft.icons.FIRST_PAGE,
-                on_click=lambda e: self.change_page(1),
-                disabled=self.current_page == 1
-            ),
-            ft.IconButton(
-                icon=ft.icons.CHEVRON_LEFT,
-                on_click=lambda e: self.change_page(self.current_page - 1),
-                disabled=self.current_page == 1
-            ),
-            ft.Text(f"Página {self.current_page} de {total_pages}"),
-            ft.IconButton(
-                icon=ft.icons.CHEVRON_RIGHT,
-                on_click=lambda e: self.change_page(self.current_page + 1),
-                disabled=self.current_page * self.items_per_page >= self.total_items
-            ),
-            ft.IconButton(
-                icon=ft.icons.LAST_PAGE,
-                on_click=lambda e: self.change_page(total_pages),
-                disabled=self.current_page * self.items_per_page >= self.total_items
-            ),
-            ft.Dropdown(
-                options=[
-                    ft.dropdown.Option("5"),
-                    ft.dropdown.Option("10"),
-                    ft.dropdown.Option("20"),
-                    ft.dropdown.Option("50"),
-                ],
-                value=str(self.items_per_page),
-                width=100,
-                on_change=self.change_items_per_page
-            )
-        ]
-        self.page.update()
+    #     self.pagination_row.controls = [
+    #         ft.IconButton(
+    #             icon=ft.icons.FIRST_PAGE,
+    #             on_click=lambda e: self.change_page(1),
+    #             disabled=self.current_page == 1
+    #         ),
+    #         ft.IconButton(
+    #             icon=ft.icons.CHEVRON_LEFT,
+    #             on_click=lambda e: self.change_page(self.current_page - 1),
+    #             disabled=self.current_page == 1
+    #         ),
+    #         ft.Text(f"Página {self.current_page} de {total_pages}"),
+    #         ft.IconButton(
+    #             icon=ft.icons.CHEVRON_RIGHT,
+    #             on_click=lambda e: self.change_page(self.current_page + 1),
+    #             disabled=self.current_page * self.items_per_page >= self.total_items
+    #         ),
+    #         ft.IconButton(
+    #             icon=ft.icons.LAST_PAGE,
+    #             on_click=lambda e: self.change_page(total_pages),
+    #             disabled=self.current_page * self.items_per_page >= self.total_items
+    #         ),
+    #         ft.Dropdown(
+    #             options=[
+    #                 ft.dropdown.Option("5"),
+    #                 ft.dropdown.Option("10"),
+    #                 ft.dropdown.Option("20"),
+    #                 ft.dropdown.Option("50"),
+    #             ],
+    #             value=str(self.items_per_page),
+    #             width=100,
+    #             on_change=self.change_items_per_page
+    #         )
+    #     ]
+    #     self.page.update()
 
-    def change_page(self, new_page):
-        """Cambia la página actual"""
-        self.current_page = new_page
-        self.update_appointments()
+    # Eliminamos change_page y change_items_per_page ya que no se usa la paginación
+    # def change_page(self, new_page):
+    #     """Cambia la página actual"""
+    #     self.current_page = new_page
+    #     self.update_appointments()
 
-    def change_items_per_page(self, e):
-        """Cambia el número de items por página"""
-        self.items_per_page = int(e.control.value)
-        self.current_page = 1
-        self.update_appointments()
+    # def change_items_per_page(self, e):
+    #     """Cambia el número de items por página"""
+    #     self.items_per_page = int(e.control.value)
+    #     self.current_page = 1
+    #     self.update_appointments()
 
     def edit_appointment(self, appointment_id):
         """Navega al formulario de edición"""
@@ -402,7 +401,7 @@ class AppointmentsView:
         
         # Actualizar filtros inmediatamente mientras se escribe
         self.filters['search_term'] = search_term if search_term else None
-        self.current_page = 1
+        # self.current_page = 1 # Ya no es necesario
         self.update_appointments()
     
     def _handle_search_submit(self, e):
@@ -416,7 +415,7 @@ class AppointmentsView:
         self.search_bar.value = ""
         self.search_bar.controls = []
         self.filters['search_term'] = None
-        self.current_page = 1
+        # self.current_page = 1 # Ya no es necesario
         self.update_appointments()
     
     def build_view(self):
@@ -445,8 +444,8 @@ class AppointmentsView:
                                     ft.Container(
                                         content=ft.Column([
                                             self.appointment_grid,
-                                            ft.Divider(),
-                                            self.pagination_row
+                                            # ft.Divider(), # No es necesario si no hay paginación abajo
+                                            # self.pagination_row # Eliminamos la fila de paginación
                                         ]),
                                         padding=ft.padding.only(top=20),
                                         expand=True
