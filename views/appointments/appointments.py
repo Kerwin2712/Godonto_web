@@ -158,15 +158,22 @@ class AppointmentsView:
         # Obtener los tratamientos asociados a la cita
         treatments = get_appointment_treatments(appointment.id)
         
-        # Construir la lista de controles para los tratamientos
+        # Construir la lista de controles para los tratamientos y calcular el total
         treatments_controls = []
+        total_price = 0.0
         if treatments:
             treatments_controls.append(ft.Divider(height=1))
             treatments_controls.append(ft.Text("Tratamientos:", size=12, weight=ft.FontWeight.BOLD))
             for t in treatments:
+                item_total = t.get('price', 0.0) * t.get('quantity', 1)
+                total_price += item_total
                 treatments_controls.append(
-                    ft.Text(f"- {t['name']} (${t['price']:.2f})", size=12)
+                    ft.Text(f"- {t['name']} ({t.get('quantity', 1)}): ${item_total:.2f}", size=12)
                 )
+            treatments_controls.append(ft.Divider(height=1))
+            treatments_controls.append(
+                ft.Text(f"Total Tratamientos: ${total_price:.2f}", size=14, weight=ft.FontWeight.BOLD)
+            )
         else:
             treatments_controls.append(ft.Text("Sin tratamientos", size=12, italic=True))
 
@@ -229,21 +236,6 @@ class AppointmentsView:
                         ], spacing=5),
                         padding=ft.padding.symmetric(horizontal=10)
                     ),
-                    # Se eliminan los botones de edición y eliminación directos
-                    # ft.Row([
-                    #     ft.IconButton(
-                    #         icon=ft.icons.EDIT,
-                    #         icon_color=ft.colors.BLUE,
-                    #         tooltip="Editar",
-                    #         on_click=lambda e, a=appointment: self.edit_appointment(a.id)
-                    #     ),
-                    #     ft.IconButton(
-                    #         icon=ft.icons.DELETE,
-                    #         icon_color=ft.colors.RED,
-                    #         tooltip="Eliminar",
-                    #         on_click=lambda e, a=appointment: self.confirm_delete(a.id, a.client_name)
-                    #     )
-                    # ], alignment=ft.MainAxisAlignment.SPACE_EVENLY)
                 ], spacing=5),
                 padding=10,
             ),
@@ -415,4 +407,3 @@ class AppointmentsView:
 def appointments_view(page: ft.Page):
     """Función de fábrica para crear la vista de citas"""
     return AppointmentsView(page).build_view()
-

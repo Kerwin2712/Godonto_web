@@ -31,7 +31,7 @@ class AppointmentFormView:
             'treatments': [] # Lista para almacenar tratamientos seleccionados
         }
         
-        self.selected_treatments = [] # Lista para objetos de tratamiento completos (id, name, price)
+        self.selected_treatments = [] # Lista para objetos de tratamiento completos (id, name, price, quantity)
         self.treatments_column = ft.Column() # Columna para mostrar los tratamientos seleccionados
 
         self.treatment_search = self._build_treatment_search()
@@ -68,7 +68,6 @@ class AppointmentFormView:
         ) # El color se establecerá en _build_search_row
         
         # Añadir pickers al overlay de la página
-        # ESTA LÍNEA SE MUEVE AQUÍ PARA ASEGURAR QUE SE AÑADAN AL OVERLAY AL INICIALIZAR LA VISTA.
         self.page.overlay.extend([self.date_picker, self.time_picker])
         
         # Cargar datos si es edición
@@ -76,7 +75,6 @@ class AppointmentFormView:
             self.load_appointment_data()
         
         # Inicializar la visualización de tratamientos al construir la vista
-        # Esto es importante para que el texto "Ningún tratamiento seleccionado" aparezca inicialmente
         self._update_treatments_display()
 
     """Metodos para la barra de busqueda de tratamientos"""
@@ -158,21 +156,22 @@ class AppointmentFormView:
             show_error(self.page, f"Error en búsqueda de tratamientos: {str(e)}")
     
     def select_treatment(self, treatment_id: int, name: str, price: float):
-        """Añade un tratamiento seleccionado a la lista."""
+        """Añade un tratamiento seleccionado a la lista con una cantidad inicial de 1."""
         # Verificar si el tratamiento ya está seleccionado
-        if any(t['id'] == treatment_id for t in self.selected_treatments):
-            show_error(self.page, "Este tratamiento ya ha sido añadido.")
+        existing_treatment = next((t for t in self.selected_treatments if t['id'] == treatment_id), None)
+        if existing_treatment:
+            show_error(self.page, "Este tratamiento ya ha sido añadido. Puedes ajustar su cantidad.")
             self.treatment_search.close_view()
             self.page.update()
             return
 
-        selected_treatment_data = {'id': treatment_id, 'name': name, 'price': price}
+        selected_treatment_data = {'id': treatment_id, 'name': name, 'price': price, 'quantity': 1} # Cantidad inicial 1
         self.selected_treatments.append(selected_treatment_data)
-        self.form_data['treatments'].append(selected_treatment_data) # Añadir a form_data
+        self.form_data['treatments'].append(selected_treatment_data)
 
-        self._update_treatments_display() # Actualizar la visualización de tratamientos
-        self.treatment_search.value = "" # Limpiar el campo de búsqueda
-        self.treatment_search.controls = [] # Limpiar los resultados de búsqueda
+        self._update_treatments_display()
+        self.treatment_search.value = ""
+        self.treatment_search.controls = []
         self.treatment_search.close_view()
         self.page.update()
 
@@ -183,6 +182,55 @@ class AppointmentFormView:
         self._update_treatments_display()
         self.page.update()
 
+    def _update_treatment_quantity(self, treatment_id: int, new_quantity: str):
+        """Actualiza la cantidad de un tratamiento seleccionado."""
+        try:
+            quantity = int(new_quantity)
+            if quantity < 1:
+                show_error(self.page, "La cantidad debe ser al menos 1.")
+                # Restaurar el valor anterior si es inválido
+                # No es necesario llamar a _update_treatments_display() aquí,
+                # ya que se actualizará cuando el usuario corrija la entrada.
+                return
+
+            for t in self.selected_treatments:
+                if t['id'] == treatment_id:
+                    t['quantity'] = quantity
+                    break
+            
+            # Asegurarse de que form_data también se actualice
+            for t_fd in self.form_data['treatments']:
+                if t_fd['id'] == treatment_id:
+                    t_fd['quantity'] = quantity
+                    break
+            self.page.update()
+        except ValueError:
+            show_error(self.page, "La cantidad debe ser un número entero válido.")
+            # Restaurar el valor anterior si la entrada no es un número
+            # No es necesario llamar a _update_treatments_display() aquí,
+            # ya que se actualizará cuando el usuario corrija la entrada.
+
+    def _increment_treatment_quantity(self, treatment_id: int):
+        """Incrementa la cantidad de un tratamiento seleccionado."""
+        for t in self.selected_treatments:
+            if t['id'] == treatment_id:
+                t['quantity'] += 1
+                break
+        self._update_treatments_display()
+        self.page.update() # Mover page.update() aquí
+
+    def _decrement_treatment_quantity(self, treatment_id: int):
+        """Decrementa la cantidad de un tratamiento seleccionado, mínimo 1."""
+        for t in self.selected_treatments:
+            if t['id'] == treatment_id:
+                if t['quantity'] > 1:
+                    t['quantity'] -= 1
+                else:
+                    show_error(self.page, "La cantidad no puede ser menor a 1.")
+                break
+        self._update_treatments_display()
+        self.page.update() # Mover page.update() aquí
+        
     def _update_treatments_display(self):
         """Actualiza la visualización de los tratamientos seleccionados."""
         # Colores para los tratamientos seleccionados
@@ -196,7 +244,7 @@ class AppointmentFormView:
                     "Ningún tratamiento seleccionado",
                     italic=True,
                     overflow=ft.TextOverflow.ELLIPSIS,
-                    color=treatment_card_text_color, # Aplicar color aquí también
+                    color=treatment_card_text_color,
                 )
             ]
         else:
@@ -204,23 +252,48 @@ class AppointmentFormView:
                 ft.Card(
                     content=ft.Container(
                         content=ft.Row([
-                            ft.Text(f"{t['name']} - ${t['price']:.2f}", expand=True, color=treatment_card_text_color),
+                            ft.Column([
+                                ft.Text(f"{t['name']} - ${t['price']:.2f}", color=treatment_card_text_color),
+                                ft.Row([
+                                    ft.IconButton(
+                                        icon=ft.icons.REMOVE_CIRCLE_OUTLINE,
+                                        icon_color=ft.colors.RED_500,
+                                        on_click=lambda e, tid=t['id']: self._decrement_treatment_quantity(tid),
+                                        tooltip="Disminuir cantidad"
+                                    ),
+                                    ft.TextField(
+                                        value=str(t.get('quantity', 1)),
+                                        width=60,
+                                        height=40,
+                                        text_align=ft.TextAlign.CENTER,
+                                        keyboard_type=ft.KeyboardType.NUMBER,
+                                        on_change=lambda e, tid=t['id']: self._update_treatment_quantity(tid, e.control.value),
+                                        dense=True
+                                    ),
+                                    ft.IconButton(
+                                        icon=ft.icons.ADD_CIRCLE_OUTLINE,
+                                        icon_color=ft.colors.GREEN_500,
+                                        on_click=lambda e, tid=t['id']: self._increment_treatment_quantity(tid),
+                                        tooltip="Aumentar cantidad"
+                                    )
+                                ])
+                            ], expand=True),
                             ft.IconButton(
                                 icon=ft.icons.CLOSE,
                                 icon_color=icon_color_close,
                                 on_click=lambda e, tid=t['id']: self._remove_treatment(tid),
                                 tooltip="Eliminar tratamiento"
                             )
-                        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                         padding=10,
-                        bgcolor=treatment_card_bgcolor, # Color de fondo del contenedor de la tarjeta
+                        bgcolor=treatment_card_bgcolor,
                         border_radius=5
                     ),
                     margin=ft.margin.only(bottom=5),
-                    elevation=1 # Añadir elevación a la tarjeta
+                    elevation=1
                 ) for t in self.selected_treatments
             ]
-        self.page.update()
+        # self.page.update() # Eliminado de aquí
     
     def _reset_treatment_search(self):
         """Resetea la búsqueda de tratamientos y la lista de seleccionados."""
@@ -292,7 +365,7 @@ class AppointmentFormView:
                     ft.Container(
                         content=self.selected_client_text,
                         padding=10,
-                        bgcolor=selected_client_bg, # Color de fondo del contenedor
+                        bgcolor=selected_client_bg,
                         border_radius=5,
                         expand=True
                     )
@@ -416,8 +489,9 @@ class AppointmentFormView:
         # Cargar tratamientos asociados a la cita
         appointment_treatments = get_appointment_treatments(self.appointment_id)
         if appointment_treatments:
-            self.selected_treatments = appointment_treatments
-            self.form_data['treatments'] = appointment_treatments
+            # Asegúrate de que los tratamientos cargados tengan la clave 'quantity'
+            self.selected_treatments = [{**t, 'quantity': t.get('quantity', 1)} for t in appointment_treatments]
+            self.form_data['treatments'] = self.selected_treatments
             self._update_treatments_display() # Renderizar los tratamientos cargados
 
         self.page.update()
@@ -609,8 +683,6 @@ class AppointmentFormView:
                         ft.Text("Información de la Cita", weight="bold", color=section_title_color),
                         self._build_date_time_controls(),
                         ft.Text("Notas:", weight="bold", color=section_title_color),
-                        # El color del TextField se ajusta automáticamente con el tema,
-                        # pero si necesitas control fino, puedes usar ft.TextStyle para label y input_text
                         self.notes_field, 
                         ft.Divider(color=divider_color),
                         ft.Text("Tratamientos", weight="bold", color=section_title_color),
