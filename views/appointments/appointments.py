@@ -2,7 +2,6 @@ import flet as ft
 from datetime import datetime, time
 from services.appointment_service import AppointmentService, get_appointment_treatments
 from utils.alerts import AlertManager
-from utils.widgets import build_appointment_card
 from models.appointment import Appointment
 
 class AppointmentsView:
@@ -32,7 +31,6 @@ class AppointmentsView:
         # Inicializar componentes
         self._init_date_pickers()
         self._init_search_controls()
-        # self._init_pagination_controls() # Eliminamos la inicialización de paginación
         
         # Cargar datos iniciales
         self.update_appointments()
@@ -92,18 +90,12 @@ class AppointmentsView:
             width=150
         )
 
-    # Eliminamos _init_pagination_controls
-    # def _init_pagination_controls(self):
-    #     """Inicializa los controles de paginación"""
-    #     self.pagination_row = ft.Row(alignment=ft.MainAxisAlignment.CENTER)
-
     def update_filters(self):
         """Actualiza los filtros basados en los controles UI"""
         self.filters.update({
             'search_term': self.search_bar.value if self.search_bar.value else None,
             'status': self.status_dropdown.value if self.status_dropdown.value != "Todas" else None
         })
-        # self.current_page = 1  # Resetear a primera página (ya no es necesario)
         self.update_appointments()
 
     def apply_search_filter(self, term):
@@ -128,7 +120,6 @@ class AppointmentsView:
         )
         self.total_items = self.appointment_service.count_appointments(self.filters)
         self._render_appointments(appointments)
-        # self._update_pagination_controls() # Eliminamos la actualización de los controles de paginación
 
     def _render_appointments(self, appointments):
         """Renderiza las citas en el grid"""
@@ -189,7 +180,6 @@ class AppointmentsView:
             notes_controls.append(ft.Divider(height=1))
             notes_controls.append(ft.Text("Sin notas", size=12, italic=True))
 
-
         return ft.Card(
             content=ft.Container(
                 content=ft.Column([
@@ -197,6 +187,22 @@ class AppointmentsView:
                         title=ft.Text(appointment.client_name, 
                                      weight=ft.FontWeight.BOLD),
                         subtitle=ft.Text(f"Cédula: {appointment.client_cedula}"),
+                        # Añadir un menú de opciones aquí
+                        trailing=ft.PopupMenuButton(
+                            icon=ft.icons.MORE_VERT,
+                            items=[
+                                ft.PopupMenuItem(
+                                    text="Editar",
+                                    icon=ft.icons.EDIT,
+                                    on_click=lambda e, a=appointment: self.edit_appointment(a.id)
+                                ),
+                                ft.PopupMenuItem(
+                                    text="Eliminar",
+                                    icon=ft.icons.DELETE,
+                                    on_click=lambda e, a=appointment: self.confirm_delete(a.id, a.client_name)
+                                ),
+                            ]
+                        )
                     ),
                     ft.Divider(height=1),
                     ft.Container(
@@ -223,23 +229,23 @@ class AppointmentsView:
                         ], spacing=5),
                         padding=ft.padding.symmetric(horizontal=10)
                     ),
-                    ft.Row([
-                        ft.IconButton(
-                            icon=ft.icons.EDIT,
-                            icon_color=ft.colors.BLUE,
-                            tooltip="Editar",
-                            on_click=lambda e, a=appointment: self.edit_appointment(a.id)
-                        ),
-                        ft.IconButton(
-                            icon=ft.icons.DELETE,
-                            icon_color=ft.colors.RED,
-                            tooltip="Eliminar",
-                            on_click=lambda e, a=appointment: self.confirm_delete(a.id, a.client_name)
-                        )
-                    ], alignment=ft.MainAxisAlignment.SPACE_EVENLY)
+                    # Se eliminan los botones de edición y eliminación directos
+                    # ft.Row([
+                    #     ft.IconButton(
+                    #         icon=ft.icons.EDIT,
+                    #         icon_color=ft.colors.BLUE,
+                    #         tooltip="Editar",
+                    #         on_click=lambda e, a=appointment: self.edit_appointment(a.id)
+                    #     ),
+                    #     ft.IconButton(
+                    #         icon=ft.icons.DELETE,
+                    #         icon_color=ft.colors.RED,
+                    #         tooltip="Eliminar",
+                    #         on_click=lambda e, a=appointment: self.confirm_delete(a.id, a.client_name)
+                    #     )
+                    # ], alignment=ft.MainAxisAlignment.SPACE_EVENLY)
                 ], spacing=5),
                 padding=10,
-                # Se eliminó la línea "width=ft.WEB_BROWSER_AUTO_DETECT"
             ),
             elevation=8,
             col={"sm": 12, "md": 6, "lg": 4}
@@ -253,59 +259,6 @@ class AppointmentsView:
             'cancelled': ft.colors.RED
         }
         return status_colors.get(status.lower(), ft.colors.GREY)
-
-    # Eliminamos _update_pagination_controls ya que no se usa la paginación
-    # def _update_pagination_controls(self):
-    #     """Actualiza los controles de paginación"""
-    #     total_pages = max(1, (self.total_items + self.items_per_page - 1) // self.items_per_page)
-        
-    #     self.pagination_row.controls = [
-    #         ft.IconButton(
-    #             icon=ft.icons.FIRST_PAGE,
-    #             on_click=lambda e: self.change_page(1),
-    #             disabled=self.current_page == 1
-    #         ),
-    #         ft.IconButton(
-    #             icon=ft.icons.CHEVRON_LEFT,
-    #             on_click=lambda e: self.change_page(self.current_page - 1),
-    #             disabled=self.current_page == 1
-    #         ),
-    #         ft.Text(f"Página {self.current_page} de {total_pages}"),
-    #         ft.IconButton(
-    #             icon=ft.icons.CHEVRON_RIGHT,
-    #             on_click=lambda e: self.change_page(self.current_page + 1),
-    #             disabled=self.current_page * self.items_per_page >= self.total_items
-    #         ),
-    #         ft.IconButton(
-    #             icon=ft.icons.LAST_PAGE,
-    #             on_click=lambda e: self.change_page(total_pages),
-    #             disabled=self.current_page * self.items_per_page >= self.total_items
-    #         ),
-    #         ft.Dropdown(
-    #             options=[
-    #                 ft.dropdown.Option("5"),
-    #                 ft.dropdown.Option("10"),
-    #                 ft.dropdown.Option("20"),
-    #                 ft.dropdown.Option("50"),
-    #             ],
-    #             value=str(self.items_per_page),
-    #             width=100,
-    #             on_change=self.change_items_per_page
-    #         )
-    #     ]
-    #     self.page.update()
-
-    # Eliminamos change_page y change_items_per_page ya que no se usa la paginación
-    # def change_page(self, new_page):
-    #     """Cambia la página actual"""
-    #     self.current_page = new_page
-    #     self.update_appointments()
-
-    # def change_items_per_page(self, e):
-    #     """Cambia el número de items por página"""
-    #     self.items_per_page = int(e.control.value)
-    #     self.current_page = 1
-    #     self.update_appointments()
 
     def edit_appointment(self, appointment_id):
         """Navega al formulario de edición"""
@@ -401,7 +354,6 @@ class AppointmentsView:
         
         # Actualizar filtros inmediatamente mientras se escribe
         self.filters['search_term'] = search_term if search_term else None
-        # self.current_page = 1 # Ya no es necesario
         self.update_appointments()
     
     def _handle_search_submit(self, e):
@@ -415,7 +367,6 @@ class AppointmentsView:
         self.search_bar.value = ""
         self.search_bar.controls = []
         self.filters['search_term'] = None
-        # self.current_page = 1 # Ya no es necesario
         self.update_appointments()
     
     def build_view(self):
@@ -444,8 +395,6 @@ class AppointmentsView:
                                     ft.Container(
                                         content=ft.Column([
                                             self.appointment_grid,
-                                            # ft.Divider(), # No es necesario si no hay paginación abajo
-                                            # self.pagination_row # Eliminamos la fila de paginación
                                         ]),
                                         padding=ft.padding.only(top=20),
                                         expand=True
