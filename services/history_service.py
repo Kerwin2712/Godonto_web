@@ -5,6 +5,7 @@ from models.client import Client
 from models.appointment import Appointment
 from models.treatment import Treatment
 import logging
+import psycopg2 # Importar psycopg2 para el tipo de cursor
 
 logger = logging.getLogger(__name__)
 
@@ -336,104 +337,113 @@ class HistoryService:
         treatment_date: Optional[date] = None,
         appointment_id: Optional[int] = None,
         quote_id: Optional[int] = None, # Añadir quote_id para identificar fuente
-        quantity_to_mark_completed: int = 1 # Cantidad a marcar como completada
+        quantity_to_mark_completed: int = 1, # Cantidad a marcar como completada
+        cursor: Optional[psycopg2.extensions.cursor] = None # Nuevo parámetro: cursor opcional
     ) -> Tuple[bool, str]:
         """
         Añade/actualiza un tratamiento en el historial del cliente (client_treatments),
         incrementando la cantidad completada.
         """
+        # Usar el cursor proporcionado o crear uno nuevo si no se proporcionó
+        db_context = cursor if cursor else get_db()
         try:
             if treatment_date is None:
                 treatment_date = date.today()
 
-            with get_db() as cursor:
-                # Determinar la cantidad total esperada del tratamiento
-                total_expected_quantity = 1 # Valor predeterminado para tratamientos directos
-                source_identifier_clause = ""
-                source_identifier_params = []
+            # Mover la lógica de 'with get_db() as cursor:' a esta función para usar el cursor pasado
+            _cursor = db_context.__enter__() if not cursor else cursor # Si no se pasó cursor, entra en el contexto
 
-                if appointment_id is not None:
-                    # Obtener cantidad del tratamiento de appointment_treatments
-                    cursor.execute(
-                        "SELECT quantity FROM appointment_treatments WHERE appointment_id = %s AND treatment_id = %s",
-                        (appointment_id, treatment_id)
+            # Determinar la cantidad total esperada del tratamiento
+            total_expected_quantity = 1 # Valor predeterminado para tratamientos directos
+            source_identifier_clause = ""
+            source_identifier_params = []
+
+            if appointment_id is not None:
+                # Obtener cantidad del tratamiento de appointment_treatments
+                _cursor.execute(
+                    "SELECT quantity FROM appointment_treatments WHERE appointment_id = %s AND treatment_id = %s",
+                    (appointment_id, treatment_id)
+                )
+                result = _cursor.fetchone()
+                if result:
+                    total_expected_quantity = result[0]
+                source_identifier_clause = " AND appointment_id = %s AND quote_id IS NULL"
+                source_identifier_params = [appointment_id]
+            elif quote_id is not None:
+                # Obtener cantidad del tratamiento de quote_treatments
+                _cursor.execute(
+                    "SELECT quantity FROM quote_treatments WHERE quote_id = %s AND treatment_id = %s",
+                    (quote_id, treatment_id)
+                )
+                result = _cursor.fetchone()
+                if result:
+                    total_expected_quantity = result[0]
+                source_identifier_clause = " AND quote_id = %s AND appointment_id IS NULL"
+                source_identifier_params = [quote_id]
+            else: # Tratamiento directo, sin cita o presupuesto asociado
+                source_identifier_clause = " AND appointment_id IS NULL AND quote_id IS NULL"
+                total_expected_quantity = quantity_to_mark_completed # Para directos, total es lo que se marca
+
+
+            # Buscar un registro existente para actualizar
+            query_check_existing = f"""
+                SELECT id, completed_quantity, total_quantity
+                FROM client_treatments
+                WHERE client_id = %s AND treatment_id = %s {source_identifier_clause}
+            """
+            params_check_existing = [client_id, treatment_id] + source_identifier_params
+            _cursor.execute(query_check_existing, tuple(params_check_existing))
+            existing_record = _cursor.fetchone()
+
+            if existing_record:
+                record_id = existing_record[0]
+                current_completed_qty = existing_record[1]
+                current_total_qty = existing_record[2]
+
+                new_completed_qty = current_completed_qty + quantity_to_mark_completed
+
+                # No permitir que completed_quantity exceda el total_quantity existente o el recién determinado
+                final_total_qty = max(current_total_qty, total_expected_quantity) # Asegura que total_qty no disminuya
+                if new_completed_qty > final_total_qty:
+                    new_completed_qty = final_total_qty
+
+                _cursor.execute(
+                    """
+                    UPDATE client_treatments
+                    SET notes = %s, treatment_date = %s, completed_quantity = %s, total_quantity = %s, updated_at = NOW()
+                    WHERE id = %s
+                    RETURNING id
+                    """,
+                    (notes, treatment_date, new_completed_qty, final_total_qty, record_id)
+                )
+                return True, f"Tratamiento de historial actualizado. Cantidad completada: {new_completed_qty} de {final_total_qty}."
+            else:
+                # Insertar nuevo registro
+                _cursor.execute(
+                    """
+                    INSERT INTO client_treatments (
+                        client_id, treatment_id, treatment_date, notes,
+                        created_at, updated_at, appointment_id, quote_id,
+                        completed_quantity, total_quantity
                     )
-                    result = cursor.fetchone()
-                    if result:
-                        total_expected_quantity = result[0]
-                    source_identifier_clause = " AND appointment_id = %s AND quote_id IS NULL"
-                    source_identifier_params = [appointment_id]
-                elif quote_id is not None:
-                    # Obtener cantidad del tratamiento de quote_treatments
-                    cursor.execute(
-                        "SELECT quantity FROM quote_treatments WHERE quote_id = %s AND treatment_id = %s",
-                        (quote_id, treatment_id)
+                    VALUES (%s, %s, %s, %s, NOW(), NOW(), %s, %s, %s, %s)
+                    RETURNING id
+                    """,
+                    (
+                        client_id, treatment_id, treatment_date, notes,
+                        appointment_id, quote_id,
+                        quantity_to_mark_completed, total_expected_quantity
                     )
-                    result = cursor.fetchone()
-                    if result:
-                        total_expected_quantity = result[0]
-                    source_identifier_clause = " AND quote_id = %s AND appointment_id IS NULL"
-                    source_identifier_params = [quote_id]
-                else: # Tratamiento directo, sin cita o presupuesto asociado
-                    source_identifier_clause = " AND appointment_id IS NULL AND quote_id IS NULL"
-                    total_expected_quantity = quantity_to_mark_completed # Para directos, total es lo que se marca
-
-
-                # Buscar un registro existente para actualizar
-                query_check_existing = f"""
-                    SELECT id, completed_quantity, total_quantity
-                    FROM client_treatments
-                    WHERE client_id = %s AND treatment_id = %s {source_identifier_clause}
-                """
-                params_check_existing = [client_id, treatment_id] + source_identifier_params
-                cursor.execute(query_check_existing, tuple(params_check_existing))
-                existing_record = cursor.fetchone()
-
-                if existing_record:
-                    record_id = existing_record[0]
-                    current_completed_qty = existing_record[1]
-                    current_total_qty = existing_record[2]
-
-                    new_completed_qty = current_completed_qty + quantity_to_mark_completed
-
-                    # No permitir que completed_quantity exceda el total_quantity existente o el recién determinado
-                    final_total_qty = max(current_total_qty, total_expected_quantity) # Asegura que total_qty no disminuya
-                    if new_completed_qty > final_total_qty:
-                        new_completed_qty = final_total_qty
-
-                    cursor.execute(
-                        """
-                        UPDATE client_treatments
-                        SET notes = %s, treatment_date = %s, completed_quantity = %s, total_quantity = %s, updated_at = NOW()
-                        WHERE id = %s
-                        RETURNING id
-                        """,
-                        (notes, treatment_date, new_completed_qty, final_total_qty, record_id)
-                    )
-                    return True, f"Tratamiento de historial actualizado. Cantidad completada: {new_completed_qty} de {final_total_qty}."
-                else:
-                    # Insertar nuevo registro
-                    cursor.execute(
-                        """
-                        INSERT INTO client_treatments (
-                            client_id, treatment_id, treatment_date, notes,
-                            created_at, updated_at, appointment_id, quote_id,
-                            completed_quantity, total_quantity
-                        )
-                        VALUES (%s, %s, %s, %s, NOW(), NOW(), %s, %s, %s, %s)
-                        RETURNING id
-                        """,
-                        (
-                            client_id, treatment_id, treatment_date, notes,
-                            appointment_id, quote_id,
-                            quantity_to_mark_completed, total_expected_quantity
-                        )
-                    )
-                    new_id = cursor.fetchone()[0]
-                    return True, f"Tratamiento de historial añadido. Cantidad completada: {quantity_to_mark_completed} de {total_expected_quantity}."
+                )
+                new_id = _cursor.fetchone()[0]
+                return True, f"Tratamiento de historial añadido. Cantidad completada: {quantity_to_mark_completed} de {total_expected_quantity}."
         except Exception as e:
             logger.error(f"Error al añadir/actualizar tratamiento de historial: {str(e)}")
             return False, f"Error al añadir/actualizar tratamiento de historial: {str(e)}"
+        finally:
+            if not cursor: # Si el cursor fue creado por esta función, salir del contexto
+                db_context.__exit__(None, None, None)
+
 
     @staticmethod
     def delete_client_treatment(client_treatment_id: int) -> Tuple[bool, str]:

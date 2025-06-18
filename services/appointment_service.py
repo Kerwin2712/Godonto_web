@@ -44,7 +44,7 @@ class AppointmentService(Observable):
             bool: True si la actualización fue exitosa, False en caso contrario.
         """
         try:
-            with get_db() as cursor:
+            with get_db() as cursor: # Usamos un cursor para esta operación también
                 # Obtener el client_id antes de la actualización
                 cursor.execute(
                     "SELECT client_id FROM appointments WHERE id = %s",
@@ -76,7 +76,8 @@ class AppointmentService(Observable):
                                 notes=f"Completado a través de cita ID: {appointment_id} - Originalmente: {treatment.get('notes', 'N/A')}",
                                 treatment_date=date.today(), # Usa la fecha actual para el registro de completado
                                 appointment_id=appointment_id, # Pasa el ID de la cita
-                                quantity_to_mark_completed=treatment.get('quantity', 1) # Pasa la cantidad de la cita
+                                quantity_to_mark_completed=treatment.get('quantity', 1), # Pasa la cantidad de la cita
+                                cursor=cursor # Pasa el cursor
                             )
                             if not success:
                                 logger.error(f"Error al marcar tratamiento {treatment['name']} (ID: {treatment['id']}) como completado para cliente {client_id}: {msg}")
@@ -160,7 +161,8 @@ class AppointmentService(Observable):
                                 notes=f"Asociado a cita ID: {appointment_id}",
                                 treatment_date=appointment_date, # Fecha de la cita como fecha de origen
                                 appointment_id=appointment_id,
-                                quantity_to_mark_completed=0 # Inicialmente, no hay cantidad completada
+                                quantity_to_mark_completed=0, # Inicialmente, no hay cantidad completada
+                                cursor=cursor # Pasa el cursor
                             )
 
                             # Crear deuda individual para cada tratamiento en la cita
@@ -302,7 +304,8 @@ class AppointmentService(Observable):
                                 notes=f"Asociado a cita ID: {appointment_id}",
                                 treatment_date=kwargs.get('date', date.today()), # Usar la nueva fecha si se actualiza, sino hoy
                                 appointment_id=appointment_id,
-                                quantity_to_mark_completed=0 # No se completa al actualizar la cita
+                                quantity_to_mark_completed=0, # No se completa al actualizar la cita
+                                cursor=cursor # Pasa el cursor
                             )
 
                             # Crear deuda individual para cada tratamiento en la cita
