@@ -48,6 +48,9 @@ class QuoteService:
                 )
                 quote_id = cursor.fetchone()[0]
                 
+                # Crear una descripción de deuda combinada para todos los tratamientos del presupuesto
+                debt_description_parts = []
+
                 # Agregar tratamientos asociados al presupuesto
                 for treatment in treatments:
                     # Crear tratamiento si no existe y obtener su ID
@@ -55,6 +58,9 @@ class QuoteService:
                         name=treatment['name'],
                         price=treatment['price']
                     )
+                    
+                    debt_description_parts.append(f"{treatment.get('name', 'Desconocido')} ({treatment.get('quantity', 1)}x)")
+
                     cursor.execute(
                         """
                         INSERT INTO quote_treatments 
@@ -71,14 +77,17 @@ class QuoteService:
                         notes=f"Asociado a presupuesto ID: {quote_id}",
                         treatment_date=date.today(), # Fecha actual como fecha de registro en historial
                         quote_id=quote_id,
-                        quantity_to_mark_completed=0 # Inicialmente, no hay cantidad completada de este presupuesto
+                        quantity_to_mark_completed=0, # Inicialmente, no hay cantidad completada de este presupuesto
+                        cursor=cursor # Pasa el cursor para que sea parte de la misma transacción
                     )
                 
+                final_debt_description = f"Presupuesto #{quote_id}: " + ", ".join(debt_description_parts)
+
                 # Crear deuda asociada al presupuesto con el monto final (descontado)
                 PaymentService.create_debt(
                     client_id=client_id,
                     amount=final_total_amount, # Se usa el monto final después del descuento
-                    description=f"Presupuesto #{quote_id} - {final_total_amount:.2f}",
+                    description=final_debt_description,
                     quote_id=quote_id, # Asociar la deuda con el ID del presupuesto
                     cursor=cursor # Pasar el cursor para que sea parte de la misma transacción
                 )
@@ -343,6 +352,9 @@ class QuoteService:
                     (quote_id,)
                 )
 
+                # Crear una descripción de deuda combinada para todos los tratamientos del presupuesto
+                debt_description_parts = []
+
                 # Insertar tratamientos actualizados
                 for treatment in treatments:
                     # Crear tratamiento si no existe y obtener su ID
@@ -350,6 +362,9 @@ class QuoteService:
                         name=treatment['name'],
                         price=treatment['price']
                     )
+                    
+                    debt_description_parts.append(f"{treatment.get('name', 'Desconocido')} ({treatment.get('quantity', 1)}x)")
+
                     cursor.execute(
                         """
                         INSERT INTO quote_treatments 
@@ -365,8 +380,11 @@ class QuoteService:
                         notes=f"Asociado a presupuesto ID: {quote_id}",
                         treatment_date=date.today(), # Fecha actual como fecha de registro en historial
                         quote_id=quote_id,
-                        quantity_to_mark_completed=0 # Inicialmente, no hay cantidad completada de este presupuesto
+                        quantity_to_mark_completed=0, # Inicialmente, no hay cantidad completada de este presupuesto
+                        cursor=cursor # Pasa el cursor
                     )
+
+                final_debt_description = f"Presupuesto #{quote_id}: " + ", ".join(debt_description_parts)
 
                 # Actualizar la deuda asociada al presupuesto
                 # Primero, elimina cualquier deuda anterior asociada a este presupuesto
@@ -379,7 +397,7 @@ class QuoteService:
                 PaymentService.create_debt(
                     client_id=client_id,
                     amount=new_final_total_amount, # Se usa el monto final después del descuento
-                    description=f"Presupuesto #{quote_id} - {new_final_total_amount:.2f}",
+                    description=final_debt_description,
                     quote_id=quote_id,
                     cursor=cursor
                 )

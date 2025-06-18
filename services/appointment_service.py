@@ -136,6 +136,10 @@ class AppointmentService(Observable):
                 )
                 appointment_id = cursor.fetchone()[0]
                 
+                # Crear una descripción de deuda combinada para todos los tratamientos de la cita
+                debt_description_parts = []
+                total_debt_amount = 0.0
+
                 # Agregar tratamientos si existen
                 if treatments:
                     for treatment in treatments:
@@ -143,6 +147,11 @@ class AppointmentService(Observable):
                         if 'id' in treatment and 'price' in treatment:
                             # Insertar tratamiento asociado a la cita
                             quantity = treatment.get('quantity', 1) # Obtener la cantidad del tratamiento
+                            item_total = float(treatment['price']) * quantity
+                            total_debt_amount += item_total
+                            
+                            debt_description_parts.append(f"{treatment.get('name', 'Desconocido')} ({quantity}x)")
+
                             cursor.execute(
                                 """
                                 INSERT INTO appointment_treatments 
@@ -164,18 +173,9 @@ class AppointmentService(Observable):
                                 quantity_to_mark_completed=0, # Inicialmente, no hay cantidad completada
                                 cursor=cursor # Pasa el cursor
                             )
-
-                            # Crear deuda individual para cada tratamiento en la cita
-                            PaymentService().create_debt(
-                                client_id=client_id,
-                                amount=float(treatment['price']) * quantity,
-                                description=f"Tratamiento: {treatment.get('name', 'Desconocido')} para cita #{appointment_id}",
-                                appointment_id=appointment_id,
-                                cursor=cursor
-                            )
                         else:
                             logger.warning(f"Tratamiento incompleto, no se pudo añadir a la cita: {treatment}")
-                    
+                
                 return True, f"Cita creada exitosamente (ID: {appointment_id})"
                 
         except Exception as e:
@@ -285,9 +285,18 @@ class AppointmentService(Observable):
                     # Eliminar tratamientos de historial asociados a esta cita
                     HistoryService.delete_client_treatments_by_appointment(appointment_id, cursor)
                     
+                    # Crear una descripción de deuda combinada para todos los tratamientos de la cita
+                    debt_description_parts = []
+                    total_debt_amount = 0.0
+
                     for treatment in treatments:
                         if 'id' in treatment and 'price' in treatment:
                             quantity = treatment.get('quantity', 1)
+                            item_total = float(treatment['price']) * quantity
+                            total_debt_amount += item_total
+                            
+                            debt_description_parts.append(f"{treatment.get('name', 'Desconocido')} ({quantity}x)")
+
                             cursor.execute(
                                 """
                                 INSERT INTO appointment_treatments 
@@ -308,16 +317,8 @@ class AppointmentService(Observable):
                                 cursor=cursor # Pasa el cursor
                             )
 
-                            # Crear deuda individual para cada tratamiento en la cita
-                            PaymentService().create_debt(
-                                client_id=client_id,
-                                amount=float(treatment['price']) * quantity,
-                                description=f"Tratamiento: {treatment.get('name', 'Desconocido')} para cita #{appointment_id}",
-                                appointment_id=appointment_id,
-                                cursor=cursor
-                            )
-                        else:
-                            logger.warning(f"Tratamiento incompleto, no se pudo añadir a la cita: {treatment}")
+                else:
+                    logger.warning(f"Tratamiento incompleto, no se pudo añadir a la cita: {treatment}")
                             
                 return True, "Cita actualizada exitosamente"
                 
