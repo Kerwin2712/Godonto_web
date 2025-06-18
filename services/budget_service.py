@@ -27,7 +27,7 @@ class BudgetService:
             file_path (str): La ruta completa donde se guardará el archivo PDF.
             quote_data (dict): Un diccionario con los datos del presupuesto, incluyendo
                                 'client_name', 'client_cedula', 'quote_id', 'items', 'date',
-                                'client_phone', 'client_email', 'client_address', 'notes'.
+                                'client_phone', 'client_email', 'client_address', 'notes', 'discount'.
         """
         
         pdf = FPDF()
@@ -125,6 +125,30 @@ class BudgetService:
             
             current_y_pos += item_line_height # Mueve la posición para el siguiente ítem
 
+        # --- Agregar el descuento como un ítem más si existe ---
+        discount_amount = quote_data.get('discount', 0.0)
+        if discount_amount > 0:
+            pdf.set_font("Arial", size=10)
+            discount_display_name = "Descuento"
+            discount_quantity = 1
+            discount_price = -discount_amount # Mostrar como un valor negativo para restar
+            discount_subtotal = -discount_amount # El subtotal del descuento es el descuento mismo (negativo)
+            
+            total_budget -= discount_amount # Restar el descuento del total general
+
+            # Formatear números para el descuento
+            discount_price_str = f"{discount_price:,.2f}" 
+            discount_subtotal_str = f"{discount_subtotal:,.2f}$"
+            
+            # Dibujar el ítem de descuento
+            pdf.text(x_desc, current_y_pos, f"{len(quote_data.get('items', [])) + 1}. )")
+            pdf.text(x_desc + 10, current_y_pos, discount_display_name)
+            pdf.text(x_qty, current_y_pos, str(discount_quantity))
+            pdf.text(x_price, current_y_pos, discount_price_str)
+            pdf.text(x_subtotal, current_y_pos, discount_subtotal_str)
+            
+            current_y_pos += item_line_height # Mueve la posición para el siguiente ítem
+
         # --- Total general ---
         pdf.set_font("Arial", size=12, style='B') # Negrita para el total
         # La posición del TOTAL en la plantilla es 160, 261.
@@ -160,3 +184,4 @@ class BudgetService:
         except Exception as e:
             logger.error(f"Error al generar el PDF en la ruta especificada '{file_path}': {e}")
             raise # Volver a lanzar la excepción para que el llamador la maneje
+
