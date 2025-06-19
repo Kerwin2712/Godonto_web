@@ -369,11 +369,16 @@ class ClientsView:
             if payments:
                 content_column.controls.append(ft.Text("PAGOS RECIENTES", weight="bold"))
                 for payment in payments:
+                    # Modifica esta línea para incluir las notas
+                    subtitle_text = f"{payment['method']} - {payment['payment_date'].strftime('%d/%m/%Y %H:%M')}"
+                    if payment['notes']:
+                        subtitle_text += f" (Notas: {payment['notes']})"
+
                     content_column.controls.append(
                         ft.ListTile(
                             leading=ft.Icon(ft.icons.ATTACH_MONEY, color=ft.colors.GREEN),
                             title=ft.Text(f"${payment['amount']:,.2f}"),
-                            subtitle=ft.Text(f"{payment['method']} - {payment['payment_date'].strftime('%d/%m/%Y %H:%M')}"),
+                            subtitle=ft.Text(subtitle_text), # Usa la nueva variable subtitle_text
                             trailing=ft.PopupMenuButton(
                                 icon=ft.icons.MORE_VERT,
                                 items=[
@@ -429,7 +434,7 @@ class ClientsView:
             
             dialog = ft.AlertDialog(
                 modal=True,
-                title=ft.Text(f"Historial de {client.name}"),
+                title=ft.Text(f"Cuentas de {client.name}"),
                 content=content_column,
                 actions=[
                     ft.TextButton("Cerrar", on_click=close_dialog)
