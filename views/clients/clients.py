@@ -359,6 +359,164 @@ class ClientsView:
         dialog.open = True
         self.page.update()
 
+    def _show_edit_payment_dialog(self, payment: dict, client: Client):
+        amount_field = ft.TextField(label="Monto", keyboard_type=ft.KeyboardType.NUMBER, value=str(payment['amount']))
+        method_field = ft.Dropdown(
+            label="Método de pago",
+            options=[
+                ft.dropdown.Option("Efectivo"),
+                ft.dropdown.Option("Tarjeta"),
+                ft.dropdown.Option("Transferencia"),
+                ft.dropdown.Option("Otro")
+            ],
+            value=payment['method']
+        )
+        notes_field = ft.TextField(label="Notas (opcional)", multiline=True, value=payment['notes'])
+
+        def close_dialog(e):
+            dialog.open = False
+            self.page.update()
+
+        def handle_submit(e):
+            try:
+                new_amount = float(amount_field.value)
+                new_method = method_field.value
+                new_notes = notes_field.value
+
+                success, message = PaymentService().update_payment(
+                    payment_id=payment['id'],
+                    amount=new_amount,
+                    method=new_method,
+                    notes=new_notes
+                )
+
+                if success:
+                    show_success(self.page, message)
+                    self._show_payments(client)  # Recargar la vista de pagos para el cliente
+                    close_dialog(e)
+                else:
+                    show_error(self.page, message)
+            except ValueError:
+                show_error(self.page, "Ingrese un monto válido")
+            except Exception as e:
+                logger.error(f"Error al editar pago: {str(e)}")
+                show_error(self.page, f"Error al editar pago: {str(e)}")
+
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text(f"Editar Pago para {client.name}"),
+            content=ft.Column([
+                amount_field,
+                method_field,
+                notes_field
+            ], tight=True),
+            actions=[
+                ft.TextButton("Cancelar", on_click=close_dialog),
+                ft.TextButton("Guardar Cambios", on_click=handle_submit)
+            ]
+        )
+        self.page.open(dialog)
+        dialog.open = True
+        self.page.update()
+
+    def _show_edit_debt_dialog(self, debt: dict, client: Client):
+        amount_field = ft.TextField(label="Monto", keyboard_type=ft.KeyboardType.NUMBER, value=str(debt['amount']))
+        description_field = ft.TextField(label="Descripción", multiline=True, value=debt['description'])
+        
+        # Convertir 'status' de la deuda a un valor que el Dropdown pueda manejar
+        status_value = "Pagada" if debt['status'] == 'paid' else "Pendiente"
+
+        status_field = ft.Dropdown(
+            label="Estado",
+            options=[
+                ft.dropdown.Option("Pendiente"),
+                ft.dropdown.Option("Pagada")
+            ],
+            value=status_value
+        )
+
+        initial_due_date = debt['due_date'] if debt['due_date'] else None
+        due_date_picker = ft.DatePicker(
+            first_date=datetime.now(),
+            last_date=datetime(2030, 12, 31),
+            value=initial_due_date
+        )
+        self.page.overlay.append(due_date_picker)
+
+        due_date_text = ft.Text(f"Vence: {initial_due_date.strftime('%d/%m/%Y')}" if initial_due_date else "Seleccionar Fecha de Vencimiento (opcional)")
+        
+        def pick_due_date(e):
+            due_date_picker.on_change = lambda _: update_due_date_text()
+            self.page.open(due_date_picker)
+            self.page.update()
+
+        def update_due_date_text():
+            if due_date_picker.value:
+                due_date_text.value = f"Vence: {due_date_picker.value.strftime('%d/%m/%Y')}"
+            else:
+                due_date_text.value = "Seleccionar Fecha de Vencimiento (opcional)"
+            self.page.update()
+        
+        def close_dialog(e):
+            dialog.open = False
+            if due_date_picker in self.page.overlay:
+                self.page.overlay.remove(due_date_picker)
+            self.page.update()
+        
+        def handle_submit(e):
+            try:
+                new_amount = float(amount_field.value)
+                new_description = description_field.value
+                new_due_date = due_date_picker.value.date() if due_date_picker.value else None
+                
+                # Convertir el valor del Dropdown de vuelta al formato 'pending'/'paid'
+                new_status = 'paid' if status_field.value == 'Pagada' else 'pending'
+
+                success, message = PaymentService().update_debt(
+                    debt_id=debt['id'],
+                    amount=new_amount,
+                    description=new_description,
+                    due_date=new_due_date,
+                    status=new_status,
+                    # Solo actualiza paid_amount si el estado cambia a 'paid' y antes no lo estaba
+                    # o si el usuario introduce un paid_amount específico (no es el caso aquí)
+                    # Por ahora, simplemente pasamos el valor actual si no se edita.
+                    paid_amount=new_amount if new_status == 'paid' and debt['status'] != 'paid' else debt['paid_amount'] 
+                )
+
+                if success:
+                    show_success(self.page, message)
+                    self._show_payments(client)  # Recargar la vista de deudas para el cliente
+                    close_dialog(e)
+                else:
+                    show_error(self.page, message)
+            except ValueError:
+                show_error(self.page, "Ingrese un monto válido")
+            except Exception as e:
+                logger.error(f"Error al editar deuda: {str(e)}")
+                show_error(self.page, f"Error al editar deuda: {str(e)}")
+        
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text(f"Editar Deuda para {client.name}"),
+            content=ft.Column([
+                amount_field,
+                description_field,
+                status_field, # Nuevo campo de estado
+                ft.Row([
+                    ft.ElevatedButton("Fecha de Vencimiento", on_click=pick_due_date, icon=ft.icons.CALENDAR_TODAY),
+                    due_date_text
+                ], alignment=ft.MainAxisAlignment.START)
+            ], tight=True),
+            actions=[
+                ft.TextButton("Cancelar", on_click=close_dialog),
+                ft.TextButton("Guardar Cambios", on_click=handle_submit)
+            ]
+        )
+        self.page.open(dialog)
+        dialog.open = True
+        self.page.update()
+
     def _show_payments(self, client):
         try:
             payments = PaymentService().get_client_payments(client.id)
@@ -369,7 +527,6 @@ class ClientsView:
             if payments:
                 content_column.controls.append(ft.Text("PAGOS RECIENTES", weight="bold"))
                 for payment in payments:
-                    # Modifica esta línea para incluir las notas
                     subtitle_text = f"{payment['method']} - {payment['payment_date'].strftime('%d/%m/%Y %H:%M')}"
                     if payment['notes']:
                         subtitle_text += f" (Notas: {payment['notes']})"
@@ -378,10 +535,15 @@ class ClientsView:
                         ft.ListTile(
                             leading=ft.Icon(ft.icons.ATTACH_MONEY, color=ft.colors.GREEN),
                             title=ft.Text(f"${payment['amount']:,.2f}"),
-                            subtitle=ft.Text(subtitle_text), # Usa la nueva variable subtitle_text
-                            trailing=ft.PopupMenuButton(
+                            subtitle=ft.Text(subtitle_text),
+                            trailing=ft.PopupMenuButton( # Usar PopupMenuButton
                                 icon=ft.icons.MORE_VERT,
                                 items=[
+                                    ft.PopupMenuItem(
+                                        text="Editar Pago",
+                                        icon=ft.icons.EDIT,
+                                        on_click=lambda e, p=payment: self._show_edit_payment_dialog(p, client)
+                                    ),
                                     ft.PopupMenuItem(
                                         text="Eliminar Pago",
                                         icon=ft.icons.DELETE,
@@ -413,9 +575,14 @@ class ClientsView:
                             leading=ft.Icon(ft.icons.MONEY_OFF, color=debt_status_color),
                             title=ft.Text(f"${debt['amount']:,.2f} ({status_text})"),
                             subtitle=ft.Text(f"Descripción: {debt['description']} - Creada: {debt['created_at'].strftime('%d/%m/%Y')} - Vence: {debt['due_date'].strftime('%d/%m/%Y') if debt['due_date'] else 'N/A'} - Pagado: ${debt['paid_amount']:,.2f}"),
-                            trailing=ft.PopupMenuButton( # Añadido el botón de menú para deudas
+                            trailing=ft.PopupMenuButton( # Usar PopupMenuButton
                                 icon=ft.icons.MORE_VERT,
                                 items=[
+                                    ft.PopupMenuItem(
+                                        text="Editar Deuda",
+                                        icon=ft.icons.EDIT,
+                                        on_click=lambda e, d=debt: self._show_edit_debt_dialog(d, client)
+                                    ),
                                     ft.PopupMenuItem(
                                         text="Eliminar Deuda",
                                         icon=ft.icons.DELETE,
