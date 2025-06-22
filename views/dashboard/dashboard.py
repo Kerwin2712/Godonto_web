@@ -1,5 +1,5 @@
 import flet as ft
-from datetime import datetime
+from datetime import datetime, date # Importar date explícitamente
 from core.database import Database
 from services.appointment_service import AppointmentService, get_appointment_treatments, get_appointment_by_id # Importar get_appointment_by_id
 from services.client_service import ClientService
@@ -30,8 +30,8 @@ class DashboardView:
         self.payment_service = PaymentService() # Inicializar PaymentService
         self.preference_service = PreferenceService() # Inicializar PreferenceService
         
-        # Cargar datos iniciales
-        self.load_data()
+        # Originalmente, load_data() estaba aquí. Se ha movido a build_view()
+        # para asegurar que los datos se recarguen cada vez que la vista es construida/revisada.
     
     def on_event(self, event_type, data):
         """Maneja eventos de actualización"""
@@ -55,6 +55,8 @@ class DashboardView:
             logger.info(f"Clientes recientes cargados: {len(self.recent_clients)}")
             self.stats = self.stats_service.get_dashboard_stats()
             logger.info(f"Estadísticas cargadas: {self.stats}")
+            # Log para depuración del valor de ingresos totales
+            logger.debug(f"Revenue Overall in Dashboard (after load_data): ${self.stats.get('revenue_overall', 0):,.2f}") 
         except Exception as e:
             logger.error(f"Error al cargar datos del dashboard: {str(e)}")
             raise
@@ -62,9 +64,8 @@ class DashboardView:
     def build_view(self):
         """Construye la vista completa del dashboard"""
         try:
-            # Asegurar que los datos estén cargados
-            if not self.upcoming_appointments or not self.stats:
-                self.load_data()
+            # Siempre cargar datos al construir la vista para asegurar que estén actualizados
+            self.load_data()
                 
             view = ft.View(
                 "/dashboard",
@@ -242,7 +243,8 @@ class DashboardView:
                             ft.icons.PERSON_ADD, ft.colors.GREEN_400),
                     build_stat_card("Pendientes", self.stats.get('pending_payments', 0), 
                             ft.icons.PAYMENTS, ft.colors.AMBER_400),
-                    build_stat_card("Ingresos", f"${self.stats.get('revenue_today', 0):,.2f}", 
+                    # Cambiar para mostrar el total de ingresos acumulados
+                    build_stat_card("Ingresos Totales", f"${self.stats.get('revenue_overall', 0):,.2f}", 
                             ft.icons.ATTACH_MONEY, ft.colors.PURPLE_400)
                 ],
                 scroll=ft.ScrollMode.AUTO,

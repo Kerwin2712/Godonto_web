@@ -1,4 +1,3 @@
-
 from datetime import date, timedelta
 from core.database import get_db
 from typing import Dict, Any
@@ -172,7 +171,7 @@ class StatsService:
     @staticmethod
     def get_dashboard_stats() -> Dict[str, Any]:
         """
-        Obtiene las estadísticas principales para el report
+        Obtiene las estadísticas principales para el dashboard
         Returns:
             Dict con las estadísticas clave
         """
@@ -193,7 +192,7 @@ class StatsService:
             'new_clients_month': StatsService._count_new_clients_month(start_of_month, today),
             
             # Estadísticas financieras
-            'pending_payments': StatsService._count_pending_payments(),
+            'pending_payments': StatsService._count_pending_payments(), # Esto sigue contando pagos con status 'pending'
             'total_debts': StatsService._calculate_total_debts(),
             'revenue_today': StatsService._calculate_revenue(today, today),
             'revenue_week': StatsService._calculate_revenue(start_of_week, today),
@@ -223,11 +222,11 @@ class StatsService:
 
     @staticmethod
     def _calculate_total_debts() -> float:
-        """Calcula el total de deudas pendientes"""
+        """Calcula el total de deudas pendientes (monto de la deuda - monto pagado)"""
         with get_db() as cursor:
             cursor.execute(
                 """
-                SELECT COALESCE(SUM(amount), 0)
+                SELECT COALESCE(SUM(amount - paid_amount), 0)
                 FROM debts
                 WHERE status = 'pending'
                 """
@@ -256,14 +255,14 @@ class StatsService:
 
     @staticmethod
     def _count_overdue_debts() -> int:
-        """Cuenta deudas vencidas (más de 30 días)"""
+        """Cuenta deudas vencidas (donde due_date es anterior a la fecha actual y el estado es 'pending')"""
         with get_db() as cursor:
             cursor.execute(
                 """
                 SELECT COUNT(*) 
                 FROM debts 
                 WHERE status = 'pending'
-                AND created_at < CURRENT_DATE - INTERVAL '30 days'
+                AND due_date < CURRENT_DATE
                 """
             )
             return cursor.fetchone()[0] or 0
@@ -299,20 +298,23 @@ class StatsService:
 
     @staticmethod
     def _count_pending_payments() -> int:
-        """Cuenta pagos pendientes"""
+        """
+        Cuenta los pagos registrados que no tienen el estado 'completed'.
+        Esto es diferente a 'deudas pendientes'.
+        """
         with get_db() as cursor:
             cursor.execute(
                 """
                 SELECT COUNT(*) 
                 FROM payments 
-                WHERE status = 'pending'
+                WHERE status != 'completed'
                 """
             )
             return cursor.fetchone()[0] or 0
 
     @staticmethod
     def _calculate_revenue(start_date: date, end_date: date) -> float:
-        """Calcula ingresos en un rango de fechas"""
+        """Calcula ingresos en un rango de fechas (solo pagos 'completed')"""
         with get_db() as cursor:
             cursor.execute(
                 """
@@ -350,9 +352,7 @@ class StatsService:
                     COALESCE(SUM(amount), 0) as total_paid,
                     COUNT(*) as total_payments
                 FROM payments
-                WHERE appointment_id IN (
-                    SELECT id FROM appointments WHERE client_id = %s
-                )
+                WHERE client_id = %s AND status = 'completed'
                 """,
                 (client_id,)
             )

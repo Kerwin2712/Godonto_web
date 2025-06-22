@@ -1,6 +1,6 @@
 import flet as ft
 from datetime import datetime, timedelta
-from core.database import get_db # Asumo que Database.get_connection() es el get_db del core
+from core.database import get_db
 from utils.date_utils import (
     format_date,
     get_month_name,
@@ -11,7 +11,7 @@ from utils.alerts import show_snackbar
 import logging
 from fpdf import FPDF
 import os
-import asyncio # Importar asyncio para usar asyncio.sleep
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -21,13 +21,13 @@ class ReportGenerator:
         self.pdf = FPDF()
         self.pdf.set_auto_page_break(auto=True, margin=15)
         self.pdf.add_page()
-        self.pdf.set_font("Arial", size=10)
+        self.pdf.set_font("Arial", size=10) 
 
     def _add_header(self, title, start_date, end_date):
         self.pdf.set_font("Arial", "B", 16)
         self.pdf.cell(0, 10, title, 0, 1, "C")
         self.pdf.set_font("Arial", "", 10)
-        self.pdf.cell(0, 7, f"Período: {format_date(start_date)} - {format_date(end_date)}", 0, 1, "C")
+        self.pdf.cell(0, 7, f"Período: {format_date(start_date)} - {format_date(end_date)}\\n", 0, 1, "C")
         self.pdf.ln(5)
 
     def _add_section_title(self, title):
@@ -51,8 +51,21 @@ class ReportGenerator:
 
     def _add_table_row(self, row_data, col_widths):
         self.pdf.set_font("Arial", "", 8)
+        # Calculate max height needed for multi-line cells
+        max_cell_height = 7
         for data, width in zip(row_data, col_widths):
-            self.pdf.cell(width, 7, str(data), 1, 0, "L")
+            # Estimate number of lines for description
+            if width > 0: # Avoid division by zero
+                num_lines = self.pdf.get_string_width(str(data)) / width
+                if num_lines > 1:
+                    max_cell_height = max(max_cell_height, self.pdf.font_size * 1.2 * (int(num_lines) + 1)) # Add some padding
+
+        for data, width in zip(row_data, col_widths):
+            # Use multi_cell for description to allow wrapping
+            if data == row_data[5]: # Assuming description is the 6th column (index 5)
+                self.pdf.multi_cell(width, max_cell_height / (str(data).count('\n') + 1) if str(data).count('\n') > 0 else 7, str(data), 1, "L", False)
+            else:
+                self.pdf.cell(width, max_cell_height, str(data), 1, 0, "L")
         self.pdf.ln()
 
     def generate_report_pdf(self, file_path: str, report_data: dict, start_date: datetime.date, end_date: datetime.date):
@@ -70,9 +83,9 @@ class ReportGenerator:
             ("Ingresos Total", f"${stats.get('total_revenue', 0.0):,.2f}"),
             ("Clientes Nuevos", stats.get('new_clients', 0)),
             ("Pagos Registrados", stats.get('total_payments', 0)),
-            ("Monto Deudas Pendientes", f"${stats.get('total_pending_debts_amount', 0.0):,.2f}"), # Cambiado
-            ("Monto Deudas Vencidas", f"${stats.get('overdue_debts_amount', 0.0):,.2f}"), # Cambiado
-            ("Deudas Vencidas (Conteo)", stats.get('overdue_count', 0)), # Cambiado
+            ("Monto Deudas Pendientes", f"${stats.get('total_pending_debts_amount', 0.0):,.2f}"),
+            ("Monto Deudas Vencidas", f"${stats.get('overdue_debts_amount', 0.0):,.2f}"),
+            ("Deudas Vencidas (Conteo)", stats.get('overdue_count', 0)),
             ("Método de Pago Popular", stats.get('popular_payment_method', 'N/A'))
         ]
 
@@ -130,14 +143,12 @@ class ReportGenerator:
         self._add_section_title("Detalle de Deudas")
         debts = report_data.get('debts', [])
         if debts:
-            headers = ["Cliente", "Fecha Creación", "Monto Total", "Monto Pagado", "Monto Restante", "Estado", "Fecha Vencimiento", "Días Vencida"]
-            col_widths = [35, 25, 25, 25, 25, 20, 25, 20] # Ajustar anchos
+            # Columnas actualizadas: eliminar "Fecha Vencimiento" y "Días Vencida"
+            headers = ["Cliente", "Fecha Creación", "Monto Total", "Monto Pagado", "Monto Restante", "Descripción", "Estado"]
+            col_widths = [35, 25, 25, 25, 25, 55, 20] # Ajustar anchos, aumentar descripción
             self._add_table_header(headers, col_widths)
             for debt in debts:
                 remaining_amount = debt[3] - debt[7] # total - paid
-                days_overdue = ""
-                if debt[5] == 'pending' and debt[6] and datetime.now().date() > debt[6]:
-                    days_overdue = str((datetime.now().date() - debt[6]).days)
 
                 row_data = [
                     debt[1],
@@ -145,9 +156,8 @@ class ReportGenerator:
                     f"${debt[3]:,.2f}",
                     f"${debt[7]:,.2f}",
                     f"${remaining_amount:,.2f}",
-                    str(debt[5]).capitalize(),
-                    debt[6].strftime("%d/%m/%Y") if debt[6] else "N/A",
-                    days_overdue if days_overdue else "-"
+                    debt[4] or "N/A", # Descripción
+                    str(debt[5]).capitalize()
                 ]
                 self._add_table_row(row_data, col_widths)
         else:
@@ -398,7 +408,8 @@ class ReportsView:
                         d.description,
                         d.status,
                         d.due_date,
-                        d.paid_amount
+                        d.paid_amount,
+                        d.quote_id -- Ahora cargamos el quote_id
                     FROM debts d
                     JOIN clients c ON d.client_id = c.id
                     WHERE d.created_at BETWEEN %s AND %s
@@ -414,7 +425,8 @@ class ReportsView:
                         row[0], row[1], row[2], 
                         float(row[3]) if row[3] is not None else 0.0, # amount a float
                         row[4], row[5], row[6], 
-                        float(row[7]) if row[7] is not None else 0.0 # paid_amount a float
+                        float(row[7]) if row[7] is not None else 0.0, # paid_amount a float
+                        row[8] # quote_id
                     ) for row in results
                 ]
         except Exception as e:
@@ -434,7 +446,10 @@ class ReportsView:
                     ft.DataCell(ft.Text(f"${debt[3]:,.2f}", color=text_color)), # amount (ya es float)
                     ft.DataCell(ft.Text(f"${debt[7]:,.2f}", color=text_color)), # paid_amount (ya es float)
                     ft.DataCell(ft.Text(f"${debt[3] - debt[7]:,.2f}", color=text_color)), # remaining amount (ambos ya son float)
-                    ft.DataCell(ft.Text(debt[4] or "N/A", color=text_color)), # description
+                    ft.DataCell(
+                        ft.Text(debt[4] or "N/A", color=text_color, selectable=True), # description, make selectable
+                        on_tap=lambda e, debt_id=debt[0], quote_id=debt[8]: self._show_debt_treatments_dialog(debt_id, quote_id)
+                    ),
                     ft.DataCell(
                         ft.Container(
                             content=ft.Text(str(debt[5]).capitalize() if debt[5] else "N/A", color=ft.colors.WHITE), # status
@@ -443,14 +458,73 @@ class ReportsView:
                             border_radius=5
                         )
                     ),
-                    ft.DataCell(ft.Text(debt[6].strftime("%d/%m/%Y") if debt[6] else "N/A", color=text_color)), # due_date
-                    # Días vencida: cálculo si es pendiente y la fecha de vencimiento es anterior a hoy
-                    ft.DataCell(ft.Text(str((datetime.now().date() - debt[6]).days) if debt[5] == 'pending' and debt[6] and datetime.now().date() > debt[6] else "-", color=text_color))
                 ]
             ) for debt in debts
         ]
         if hasattr(self.debts_table, 'page') and self.debts_table.page:
             self.debts_table.update()
+    
+    def _show_debt_treatments_dialog(self, debt_id: int, quote_id: int):
+        """
+        Muestra un diálogo con los tratamientos asociados a una deuda a través de su quote_id.
+        """
+        dialog_title_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
+        dialog_content_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
+        dialog_bgcolor = ft.colors.WHITE if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_800
+
+        treatments_content = []
+        if quote_id:
+            try:
+                with get_db() as cursor:
+                    cursor.execute("""
+                        SELECT t.name, qt.price_at_quote, t.description, qt.quantity
+                        FROM treatments t
+                        JOIN quote_treatments qt ON t.id = qt.treatment_id
+                        WHERE qt.quote_id = %s
+                        ORDER BY t.name
+                    """, (quote_id,))
+                    treatments = cursor.fetchall()
+
+                if treatments:
+                    for name, price_at_quote, description, quantity in treatments:
+                        treatments_content.append(
+                            ft.Container(
+                                content=ft.Column([
+                                    ft.Text(f"• {name} (x{quantity})", weight="bold", color=dialog_content_color),
+                                    ft.Text(f"  Precio en presupuesto: ${float(price_at_quote):,.2f}", color=dialog_content_color),
+                                    ft.Text(f"  Descripción: {description or 'N/A'}", color=dialog_content_color, size=12),
+                                ], spacing=2),
+                                padding=ft.padding.symmetric(vertical=5),
+                                border_radius=5,
+                                border=ft.border.only(bottom=ft.border.BorderSide(0.5, ft.colors.GREY_300 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_600))
+                            )
+                        )
+                else:
+                    treatments_content.append(ft.Text("No hay tratamientos asociados a este presupuesto.", color=dialog_content_color))
+
+            except Exception as e:
+                logger.error(f"Error al cargar tratamientos para la deuda {debt_id} (presupuesto {quote_id}): {e}")
+                treatments_content.append(ft.Text(f"Error al cargar tratamientos: {str(e)}", color=ft.colors.RED_500))
+        else:
+            treatments_content.append(ft.Text("Esta deuda no está directamente asociada a un presupuesto con tratamientos.", color=dialog_content_color))
+
+        self.page.dialog = ft.AlertDialog(
+            modal=True,
+            bgcolor=dialog_bgcolor,
+            title=ft.Text(f"Tratamientos de la Deuda #{debt_id}", color=dialog_title_color),
+            content=ft.Column(treatments_content, scroll=ft.ScrollMode.AUTO, height=300),
+            actions=[
+                ft.TextButton("Cerrar", on_click=lambda e: self._close_dialog(e)),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        self.page.open(self.page.dialog)
+        self.page.update()
+
+    def _close_dialog(self, e):
+        """Cierra el diálogo actual."""
+        self.page.dialog.open = False
+        self.page.update()
     
     def load_statistics(self):
         """Carga estadísticas generales desde la base de datos."""
@@ -559,12 +633,12 @@ class ReportsView:
             ft.ResponsiveRow([
                 self._build_stat_card("Pagos Registrados", stats['total_payments'], 
                                 ft.icons.PAYMENT, ft.colors.TEAL_400),
-                self._build_stat_card("Total Deudas Pendientes", f"${stats['total_pending_debts_amount']:,.2f}", # Cambiado
-                                ft.icons.RECEIPT_LONG, ft.colors.AMBER_400), # Cambiado
-                self._build_stat_card("Monto Deudas Vencidas", f"${stats['overdue_debts_amount']:,.2f}", # Cambiado
-                                ft.icons.WARNING, ft.colors.RED_400), # Cambiado
-                self._build_stat_card("Deudas Vencidas (Conteo)", stats['overdue_count'], # Cambiado
-                                ft.icons.WARNING, ft.colors.DEEP_ORANGE_400) # Cambiado
+                self._build_stat_card("Total Deudas Pendientes", f"${stats['total_pending_debts_amount']:,.2f}",
+                                ft.icons.RECEIPT_LONG, ft.colors.AMBER_400),
+                self._build_stat_card("Monto Deudas Vencidas", f"${stats['overdue_debts_amount']:,.2f}",
+                                ft.icons.WARNING, ft.colors.RED_400),
+                self._build_stat_card("Deudas Vencidas (Conteo)", stats['overdue_count'],
+                                ft.icons.WARNING, ft.colors.DEEP_ORANGE_400)
             ])
         ])
         self.page.update() # Asegurar que la fila de estadísticas se actualice
@@ -651,13 +725,13 @@ class ReportsView:
                     COALESCE(
                         CASE
                             WHEN status = 'pending' THEN SUM(amount - paid_amount)
-                            WHEN status = 'paid' THEN SUM(amount) -- Suma el monto total para deudas pagadas
+                            WHEN status = 'paid' THEN SUM(amount)
                             ELSE 0
                         END, 0
                     ) as total_amount
                 FROM debts
                 WHERE created_at BETWEEN %s AND %s
-                GROUP BY status_category, status -- Añadir status al GROUP BY
+                GROUP BY status_category, status
             """, (self.start_date, self.end_date))
             chart_data['debts_by_status'] = {
                 category: float(amount) if amount is not None else 0.0
@@ -735,7 +809,7 @@ class ReportsView:
             colors={
                 'Vencidas': ft.colors.RED_500,
                 'Pendientes': ft.colors.AMBER_500,
-                'Pagadas': ft.colors.GREEN_500 # Si una deuda está "Pagada" completamente
+                'Pagadas': ft.colors.GREEN_500
             }
         )
         
@@ -858,7 +932,7 @@ class ReportsView:
                         ft.ChartAxisLabel(
                             value=i, 
                             label=ft.Text(f"${val:,.0f}", color=axis_label_color)
-                        ) for i, val in enumerate(range(0, int(max_y_val * 1.2) + 1, max(1, int(max_y_val * 0.2 // 100) * 100))) # Ajustar rango de etiquetas
+                        ) for i, val in enumerate(range(0, int(max_y_val * 1.2) + 1, max(1, int(max_y_val * 0.2 // 100) * 100)))
                     ]
                 ),
                 bottom_axis=ft.ChartAxis(
@@ -962,7 +1036,7 @@ class ReportsView:
             with get_db() as cursor:
                 cursor.execute("""
                     SELECT a.id, c.name, a.date, a.time, a.status, 
-                        COALESCE(SUM(t.price), 0) as total_treatments_amount -- Sumar los precios de los tratamientos asociados
+                        COALESCE(SUM(t.price), 0) as total_treatments_amount
                     FROM appointments a
                     JOIN clients c ON a.client_id = c.id
                     LEFT JOIN appointment_treatments at ON a.id = at.appointment_id
@@ -979,7 +1053,7 @@ class ReportsView:
                 return [
                     (
                         row[0], row[1], row[2], row[3], row[4], 
-                        float(row[5]) if row[5] is not None else 0.0 # Convertir total_treatments_amount a float
+                        float(row[5]) if row[5] is not None else 0.0
                     ) for row in results
                 ]
         except Exception as e:
@@ -1125,6 +1199,9 @@ class ReportsView:
         """
         Crea un widget DataTable para mostrar información de deudas.
         Los colores se ajustan según el theme_mode.
+        Se han eliminado las columnas "Fecha Vencimiento" y "Días Vencida".
+        La columna "Descripción" ahora tiene más espacio y el texto es seleccionable
+        para mejorar la visualización de datos largos.
         """
         header_text_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
         heading_row_bgcolor = ft.colors.GREY_200 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_700
@@ -1139,10 +1216,10 @@ class ReportsView:
                 ft.DataColumn(ft.Text("Monto Total", color=header_text_color), numeric=True),
                 ft.DataColumn(ft.Text("Monto Pagado", color=header_text_color), numeric=True),
                 ft.DataColumn(ft.Text("Monto Restante", color=header_text_color), numeric=True),
-                ft.DataColumn(ft.Text("Descripción", color=header_text_color)),
+                ft.DataColumn(
+                    ft.Text("Descripción", color=header_text_color)
+                ),
                 ft.DataColumn(ft.Text("Estado", color=header_text_color)),
-                ft.DataColumn(ft.Text("Fecha Vencimiento", color=header_text_color)),
-                ft.DataColumn(ft.Text("Días Vencida", color=header_text_color), numeric=True)
             ],
             rows=[],
             border=ft.border.all(1, border_color),
@@ -1150,12 +1227,12 @@ class ReportsView:
             heading_row_color=heading_row_bgcolor,
             heading_row_height=40,
             data_row_min_height=40,
-            data_row_max_height=60,
+            data_row_max_height=100,
             horizontal_lines=ft.border.BorderSide(1, line_color),
             vertical_lines=ft.border.BorderSide(1, line_color),
-            column_spacing=20,
+            column_spacing=10,
             divider_thickness=1,
-            show_checkbox_column=False,
+            show_checkbox_column=True,
             expand=True
         )
     
@@ -1198,7 +1275,7 @@ class ReportsView:
             self.page.overlay.remove(self.start_date_picker)
         if self.end_date_picker in self.page.overlay:
             self.page.overlay.remove(self.end_date_picker)
-        if self.file_picker in self.page.overlay: # Remover también el FilePicker
+        if self.file_picker in self.page.overlay:
             self.page.overlay.remove(self.file_picker)
         
         # Volver a agregar los datepickers y el filepicker
@@ -1238,25 +1315,25 @@ class ReportsView:
                         content=ft.Row(
                             [
                                 ft.ElevatedButton(
-                                    text="Generar PDF del Reporte", # Texto más descriptivo
+                                    text="Generar PDF del Reporte",
                                     icon=ft.icons.PICTURE_AS_PDF,
                                     on_click=lambda e: self.page.run_task(self.export_to_pdf),
-                                    height=50, # Ligeramente más alto
-                                    width=250, # Ancho fijo para consistencia
+                                    height=50,
+                                    width=250,
                                     style=ft.ButtonStyle(
-                                        bgcolor=ft.colors.BLUE_700, # Color principal de la app
+                                        bgcolor=ft.colors.BLUE_700,
                                         color=ft.colors.WHITE,
-                                        shape=ft.RoundedRectangleBorder(radius=10), # Bordes redondeados
+                                        shape=ft.RoundedRectangleBorder(radius=10),
                                         padding=ft.padding.symmetric(horizontal=20, vertical=10),
-                                        elevation=5, # Sombra para efecto 3D
+                                        elevation=5,
                                         animation_duration=300
                                     )
                                 )
                             ],
-                            alignment=ft.MainAxisAlignment.CENTER # Centrar el botón horizontalmente
+                            alignment=ft.MainAxisAlignment.CENTER
                         ),
-                        padding=ft.padding.symmetric(vertical=20), # Espacio alrededor del botón
-                        alignment=ft.alignment.center # Centrar el contenedor en sí
+                        padding=ft.padding.symmetric(vertical=20),
+                        alignment=ft.alignment.center
                     )
                 ],
                 scroll=ft.ScrollMode.AUTO,
@@ -1396,7 +1473,7 @@ class ReportsView:
                                 value=self.report_type,
                                 on_change=self.update_report_type,
                                 expand=True,
-                                label_style=ft.TextStyle(color=dropdown_label_color) # Color de la etiqueta del Dropdown
+                                label_style=ft.TextStyle(color=dropdown_label_color)
                             )
                         ], col={"sm": 12, "md": 6, "lg": 3}),
                         ft.Column([
