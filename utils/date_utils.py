@@ -71,8 +71,8 @@ class DateUtils:
     def get_weekday_name(day: int) -> str:
         """Obtiene el nombre del día de la semana en español"""
         days = [
-            "Lunes", "Martes", "Miércoles", 
-            "Jueves", "Viernes", "Sábado", "Domingo"
+            "Lun", "Mar", "Mié", 
+            "Jue", "Vie", "Sáb", "Dom"
         ]
         return days[day]
 

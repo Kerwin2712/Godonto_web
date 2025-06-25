@@ -36,6 +36,8 @@ class CalendarView:
             on_scroll=ft.ScrollMode.AUTO
         )
         self.month_year_header = ft.Text()
+        # Nuevo control para el texto del botón del DatePicker
+        self.selected_date_button_text = ft.Text(self.selected_date.strftime("%d/%m/%Y")) 
         
         self.load_appointments()
         
@@ -56,12 +58,14 @@ class CalendarView:
     
     def open_date_picker(self, e):
         """Abre el selector de fechas del calendario."""
+        self.date_picker.value = self.selected_date # Establecer el valor inicial del DatePicker
         self.page.open(self.date_picker)
 
     def handle_date_picker_change(self, e):
         """Maneja el cambio de fecha seleccionado en el DatePicker."""
         if e.control.value:
             self.selected_date = e.control.value.date() # Asegúrate de obtener solo la fecha
+            self.selected_date_button_text.value = self.selected_date.strftime("%d/%m/%Y") # Actualizar el texto del botón
             self.update_calendar()
             self.update_appointments_list()
     
@@ -102,7 +106,7 @@ class CalendarView:
                 ft.ElevatedButton(
                     content=ft.Row([
                         ft.Icon(ft.icons.CALENDAR_MONTH, color=ft.colors.WHITE if self.page.theme_mode == ft.ThemeMode.DARK else None),
-                        ft.Text(self.month_year_header.value, color=ft.colors.WHITE if self.page.theme_mode == ft.ThemeMode.DARK else None)
+                        self.selected_date_button_text,
                     ]),
                     on_click=self.open_date_picker,
                     style=ft.ButtonStyle(
@@ -143,9 +147,9 @@ class CalendarView:
                         weight="bold",
                         size=12,
                         text_align=ft.TextAlign.CENTER,
-                        color=header_text_color # Color para el encabezado de los días de la semana
+                        color=header_text_color
                     ),
-                    width=50,
+                    width=47,
                     height=30,
                     alignment=ft.alignment.center,
                     padding=0,
@@ -169,7 +173,7 @@ class CalendarView:
             ),
             alignment=ft.alignment.top_left,
             padding=10,
-            width=350, # Ancho fijo para el calendario
+            width=350, 
             bgcolor=section_bg_color,
             border=ft.border.all(1, section_border_color),
             border_radius=10
@@ -179,7 +183,7 @@ class CalendarView:
             content=ft.Column(
                 controls=[
                     ft.Text("Citas del día", size=18, weight="bold", color=header_text_color),
-                    ft.Divider(color=section_border_color), # Color del divisor
+                    ft.Divider(color=section_border_color),
                     self.appointments_list
                 ],
                 spacing=10,
@@ -220,7 +224,7 @@ class CalendarView:
                 app_bar,
                 main_content
             ],
-            padding=ft.padding.symmetric(horizontal=20, vertical=10), # Padding general para la vista
+            padding=ft.padding.symmetric(horizontal=20, vertical=10),
             scroll=ft.ScrollMode.AUTO
         )
 
@@ -254,6 +258,7 @@ class CalendarView:
     def update_calendar(self):
         """Actualiza la cuadrícula del calendario con los días y citas del mes."""
         self.month_year_header.value = f"{get_month_name(self.current_date.month)} {self.current_date.year}"
+        self.selected_date_button_text.value = self.selected_date.strftime("%d/%m/%Y") # Actualizar el texto del botón del DatePicker
         
         cal = calendar.Calendar()
         month_days = cal.monthdatescalendar(self.current_date.year, self.current_date.month)
