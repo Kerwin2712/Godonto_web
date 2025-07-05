@@ -7,11 +7,10 @@ from services.appointment_service import (
     update_appointment,
     validate_appointment_time,
     search_clients,
-    get_appointment_treatments # Importar para cargar tratamientos existentes
+    get_appointment_treatments
 )
-from services.treatment_service import (
-    search_treatment
-)
+from services.treatment_service import search_treatment
+from services.dentist_service import DentistService # Importar el servicio de dentistas
 import logging
 from utils.alerts import show_error, show_success
 from utils.date_utils import to_local_time
@@ -28,17 +27,25 @@ class AppointmentFormView:
             'hour': None,
             'notes': None,
             'status': 'pending',
-            'treatments': [] # Lista para almacenar tratamientos seleccionados
+            'treatments': [],
+            'dentist_id': None # Nuevo: para almacenar el ID del dentista seleccionado
         }
         
-        self.selected_treatments = [] # Lista para objetos de tratamiento completos (id, name, price, quantity)
-        self.treatments_column = ft.Column() # Columna para mostrar los tratamientos seleccionados
+        self.selected_treatments = []
+        self.treatments_column = ft.Column()
 
         self.treatment_search = self._build_treatment_search()
-        
-        # Componentes UI mejorados para búsqueda de clientes
         self.client_search = self._build_client_search()
         
+        # Nuevo: Dropdown para seleccionar dentista
+        self.dentist_dropdown = ft.Dropdown(
+            label="Dentista",
+            options=[], # Se llenará dinámicamente
+            expand=True,
+            on_change=self._handle_dentist_change
+        )
+        self._load_dentists_for_dropdown() # Cargar dentistas al inicializar
+
         self.date_picker = ft.DatePicker(
             first_date=datetime(2020, 1, 1),
             last_date=datetime(2030, 12, 31),
@@ -57,25 +64,37 @@ class AppointmentFormView:
             expand=True
         )
         
-        # Textos para mostrar las fechas y horas seleccionadas
-        self.date_text = ft.Text("No seleccionada") # El color se establecerá en _build_date_time_controls
-        self.time_text = ft.Text("No seleccionada") # El color se establecerá en _build_date_time_controls
-        
+        self.date_text = ft.Text("No seleccionada")
+        self.time_text = ft.Text("No seleccionada")
         self.selected_client_text = ft.Text(
             "Ningún cliente seleccionado", 
             italic=True,
             overflow=ft.TextOverflow.ELLIPSIS,
-        ) # El color se establecerá en _build_search_row
+        )
         
-        # Añadir pickers al overlay de la página
         self.page.overlay.extend([self.date_picker, self.time_picker])
         
-        # Cargar datos si es edición
         if self.appointment_id:
             self.load_appointment_data()
         
-        # Inicializar la visualización de tratamientos al construir la vista
         self._update_treatments_display()
+
+    def _load_dentists_for_dropdown(self):
+        """Carga los dentistas activos para el Dropdown."""
+        try:
+            dentists = DentistService.get_all_dentists()
+            self.dentist_dropdown.options = [
+                ft.dropdown.Option(str(d.id), d.name) for d in dentists if d.is_active
+            ]
+            self.page.update()
+        except Exception as e:
+            logger.error(f"Error al cargar dentistas para el dropdown: {e}")
+            show_error(self.page, "Error al cargar la lista de dentistas.")
+
+    def _handle_dentist_change(self, e):
+        """Maneja la selección de un dentista en el Dropdown."""
+        self.form_data['dentist_id'] = int(e.control.value) if e.control.value else None
+        self.page.update()
 
     """Metodos para la barra de busqueda de tratamientos"""
     
@@ -188,9 +207,6 @@ class AppointmentFormView:
             quantity = int(new_quantity)
             if quantity < 1:
                 show_error(self.page, "La cantidad debe ser al menos 1.")
-                # Restaurar el valor anterior si es inválido
-                # No es necesario llamar a _update_treatments_display() aquí,
-                # ya que se actualizará cuando el usuario corrija la entrada.
                 return
 
             for t in self.selected_treatments:
@@ -198,7 +214,6 @@ class AppointmentFormView:
                     t['quantity'] = quantity
                     break
             
-            # Asegurarse de que form_data también se actualice
             for t_fd in self.form_data['treatments']:
                 if t_fd['id'] == treatment_id:
                     t_fd['quantity'] = quantity
@@ -206,9 +221,6 @@ class AppointmentFormView:
             self.page.update()
         except ValueError:
             show_error(self.page, "La cantidad debe ser un número entero válido.")
-            # Restaurar el valor anterior si la entrada no es un número
-            # No es necesario llamar a _update_treatments_display() aquí,
-            # ya que se actualizará cuando el usuario corrija la entrada.
 
     def _increment_treatment_quantity(self, treatment_id: int):
         """Incrementa la cantidad de un tratamiento seleccionado."""
@@ -217,7 +229,7 @@ class AppointmentFormView:
                 t['quantity'] += 1
                 break
         self._update_treatments_display()
-        self.page.update() # Mover page.update() aquí
+        self.page.update()
 
     def _decrement_treatment_quantity(self, treatment_id: int):
         """Decrementa la cantidad de un tratamiento seleccionado, mínimo 1."""
@@ -229,7 +241,7 @@ class AppointmentFormView:
                     show_error(self.page, "La cantidad no puede ser menor a 1.")
                 break
         self._update_treatments_display()
-        self.page.update() # Mover page.update() aquí
+        self.page.update()
         
     def _update_treatments_display(self):
         """Actualiza la visualización de los tratamientos seleccionados."""
@@ -293,15 +305,14 @@ class AppointmentFormView:
                     elevation=1
                 ) for t in self.selected_treatments
             ]
-        # self.page.update() # Eliminado de aquí
     
     def _reset_treatment_search(self):
         """Resetea la búsqueda de tratamientos y la lista de seleccionados."""
         self.treatment_search.value = ""
         self.treatment_search.controls = []
         self.selected_treatments = []
-        self.form_data['treatments'] = [] # Limpiar también en form_data
-        self._update_treatments_display() # Asegurarse de que la UI se actualice
+        self.form_data['treatments'] = []
+        self._update_treatments_display()
         self.treatment_search.close_view()
         self.page.update()
     
@@ -334,7 +345,7 @@ class AppointmentFormView:
             expand=True,
             on_change=self.handle_search_change,
             on_submit=lambda e: self.handle_search_submit(e),
-            bar_text_style=ft.TextStyle(color=view_text_color) # Color del texto en el SearchBar
+            bar_text_style=ft.TextStyle(color=view_text_color)
         )
 
     def _build_search_row(self):
@@ -344,8 +355,6 @@ class AppointmentFormView:
         selected_client_bg = ft.colors.GREY_100 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_700
         selected_client_text_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
 
-
-        # Actualiza el color del texto del cliente al construir la fila
         self.selected_client_text.color = selected_client_text_color
         
         return ft.ResponsiveRow(
@@ -414,9 +423,7 @@ class AppointmentFormView:
         self.form_data['client_id'] = client_id
         self.client_search.value = f"{name} - {cedula}"
         self.selected_client_text.value = f"{name} (Cédula: {cedula})"
-        # Al seleccionar, se elimina el estilo italic
         self.selected_client_text.style = None 
-        # Asegurar que el color del texto del cliente seleccionado se actualice
         self.selected_client_text.color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
 
         self.client_search.close_view()
@@ -429,14 +436,13 @@ class AppointmentFormView:
         self.form_data['client_id'] = None
         self.selected_client_text.value = "Ningún cliente seleccionado"
         self.selected_client_text.style = ft.TextStyle(italic=True)
-        # Asegurar que el color del texto del cliente seleccionado se actualice
         self.selected_client_text.color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
         self.client_search.close_view()
         self.page.update()
 
     def handle_date_change(self, e):
         """Maneja el cambio de fecha seleccionado en el DatePicker."""
-        self.form_data['date'] = self.date_picker.value.date() # Solo la fecha
+        self.form_data['date'] = self.date_picker.value.date()
         self.date_text.value = self.form_data['date'].strftime("%d/%m/%Y") if self.form_data['date'] else "No seleccionada"
         self.page.update()
     
@@ -468,13 +474,14 @@ class AppointmentFormView:
             'date': date_value,
             'hour': hour_value,
             'notes': appointment.notes,
-            'status': appointment.status
+            'status': appointment.status.name.lower(), # Asegurarse de guardar como string
+            'dentist_id': appointment.dentist_id # Cargar el ID del dentista
         })
         
         self.notes_field.value = self.form_data['notes']
         
         if self.form_data['date']:
-            self.date_picker.value = datetime(self.form_data['date'].year, self.form_data['date'].month, self.form_data['date'].day) # Convertir a datetime
+            self.date_picker.value = datetime(self.form_data['date'].year, self.form_data['date'].month, self.form_data['date'].day)
             self.date_text.value = self.form_data['date'].strftime("%d/%m/%Y")
         
         if self.form_data['hour']:
@@ -486,13 +493,16 @@ class AppointmentFormView:
             self.selected_client_text.value = f"{appointment.client_name} (Cédula: {appointment.client_cedula})"
             self.selected_client_text.style = None
         
+        # Seleccionar el dentista en el dropdown
+        if self.form_data['dentist_id']:
+            self.dentist_dropdown.value = str(self.form_data['dentist_id'])
+        
         # Cargar tratamientos asociados a la cita
         appointment_treatments = get_appointment_treatments(self.appointment_id)
         if appointment_treatments:
-            # Asegúrate de que los tratamientos cargados tengan la clave 'quantity'
             self.selected_treatments = [{**t, 'quantity': t.get('quantity', 1)} for t in appointment_treatments]
             self.form_data['treatments'] = self.selected_treatments
-            self._update_treatments_display() # Renderizar los tratamientos cargados
+            self._update_treatments_display()
 
         self.page.update()
     
@@ -500,8 +510,8 @@ class AppointmentFormView:
         """Maneja el guardado de la cita, validando datos y llamando al servicio."""
         try:
             # Validar campos requeridos
-            if not all([self.form_data['client_id'], self.form_data['date'], self.form_data['hour']]):
-                show_error(self.page, "Cliente, fecha y hora son requeridos")
+            if not all([self.form_data['client_id'], self.form_data['date'], self.form_data['hour'], self.form_data['dentist_id']]):
+                show_error(self.page, "Cliente, dentista, fecha y hora son requeridos")
                 return
             
             # Validar disponibilidad de horario
@@ -526,7 +536,8 @@ class AppointmentFormView:
                     time=self.form_data['hour'],
                     notes=self.form_data['notes'],
                     status=self.form_data['status'],
-                    treatments=self.form_data['treatments'] # Pasar tratamientos al actualizar
+                    treatments=self.form_data['treatments'],
+                    dentist_id=self.form_data['dentist_id'] # Pasar dentist_id
                 )
                 if success:
                     show_success(self.page, "Cita actualizada exitosamente")
@@ -538,8 +549,9 @@ class AppointmentFormView:
                     self.form_data['client_id'],
                     self.form_data['date'],
                     self.form_data['hour'],
-                    self.form_data['treatments'], # Pasar tratamientos al crear
-                    self.form_data['notes']
+                    self.form_data['treatments'],
+                    self.form_data['notes'],
+                    self.form_data['dentist_id'] # Pasar dentist_id
                 )
                 if success:
                     show_success(self.page, "Cita creada exitosamente")
@@ -558,7 +570,6 @@ class AppointmentFormView:
         date_time_container_bg = ft.colors.GREY_100 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_700
         date_time_text_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
         
-        # Actualiza el color del texto de fecha y hora al construir los controles
         self.date_text.color = date_time_text_color
         self.time_text.color = date_time_text_color
 
@@ -658,8 +669,6 @@ class AppointmentFormView:
         section_title_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
         divider_color = ft.colors.GREY_300 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_600
         
-        # Asegurarse de que la visualización de tratamientos inicial se renderice
-        # y que el color del texto de tratamientos se actualice según el tema
         self._update_treatments_display() 
 
         return ft.View(
@@ -680,6 +689,9 @@ class AppointmentFormView:
                         ft.Text("Seleccionar Cliente", weight="bold", color=section_title_color),
                         self._build_search_row(),
                         ft.Divider(color=divider_color),
+                        ft.Text("Seleccionar Dentista", weight="bold", color=section_title_color), # Nuevo título
+                        self.dentist_dropdown, # Nuevo: Dropdown para dentistas
+                        ft.Divider(color=divider_color),
                         ft.Text("Información de la Cita", weight="bold", color=section_title_color),
                         self._build_date_time_controls(),
                         ft.Text("Notas:", weight="bold", color=section_title_color),
@@ -687,18 +699,18 @@ class AppointmentFormView:
                         ft.Divider(color=divider_color),
                         ft.Text("Tratamientos", weight="bold", color=section_title_color),
                         self._build_search_treatment_row(),
-                        self.treatments_column, # Aquí se mostrarán los tratamientos seleccionados
+                        self.treatments_column,
                         self._build_action_buttons()
                     ], 
                     spacing=20,
                     expand=True),
-                    padding=20, # Padding para el contenido del formulario
+                    padding=20,
                     expand=True,
-                    bgcolor=main_content_bgcolor # Color de fondo del contenedor principal del formulario
+                    bgcolor=main_content_bgcolor
                 )
             ],
             scroll=ft.ScrollMode.AUTO,
-            padding=0 # Quitar padding del View para que el AppBar se vea bien
+            padding=0
         )
 
 def appointment_form_view(page: ft.Page, appointment_id: Optional[int] = None):

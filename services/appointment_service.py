@@ -94,7 +94,8 @@ class AppointmentService(Observable):
                         appointment_date: date, 
                         appointment_time: time,
                         treatments: List[dict] = None, # Ahora acepta una lista de diccionarios de tratamientos
-                        notes: Optional[str] = None) -> Tuple[bool, str]:
+                        notes: Optional[str] = None,
+                        dentist_id: Optional[int] = None) -> Tuple[bool, str]: # Agregado dentist_id
         """
         Crea una nueva cita en el sistema
         Returns:
@@ -124,15 +125,28 @@ class AppointmentService(Observable):
                 
                 client_name, client_cedula = client_data
 
+                # Obtener el nombre del dentista si se proporcionó un dentist_id
+                dentist_name = None
+                if dentist_id:
+                    cursor.execute(
+                        "SELECT name FROM dentists WHERE id = %s",
+                        (dentist_id,)
+                    )
+                    dentist_data = cursor.fetchone()
+                    if dentist_data:
+                        dentist_name = dentist_data[0]
+                    else:
+                        logger.warning(f"Dentista con ID {dentist_id} no encontrado. La cita se creará sin dentista asociado.")
+
                 # Crear cita
                 cursor.execute(
                     """
                     INSERT INTO appointments 
-                    (client_id, client_name, client_cedula, date, time, status, notes, created_at, updated_at)
-                    VALUES (%s, %s, %s, %s, %s, 'pending', %s, NOW(), NOW())
+                    (client_id, client_name, client_cedula, date, time, status, notes, dentist_id, created_at, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, 'pending', %s, %s, NOW(), NOW())
                     RETURNING id
                     """,
-                    (client_id, client_name, client_cedula, appointment_date, appointment_time, notes)
+                    (client_id, client_name, client_cedula, appointment_date, appointment_time, notes, dentist_id) # Agregado dentist_id
                 )
                 appointment_id = cursor.fetchone()[0]
                 
@@ -207,27 +221,44 @@ class AppointmentService(Observable):
     
     @staticmethod
     def get_appointment_by_id(appointment_id: int) -> Optional[Appointment]:
-        """Obtiene una cita por su ID"""
+        """Obtiene una cita por su ID, incluyendo el nombre del cliente y dentista."""
         with get_db() as cursor:
             cursor.execute(
                 """
                 SELECT a.id, a.client_id, c.name, c.cedula, 
                        a.date, a.time, a.status, a.notes, 
-                       a.created_at, a.updated_at
+                       a.created_at, a.updated_at,
+                       a.dentist_id, d.name AS dentist_name
                 FROM appointments a
                 JOIN clients c ON a.client_id = c.id
+                LEFT JOIN dentists d ON a.dentist_id = d.id
                 WHERE a.id = %s
                 """,
                 (appointment_id,)
             )
-            if result := cursor.fetchone():
-                return Appointment(*result)
+            result = cursor.fetchone()
+            if result:
+                # Mapear los resultados a la clase Appointment
+                return Appointment(
+                    id=result[0],
+                    client_id=result[1],
+                    client_name=result[2],
+                    client_cedula=result[3],
+                    date=result[4],
+                    time=result[5],
+                    status=result[6],
+                    notes=result[7],
+                    created_at=result[8],
+                    updated_at=result[9],
+                    dentist_id=result[10],
+                    dentist_name=result[11]
+                )
             return None
 
     @staticmethod
     def update_appointment(appointment_id: int, treatments: List[dict] = None, **kwargs) -> Tuple[bool, str]:
         """Actualiza una cita existente"""
-        valid_fields = ['client_id', 'date', 'time', 'notes', 'status']
+        valid_fields = ['client_id', 'date', 'time', 'notes', 'status', 'dentist_id'] # Agregado dentist_id
         updates = {k: v for k, v in kwargs.items() if k in valid_fields and v is not None}
         
         if not updates and not treatments: # Permitir actualización si solo se cambian tratamientos
@@ -244,7 +275,6 @@ class AppointmentService(Observable):
                         client_id = current_appointment.client_id
                     else:
                         return False, "Cita no encontrada."
-
 
                 # Actualizar campos de la cita principal
                 if updates:
@@ -417,9 +447,11 @@ class AppointmentService(Observable):
                 cursor.execute("""
                     SELECT a.id, a.client_id, c.name, c.cedula, 
                         a.date, a.time, a.status, a.notes,
-                        a.created_at, a.updated_at
+                        a.created_at, a.updated_at,
+                        a.dentist_id, d.name AS dentist_name
                     FROM appointments a
                     JOIN clients c ON a.client_id = c.id
+                    LEFT JOIN dentists d ON a.dentist_id = d.id
                     WHERE a.date >= CURRENT_DATE
                     AND a.status = 'pending'
                     ORDER BY a.date ASC, a.time ASC
@@ -433,9 +465,22 @@ class AppointmentService(Observable):
                 appointments = []
                 for row in results:
                     try:
-                        appointments.append(Appointment(*row))
+                        appointments.append(Appointment(
+                            id=row[0],
+                            client_id=row[1],
+                            client_name=row[2],
+                            client_cedula=row[3],
+                            date=row[4],
+                            time=row[5],
+                            status=row[6],
+                            notes=row[7],
+                            created_at=row[8],
+                            updated_at=row[9],
+                            dentist_id=row[10],
+                            dentist_name=row[11]
+                        ))
                     except Exception as e:
-                        logger.error(f"Error al crear Appointment: {str(e)}")
+                        logger.error(f"Error al crear Appointment desde get_upcoming_appointments: {str(e)}")
                         continue
                         
                 return appointments
@@ -451,9 +496,11 @@ class AppointmentService(Observable):
         query = """
             SELECT a.id, a.client_id, c.name, c.cedula, 
                 a.date, a.time, a.status, a.notes,
-                a.created_at, a.updated_at
+                a.created_at, a.updated_at,
+                a.dentist_id, d.name AS dentist_name
             FROM appointments a
             JOIN clients c ON a.client_id = c.id
+            LEFT JOIN dentists d ON a.dentist_id = d.id
             WHERE 1=1
         """
         params = []
@@ -477,7 +524,23 @@ class AppointmentService(Observable):
         
         with get_db() as cursor:
             cursor.execute(query, params)
-            return [Appointment(*row) for row in cursor.fetchall()]
+            appointments = []
+            for row in cursor.fetchall():
+                appointments.append(Appointment(
+                    id=row[0],
+                    client_id=row[1],
+                    client_name=row[2],
+                    client_cedula=row[3],
+                    date=row[4],
+                    time=row[5],
+                    status=row[6],
+                    notes=row[7],
+                    created_at=row[8],
+                    updated_at=row[9],
+                    dentist_id=row[10],
+                    dentist_name=row[11]
+                ))
+            return appointments
 
     @staticmethod
     def count_appointments(filters: dict = None) -> int:

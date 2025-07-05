@@ -2,15 +2,14 @@ import flet as ft
 from datetime import datetime, time
 from services.appointment_service import AppointmentService, get_appointment_treatments
 from utils.alerts import AlertManager
-from models.appointment import Appointment
+from models.appointment import Appointment # Asegúrate de que este modelo tenga dentist_name
 
 class AppointmentsView:
     def __init__(self, page: ft.Page):
         self.page = page
         self.appointment_service = AppointmentService()
         
-        # Estado de la vista (eliminamos current_page y items_per_page ya que no hay paginación)
-        self.total_items = 0 # Todavía útil para conteo, pero no para paginación
+        self.total_items = 0
         self.filters = {
             'date_from': None,
             'date_to': None,
@@ -18,21 +17,18 @@ class AppointmentsView:
             'search_term': None
         }
         
-        # Componentes UI
         self.appointment_grid = ft.GridView(
             expand=True,
             runs_count=3,
             max_extent=400,
-            child_aspect_ratio=1.2,
+            # child_aspect_ratio=1.2, # Eliminado para permitir que las tarjetas se ajusten al contenido
             spacing=15,
             run_spacing=15,
         )
         
-        # Inicializar componentes
         self._init_date_pickers()
         self._init_search_controls()
         
-        # Cargar datos iniciales
         self.update_appointments()
 
     def _init_date_pickers(self):
@@ -114,7 +110,6 @@ class AppointmentsView:
 
     def update_appointments(self):
         """Actualiza la lista de citas con los filtros actuales"""
-        # Eliminamos limit y offset para obtener todas las citas
         appointments = self.appointment_service.get_appointments(
             filters=self.filters
         )
@@ -187,6 +182,17 @@ class AppointmentsView:
             notes_controls.append(ft.Divider(height=1))
             notes_controls.append(ft.Text("Sin notas", size=12, italic=True))
 
+        # Controles para el dentista
+        dentist_info = []
+        if appointment.dentist_name:
+            dentist_info.append(ft.Divider(height=1))
+            dentist_info.append(ft.Text("Dentista:", size=12, weight=ft.FontWeight.BOLD))
+            dentist_info.append(ft.Text(appointment.dentist_name, size=12))
+        else:
+            dentist_info.append(ft.Divider(height=1))
+            dentist_info.append(ft.Text("Dentista no asignado", size=12, italic=True))
+
+
         return ft.Card(
             content=ft.Container(
                 content=ft.Column([
@@ -194,7 +200,6 @@ class AppointmentsView:
                         title=ft.Text(appointment.client_name, 
                                      weight=ft.FontWeight.BOLD),
                         subtitle=ft.Text(f"Cédula: {appointment.client_cedula}"),
-                        # Añadir un menú de opciones aquí
                         trailing=ft.PopupMenuButton(
                             icon=ft.icons.MORE_VERT,
                             items=[
@@ -220,15 +225,16 @@ class AppointmentsView:
                             ]),
                             ft.Row([
                                 ft.Icon(ft.icons.ACCESS_TIME, size=16),
-                                # Asegúrate de que appointment.time sea un objeto datetime.time o str
                                 ft.Text(appointment.time.strftime('%H:%M') if isinstance(appointment.time, time) else appointment.time, size=14)
                             ]),
                             ft.Row([
                                 ft.Icon(ft.icons.INFO_OUTLINE, size=16),
-                                ft.Text(appointment.status.capitalize(), 
-                                       color=self._get_status_color(appointment.status),
+                                ft.Text(appointment.status.name.capitalize(), 
+                                       color=self._get_status_color(appointment.status.name.lower()), 
                                        size=14)
                             ]),
+                            # Sección de dentista
+                            *dentist_info, # Mostrar información del dentista
                             # Sección de tratamientos
                             *treatments_controls,
                             # Sección de notas
@@ -344,7 +350,6 @@ class AppointmentsView:
             self.page.update()
             return
         
-        # Actualizar filtros inmediatamente mientras se escribe
         self.filters['search_term'] = search_term if search_term else None
         self.update_appointments()
     
@@ -380,10 +385,8 @@ class AppointmentsView:
                         controls=[
                             ft.Container(
                                 content=ft.Column([
-                                    # Fila de búsqueda y filtros
                                     self._build_search_row(),
                                     
-                                    # Grid de citas
                                     ft.Container(
                                         content=ft.Column([
                                             self.appointment_grid,

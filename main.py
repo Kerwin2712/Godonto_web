@@ -18,6 +18,7 @@ from views.presupuesto.quotes import quotes_view
 from views.tretment.treatments import treatments_view
 from services.preference_service import PreferenceService
 from views.clients.history import client_history_view # Importar la nueva vista
+from views.dentistas.dentist_view import dentists_view # Importar la vista de dentistas
 
 # Configuración de logging
 log_dir = os.path.join(os.getenv('LOCALAPPDATA'), 'GodontoClinic', 'logs')
@@ -133,6 +134,8 @@ def main(page: ft.Page):
                     page.views.append(client_history_view(page, client_id))
                 elif page.route == "/appointments":
                     page.views.append(appointments_view(page))
+                elif page.route == "/dentists":
+                    page.views.append(dentists_view(page))
                 elif page.route == "/presupuesto" or page.route.startswith("/presupuesto/"):
                     client_id = None
                     quote_id = None 
