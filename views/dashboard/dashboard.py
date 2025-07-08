@@ -225,11 +225,30 @@ class DashboardView:
         return ft.Container(
             content=ft.Row(
                 controls=[
-                    ft.Text("Panel Principal", size=24, weight="bold", color=header_text_color),
+                    ft.Column(
+                        controls=[
+                            ft.Image(
+                                src="/logos-20.png", # Asegúrate de que esta ruta sea correcta
+                                width=100, # Ajusta el ancho según necesites
+                                height=50, # Ajusta la altura según necesites
+                                fit=ft.ImageFit.CONTAIN,
+                            ),
+                        ],
+                        horizontal_alignment=ft.CrossAxisAlignment.BASELINE, # Alinea los elementos de esta columna a la izquierda
+                        spacing=0 # Ajusta el espaciado entre el logo y la fecha si es necesario
+                    ),
+                    # Columna para la fecha y el logo, alineada a la derecha
+                    ft.Column(
+                        controls=[
+                            ft.Text("Panel Principal", size=24, weight="bold", color=header_text_color),
+                        ],
+                        horizontal_alignment=ft.CrossAxisAlignment.CENTER, # Alinea los elementos de esta columna a la izquierda
+                        spacing=0 # Ajusta el espaciado entre la fecha y el logo si es necesario
+                    ),
                     ft.Text(format_date(self.current_date), color=header_text_color),
                 ],
-                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                vertical_alignment=ft.CrossAxisAlignment.CENTER
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN, # Mantiene "Panel Principal" a la izquierda y la columna de fecha/logo a la derecha
+                vertical_alignment=ft.CrossAxisAlignment.START # Alinea la parte superior del logo y la fecha
             ),
             padding=ft.padding.only(bottom=15)
         )

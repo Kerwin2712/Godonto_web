@@ -17,8 +17,8 @@ from views.presupuesto.presup_form import presup_view
 from views.presupuesto.quotes import quotes_view
 from views.tretment.treatments import treatments_view
 from services.preference_service import PreferenceService
-from views.clients.history import client_history_view # Importar la nueva vista
-from views.dentistas.dentist_view import dentists_view # Importar la vista de dentistas
+from views.clients.history import client_history_view
+from views.dentistas.dentist_view import dentists_view
 
 # Configuración de logging
 log_dir = os.path.join(os.getenv('LOCALAPPDATA'), 'GodontoClinic', 'logs')
@@ -38,7 +38,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 def resource_path(relative_path):
-    """ Get absolute path to resource, works for dev and for PyInstaller """
+    """ Obtiene la ruta absoluta al recurso, funciona para desarrollo y PyInstaller """
     try:
         base_path = sys._MEIPASS
     except Exception:
@@ -51,6 +51,11 @@ def main(page: ft.Page):
     page.window_width = 1200
     page.window_height = 800
     
+    # Configurar el directorio de assets para que Flet sepa dónde buscar las imágenes
+    # Si tu imagen está en 'tu_proyecto/pictures/logos-17.png', entonces assets_dir debe ser 'pictures'
+    page.assets_dir = "assets" 
+    logger.info(f"Directorio de assets configurado a: {page.assets_dir}")
+
     user_id_for_preferences = 1 
     saved_theme = PreferenceService.get_user_theme(user_id_for_preferences)
     page.theme_mode = ft.ThemeMode.DARK if saved_theme == 'dark' else ft.ThemeMode.LIGHT
@@ -125,7 +130,7 @@ def main(page: ft.Page):
                         except ValueError:
                             pass
                     page.views.append(client_form_view(page, client_id))
-                elif page.route.startswith("/clients/") and current_route.endswith("/history"): # Nueva ruta para historial
+                elif page.route.startswith("/clients/") and current_route.endswith("/history"):
                     client_id = None
                     try:
                         client_id = int(current_route.split("/")[2])

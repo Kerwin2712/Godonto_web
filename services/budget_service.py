@@ -37,7 +37,7 @@ class BudgetService:
         # Intenta cargar la imagen de fondo
         try:
             # Usa la función resource_path para construir la ruta de la imagen
-            image_path = resource_path(os.path.join("pictures", "1.png"))
+            image_path = resource_path(os.path.join("assets", "1.png"))
             
             if os.path.exists(image_path):
                 pdf.image(image_path, x=0, y=0, w=210, h=297) # A4 size (210mm x 297mm)
