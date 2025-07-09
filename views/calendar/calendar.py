@@ -35,7 +35,11 @@ class CalendarView:
             auto_scroll=False,
             on_scroll=ft.ScrollMode.AUTO
         )
-        self.month_year_header = ft.Text()
+        self.month_year_header = ft.Text(
+            value=f"{get_month_name(self.current_date.month)} {self.current_date.year}",
+            size=16,
+            weight="bold"
+        )
         # Nuevo control para el texto del botón del DatePicker
         self.selected_date_button_text = ft.Text(self.selected_date.strftime("%d/%m/%Y")) 
         
@@ -68,7 +72,8 @@ class CalendarView:
             self.selected_date_button_text.value = self.selected_date.strftime("%d/%m/%Y") # Actualizar el texto del botón
             self.update_calendar()
             self.update_appointments_list()
-    
+            self.page.update() # Asegura que la UI se actualice
+
     def build_view(self):
         """Construye la vista principal del calendario, incluyendo la barra de navegación y los paneles."""
         # Colores para el modo oscuro/claro
@@ -97,6 +102,7 @@ class CalendarView:
                     tooltip="Mes anterior",
                     icon_color=text_color
                 ),
+                self.month_year_header, # Añadido para mostrar el mes y año
                 ft.IconButton(
                     icon=ft.icons.CHEVRON_RIGHT,
                     on_click=lambda e: self.change_month(1),
@@ -340,6 +346,7 @@ class CalendarView:
         # Ya no hay un if is_current_month(day, self.current_date) aquí, ya que el build_day_button
         # oculta los badges para días de otros meses y el tooltip.
         self.selected_date = day
+        self.selected_date_button_text.value = self.selected_date.strftime("%d/%m/%Y") # Actualizar el texto del botón
         self.update_calendar()
         self.update_appointments_list()
 
