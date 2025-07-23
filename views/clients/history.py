@@ -282,6 +282,87 @@ class ClientHistoryView:
         self.page.open(confirm_dialog)
         self.page.update()
 
+    def _show_payment_dialog(self, client_id: int):
+        """Muestra un diálogo para registrar un pago."""
+        amount_field = ft.TextField(label="Monto", keyboard_type=ft.KeyboardType.NUMBER)
+        method_field = ft.Dropdown(
+            label="Método de pago",
+            options=[
+                ft.dropdown.Option("Efectivo"),
+                ft.dropdown.Option("Tarjeta"),
+                ft.dropdown.Option("Transferencia"),
+                ft.dropdown.Option("Otro")
+            ]
+        )
+        notes_field = ft.TextField(label="Notas (opcional)", multiline=True)
+        
+        def close_dialog(e):
+            dialog.open = False
+            self.page.update()
+        
+        def handle_submit(e):
+            try:
+                amount = float(amount_field.value)
+                method = method_field.value
+                notes = notes_field.value
+                
+                initial_summary = self.payment_service.get_payment_summary(client_id)
+                initial_pending_debt = initial_summary.get('total_pending_debt', 0.0)
+                
+                success, message = self.payment_service.create_payment(
+                    client_id=client_id,
+                    amount=amount,
+                    method=method,
+                    notes=notes
+                )
+                
+                if success:
+                    new_summary = self.payment_service.get_payment_summary(client_id)
+                    new_pending_debt = new_summary.get('total_pending_debt', 0.0)
+                    
+                    debt_applied_by_this_payment = initial_pending_debt - new_pending_debt
+                    
+                    if debt_applied_by_this_payment > 0.001:
+                        msg = f"Pago de ${amount:,.2f} registrado. Se aplicó ${debt_applied_by_this_payment:,.2f} a deudas pendientes."
+                        if new_pending_debt > 0:
+                            msg += f" Saldo pendiente de deudas: ${new_pending_debt:,.2f}"
+                        else:
+                            msg += " Todas las deudas pendientes han sido cubiertas."
+                    else:
+                        msg = f"Pago de ${amount:,.2f} registrado."
+                        if initial_pending_debt > 0:
+                            msg += f" Aún quedan deudas pendientes: ${initial_pending_debt:,.2f}."
+                        else:
+                            msg += " No había deudas pendientes a las cuales aplicar el pago."
+
+                    show_success(self.page, msg)
+                    self.load_history_data() # Recargar datos del historial para actualizar el estado de cuenta
+                    close_dialog(e)
+                else:
+                    show_error(self.page, message)
+            except ValueError:
+                show_error(self.page, "Ingrese un monto válido")
+            except Exception as e:
+                logger.error(f"Error al registrar pago: {str(e)}")
+                show_error(self.page, f"Error al registrar pago: {str(e)}")
+        
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text(f"Registrar Pago para {self.client_history['client_info'].name}"),
+            content=ft.Column([
+                amount_field,
+                method_field,
+                notes_field
+            ], tight=True),
+            actions=[
+                ft.TextButton("Cancelar", on_click=close_dialog),
+                ft.TextButton("Registrar", on_click=handle_submit)
+            ]
+        )
+        self.page.open(dialog)
+        dialog.open = True
+        self.page.update()
+
 
     def load_history_data(self): # Ya no es asíncrona
         """Carga todos los datos del historial del cliente."""
@@ -331,6 +412,18 @@ class ClientHistoryView:
                         ft.Text(f"Saldo a Favor: ${self.client_payment_summary.get('client_credit_balance', 0.0):,.2f}", size=14, color=ft.colors.GREEN_700),
                         ft.Text(f"Pagos Realizados: ${self.client_payment_summary.get('total_payments', 0.0):,.2f}", size=14),
                         ft.Text(f"Deuda Pendiente: ${self.client_payment_summary.get('total_pending_debt', 0.0):,.2f}", size=14, color=ft.colors.RED_700),
+                        # Botón para registrar pago
+                        ft.FilledButton(
+                            text="Registrar Pago",
+                            icon=ft.icons.PAYMENT,
+                            on_click=lambda e: self._show_payment_dialog(self.client_id),
+                            style=ft.ButtonStyle(
+                                bgcolor=ft.colors.BLUE_600,
+                                color=ft.colors.WHITE,
+                                padding=ft.padding.symmetric(horizontal=20, vertical=10),
+                                shape=ft.RoundedRectangleBorder(radius=8),
+                            )
+                        )
                     ],
                     spacing=8
                 ),
@@ -671,3 +764,4 @@ class ClientHistoryView:
 def client_history_view(page: ft.Page, client_id: int):
     """Función de fábrica para crear la vista de historial del cliente."""
     return ClientHistoryView(page, client_id).build_view()
+
