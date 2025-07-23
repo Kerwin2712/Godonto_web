@@ -34,6 +34,10 @@ class AppointmentFormView:
         self.selected_treatments = []
         self.treatments_column = ft.Column()
 
+        # Se eliminan las columnas separadas para resultados de búsqueda
+        # self.treatment_search_results_column = ft.Column()
+        # self.client_search_results_column = ft.Column()
+
         self.treatment_search = self._build_treatment_search()
         self.client_search = self._build_client_search()
         
@@ -115,7 +119,9 @@ class AppointmentFormView:
                 on_click=lambda e: self.treatment_search.open_view(),
                 icon_color=bar_leading_icon_color
             ),
-            controls=[],
+            on_tap=lambda e: self.treatment_search.open_view(),
+            # Revertido a 'controls'
+            controls=[], 
             expand=True,
             on_change=self.handle_treatment_search_change,
             on_submit=lambda e: self.handle_treatment_search_submit(e),
@@ -155,22 +161,36 @@ class AppointmentFormView:
         list_tile_title_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
         list_tile_subtitle_color = ft.colors.GREY_700 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_200
 
+        # Limpiar los controles del SearchBar
+        self.treatment_search.controls.clear()
+
         if len(search_term) < 1:
-            self.treatment_search.controls = []
+            self.treatment_search.close_view() # Cerrar la vista si no hay texto
+            self.treatment_search.update() # Actualizar el SearchBar
             self.page.update()
             return
 
         try:
             treatments = search_treatment(search_term)
-            self.treatment_search.controls = [
+            
+            # Añadir los nuevos resultados directamente a los controls del SearchBar
+            self.treatment_search.controls.extend([
                 ft.ListTile(
                     title=ft.Text(f"{name}", color=list_tile_title_color),
                     subtitle=ft.Text(f"Precio: ${price:.2f}", color=list_tile_subtitle_color), # Formatear precio
                     on_click=lambda e, id=id, name=name, price=price: self.select_treatment(id, name, price),
                     data={'id': id, 'name': name, 'price': price} # Pasar como diccionario
                 ) for (id, name, price) in treatments
-            ]
-            self.page.update()
+            ])
+            
+            # Si hay resultados, asegurar que la vista esté abierta
+            if treatments:
+                self.treatment_search.open_view()
+            else:
+                self.treatment_search.close_view() # Cerrar si no hay resultados
+            
+            self.treatment_search.update() # Actualizar el SearchBar para reflejar los nuevos controls
+            self.page.update() # Actualizar la página
         except Exception as e:
             show_error(self.page, f"Error en búsqueda de tratamientos: {str(e)}")
     
@@ -190,7 +210,7 @@ class AppointmentFormView:
 
         self._update_treatments_display()
         self.treatment_search.value = ""
-        self.treatment_search.controls = []
+        self.treatment_search.controls.clear() # Limpiar resultados directamente del SearchBar
         self.treatment_search.close_view()
         self.page.update()
 
@@ -309,7 +329,7 @@ class AppointmentFormView:
     def _reset_treatment_search(self):
         """Resetea la búsqueda de tratamientos y la lista de seleccionados."""
         self.treatment_search.value = ""
-        self.treatment_search.controls = []
+        self.treatment_search.controls.clear() # Limpiar resultados directamente del SearchBar
         self.selected_treatments = []
         self.form_data['treatments'] = []
         self._update_treatments_display()
@@ -341,6 +361,8 @@ class AppointmentFormView:
                 on_click=lambda e: self.client_search.open_view(),
                 icon_color=bar_leading_icon_color
             ),
+            on_tap=lambda e: self.client_search.open_view(),
+            # Revertido a 'controls'
             controls=[],
             expand=True,
             on_change=self.handle_search_change,
@@ -393,22 +415,37 @@ class AppointmentFormView:
         list_tile_title_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
         list_tile_subtitle_color = ft.colors.GREY_700 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_200
 
+        # Limpiar los controles del SearchBar
+        self.client_search.controls.clear()
+
         if len(search_term) < 1:
-            self.client_search.controls = []
+            self.client_search.close_view() # Cerrar la vista si no hay texto
+            self.client_search.update() # Actualizar el SearchBar
             self.page.update()
             return
 
         try:
             clients = search_clients(search_term)
-            self.client_search.controls = [
+            
+            # Añadir los nuevos resultados directamente a los controls del SearchBar
+            self.client_search.controls.extend([
                 ft.ListTile(
                     title=ft.Text(f"{name}", color=list_tile_title_color),
                     subtitle=ft.Text(f"Cédula: {cedula}", color=list_tile_subtitle_color),
                     on_click=lambda e, id=id, name=name, cedula=cedula: self.select_client(id, name, cedula),
                     data=(id, name, cedula)
                 ) for (id, name, cedula) in clients
-            ]
-            self.page.update()
+            ])
+
+            
+            # Si hay resultados, asegurar que la vista esté abierta
+            if clients:
+                self.client_search.open_view()
+            else:
+                self.client_search.close_view() # Cerrar si no hay resultados
+
+            self.client_search.update() # Actualizar el SearchBar para reflejar los nuevos controls
+            self.page.update() # Actualizar la página
         except Exception as e:
             show_error(self.page, f"Error en búsqueda de clientes: {str(e)}")
 
@@ -432,7 +469,7 @@ class AppointmentFormView:
     def _reset_client_search(self):
         """Resetea la búsqueda de clientes y la selección."""
         self.client_search.value = ""
-        self.client_search.controls = []
+        self.client_search.controls.clear() # Limpiar resultados directamente del SearchBar
         self.form_data['client_id'] = None
         self.selected_client_text.value = "Ningún cliente seleccionado"
         self.selected_client_text.style = ft.TextStyle(italic=True)
