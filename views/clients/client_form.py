@@ -88,7 +88,7 @@ class ClientFormView:
                     title=ft.Text("Nuevo Cliente" if not self.client_id else "Editar Cliente"),
                     leading=ft.IconButton(
                     icon=ft.icons.ARROW_BACK,
-                    on_click=lambda e: self.page.go("/dashboard"),
+                    on_click=lambda e: self.page.go("/quotes"),
                     tooltip="Volver al Dashboard"
                     )
                 ),

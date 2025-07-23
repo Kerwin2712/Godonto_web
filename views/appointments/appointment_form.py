@@ -679,7 +679,7 @@ class AppointmentFormView:
                     bgcolor=appbar_bgcolor,
                     leading=ft.IconButton(
                         icon=ft.icons.ARROW_BACK,
-                        on_click=lambda e: self.page.go("/dashboard"),
+                        on_click=lambda e: self.page.go("/appointments"),
                         tooltip="Volver al Dashboard",
                         icon_color=appbar_text_color
                     )
