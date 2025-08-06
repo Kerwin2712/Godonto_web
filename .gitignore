@@ -1,6 +1,7 @@
 # Entorno virtual de Python
 venv/
 .env
+god/
 
 # Archivos de entorno y variables sensibles
 .env
