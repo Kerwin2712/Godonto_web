@@ -6,11 +6,11 @@ from services.appointment_service import (
     create_appointment,
     update_appointment,
     validate_appointment_time,
-    search_clients,
     get_appointment_treatments
 )
-from services.treatment_service import search_treatment
+from services.treatment_service import TreatmentService # Usar el servicio directamente
 from services.dentist_service import DentistService # Importar el servicio de dentistas
+from services.client_service import ClientService # Usar el servicio de cliente directamente
 import logging
 from utils.alerts import show_error, show_success
 from utils.date_utils import to_local_time
@@ -33,10 +33,6 @@ class AppointmentFormView:
         
         self.selected_treatments = []
         self.treatments_column = ft.Column()
-
-        # Se eliminan las columnas separadas para resultados de búsqueda
-        # self.treatment_search_results_column = ft.Column()
-        # self.client_search_results_column = ft.Column()
 
         self.treatment_search = self._build_treatment_search()
         self.client_search = self._build_client_search()
@@ -116,10 +112,10 @@ class AppointmentFormView:
             view_hint_text="Seleccione un tratamiento...",
             bar_leading=ft.IconButton(
                 icon=ft.icons.SEARCH,
-                on_click=lambda e: self.treatment_search.open_view(),
+                on_click=self._handle_treatment_search_icon_click, # Solo abre la vista al hacer click en la lupa
                 icon_color=bar_leading_icon_color
             ),
-            on_tap=lambda e: self.treatment_search.open_view(),
+            on_tap=None, # No abre la vista al hacer tap en la barra
             # Revertido a 'controls'
             controls=[], 
             expand=True,
@@ -128,7 +124,47 @@ class AppointmentFormView:
             bar_text_style=ft.TextStyle(color=view_text_color) # Color del texto en el SearchBar
         )
     
-    
+    def _handle_treatment_search_icon_click(self, e):
+        """Maneja el click en el ícono de búsqueda para abrir la vista y mostrar resultados."""
+        search_term = self.treatment_search.value.strip()
+        self.update_treatment_search_results(search_term)
+        self.treatment_search.open_view()
+        self.page.update()
+
+    def update_treatment_search_results(self, search_term: str):
+        """Actualiza los resultados de búsqueda de tratamientos en el SearchBar."""
+        # Colores para los resultados de búsqueda
+        list_tile_title_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
+        list_tile_subtitle_color = ft.colors.GREY_700 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_200
+
+        self.treatment_search.controls.clear()
+
+        try:
+            # Si no hay término de búsqueda, mostrar todos los tratamientos
+            if not search_term:
+                treatments = TreatmentService.get_all_treatments() # Obtener todos los tratamientos
+            else:
+                treatments = TreatmentService.search_treatments_full_object(search_term) # Buscar tratamientos por término
+            
+            if treatments:
+                self.treatment_search.controls.extend([
+                    ft.ListTile(
+                        title=ft.Text(f"{t.name}", color=list_tile_title_color),
+                        subtitle=ft.Text(f"Precio: ${t.price:.2f}", color=list_tile_subtitle_color), # Formatear precio
+                        on_click=lambda e, t_obj=t: self.select_treatment(t_obj.id, t_obj.name, t_obj.price),
+                        data={'id': t.id, 'name': t.name, 'price': t.price} # Pasar como diccionario
+                    ) for t in treatments
+                ])
+            else:
+                self.treatment_search.controls.append(
+                    ft.ListTile(title=ft.Text("No se encontraron tratamientos.", color=list_tile_title_color))
+                )
+            
+            self.treatment_search.update()
+            self.page.update()
+        except Exception as e:
+            show_error(self.page, f"Error al actualizar resultados de tratamientos: {str(e)}")
+
     def _build_search_treatment_row(self):
         """Fila de búsqueda responsive con botones de acción"""
         # Colores para los íconos de acción
@@ -154,46 +190,10 @@ class AppointmentFormView:
         )
     
     def handle_treatment_search_change(self, e):
-        """Maneja la búsqueda de tratamientos, actualizando los resultados en el SearchBar."""
+        """Maneja el cambio en la búsqueda de tratamientos, actualizando los resultados en el SearchBar."""
         search_term = e.control.value.strip()
-        
-        # Colores para los resultados de búsqueda
-        list_tile_title_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
-        list_tile_subtitle_color = ft.colors.GREY_700 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_200
+        self.update_treatment_search_results(search_term) # Actualizar resultados dinámicamente
 
-        # Limpiar los controles del SearchBar
-        self.treatment_search.controls.clear()
-
-        if len(search_term) < 1:
-            self.treatment_search.close_view() # Cerrar la vista si no hay texto
-            self.treatment_search.update() # Actualizar el SearchBar
-            self.page.update()
-            return
-
-        try:
-            treatments = search_treatment(search_term)
-            
-            # Añadir los nuevos resultados directamente a los controls del SearchBar
-            self.treatment_search.controls.extend([
-                ft.ListTile(
-                    title=ft.Text(f"{name}", color=list_tile_title_color),
-                    subtitle=ft.Text(f"Precio: ${price:.2f}", color=list_tile_subtitle_color), # Formatear precio
-                    on_click=lambda e, id=id, name=name, price=price: self.select_treatment(id, name, price),
-                    data={'id': id, 'name': name, 'price': price} # Pasar como diccionario
-                ) for (id, name, price) in treatments
-            ])
-            
-            # Si hay resultados, asegurar que la vista esté abierta
-            if treatments:
-                self.treatment_search.open_view()
-            else:
-                self.treatment_search.close_view() # Cerrar si no hay resultados
-            
-            self.treatment_search.update() # Actualizar el SearchBar para reflejar los nuevos controls
-            self.page.update() # Actualizar la página
-        except Exception as e:
-            show_error(self.page, f"Error en búsqueda de tratamientos: {str(e)}")
-    
     def select_treatment(self, treatment_id: int, name: str, price: float):
         """Añade un tratamiento seleccionado a la lista con una cantidad inicial de 1."""
         # Verificar si el tratamiento ya está seleccionado
@@ -339,8 +339,9 @@ class AppointmentFormView:
     def handle_treatment_search_submit(self, e):
         """Maneja la selección directa con Enter en la búsqueda de tratamientos."""
         if self.treatment_search.controls and len(self.treatment_search.controls) > 0:
-            selected_data = self.treatment_search.controls[0].data
-            self.select_treatment(selected_data['id'], selected_data['name'], selected_data['price'])
+            # Obtener el primer resultado y seleccionarlo
+            first_result_data = self.treatment_search.controls[0].data
+            self.select_treatment(first_result_data['id'], first_result_data['name'], first_result_data['price'])
     
     """Metodos para la barra de busqueda de clientes"""
     
@@ -358,17 +359,58 @@ class AppointmentFormView:
             view_hint_text="Seleccione un cliente...",
             bar_leading=ft.IconButton(
                 icon=ft.icons.SEARCH,
-                on_click=lambda e: self.client_search.open_view(),
+                on_click=self._handle_client_search_icon_click, # Solo abre la vista al hacer click en la lupa
                 icon_color=bar_leading_icon_color
             ),
-            on_tap=lambda e: self.client_search.open_view(),
+            on_tap=None, # No abre la vista al hacer tap en la barra
             # Revertido a 'controls'
             controls=[],
             expand=True,
-            on_change=self.handle_search_change,
+            on_change=self.handle_client_search_change, # Cambiado a un nuevo handler
             on_submit=lambda e: self.handle_search_submit(e),
             bar_text_style=ft.TextStyle(color=view_text_color)
         )
+
+    def _handle_client_search_icon_click(self, e):
+        """Maneja el click en el ícono de búsqueda de cliente para abrir la vista y mostrar resultados."""
+        search_term = self.client_search.value.strip()
+        self.update_client_search_results(search_term)
+        self.client_search.open_view()
+        self.page.update()
+
+    def update_client_search_results(self, search_term: str):
+        """Actualiza los resultados de búsqueda de clientes en el SearchBar."""
+        # Colores para los resultados de búsqueda
+        list_tile_title_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
+        list_tile_subtitle_color = ft.colors.GREY_700 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_200
+
+        self.client_search.controls.clear()
+
+        try:
+            # Si no hay término de búsqueda, mostrar todos los clientes
+            if not search_term:
+                clients = ClientService.get_all_clients_full_object()
+            else:
+                clients = ClientService.search_clients_full_object(search_term)
+            
+            if clients:
+                self.client_search.controls.extend([
+                    ft.ListTile(
+                        title=ft.Text(f"{client.name}", color=list_tile_title_color),
+                        subtitle=ft.Text(f"Cédula: {client.cedula}", color=list_tile_subtitle_color),
+                        on_click=lambda e, c=client: self.select_client(c.id, c.name, c.cedula),
+                        data={'id': client.id, 'name': client.name, 'cedula': client.cedula}
+                    ) for client in clients
+                ])
+            else:
+                self.client_search.controls.append(
+                    ft.ListTile(title=ft.Text("No se encontraron clientes.", color=list_tile_title_color))
+                )
+
+            self.client_search.update()
+            self.page.update()
+        except Exception as e:
+            show_error(self.page, f"Error al actualizar resultados de clientes: {str(e)}")
 
     def _build_search_row(self):
         """Fila de búsqueda responsive con botones de acción."""
@@ -407,53 +449,16 @@ class AppointmentFormView:
             vertical_alignment=ft.CrossAxisAlignment.CENTER
         )
 
-    def handle_search_change(self, e):
+    def handle_client_search_change(self, e): # Nuevo handler para cliente
         """Maneja el cambio en la búsqueda de clientes, actualizando los resultados en el SearchBar."""
         search_term = e.control.value.strip()
-        
-        # Colores para los resultados de búsqueda
-        list_tile_title_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
-        list_tile_subtitle_color = ft.colors.GREY_700 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_200
-
-        # Limpiar los controles del SearchBar
-        self.client_search.controls.clear()
-
-        if len(search_term) < 1:
-            self.client_search.close_view() # Cerrar la vista si no hay texto
-            self.client_search.update() # Actualizar el SearchBar
-            self.page.update()
-            return
-
-        try:
-            clients = search_clients(search_term)
-            
-            # Añadir los nuevos resultados directamente a los controls del SearchBar
-            self.client_search.controls.extend([
-                ft.ListTile(
-                    title=ft.Text(f"{name}", color=list_tile_title_color),
-                    subtitle=ft.Text(f"Cédula: {cedula}", color=list_tile_subtitle_color),
-                    on_click=lambda e, id=id, name=name, cedula=cedula: self.select_client(id, name, cedula),
-                    data=(id, name, cedula)
-                ) for (id, name, cedula) in clients
-            ])
-
-            
-            # Si hay resultados, asegurar que la vista esté abierta
-            if clients:
-                self.client_search.open_view()
-            else:
-                self.client_search.close_view() # Cerrar si no hay resultados
-
-            self.client_search.update() # Actualizar el SearchBar para reflejar los nuevos controls
-            self.page.update() # Actualizar la página
-        except Exception as e:
-            show_error(self.page, f"Error en búsqueda de clientes: {str(e)}")
+        self.update_client_search_results(search_term) # Actualizar resultados dinámicamente
 
     def handle_search_submit(self, e):
         """Maneja la selección directa con Enter en la búsqueda de clientes."""
         if self.client_search.controls and len(self.client_search.controls) > 0:
-            client_id, name, cedula = self.client_search.controls[0].data
-            self.select_client(client_id, name, cedula)
+            selected_data = self.client_search.controls[0].data # Obtener el diccionario de datos
+            self.select_client(selected_data['id'], selected_data['name'], selected_data['cedula'])
 
     def select_client(self, client_id, name, cedula):
         """Selecciona un cliente de los resultados y actualiza la UI."""
@@ -526,10 +531,17 @@ class AppointmentFormView:
             self.time_text.value = self.form_data['hour'].strftime("%H:%M")
         
         if self.form_data['client_id']:
-            self.client_search.value = f"{appointment.client_name} - {appointment.client_cedula}"
-            self.selected_client_text.value = f"{appointment.client_name} (Cédula: {appointment.client_cedula})"
-            self.selected_client_text.style = None
-        
+            # Usar ClientService para obtener el cliente por ID y actualizar el campo de búsqueda
+            client = ClientService.get_client_by_id(self.form_data['client_id'])
+            if client:
+                self.client_search.value = f"{client.name} - {client.cedula}"
+                self.selected_client_text.value = f"{client.name} (Cédula: {client.cedula})"
+                self.selected_client_text.style = None
+            else:
+                self.client_search.value = ""
+                self.selected_client_text.value = "Ningún cliente seleccionado"
+                self.selected_client_text.style = ft.TextStyle(italic=True)
+
         # Seleccionar el dentista en el dropdown
         if self.form_data['dentist_id']:
             self.dentist_dropdown.value = str(self.form_data['dentist_id'])

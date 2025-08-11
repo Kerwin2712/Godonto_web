@@ -17,16 +17,9 @@ class TreatmentService:
         """
         try:
             # Buscar tratamiento por nombre
-            # search_treatments retorna una lista de tuplas (id, name, price)
-            # Necesitamos convertir a objetos Treatment para consistencia o adaptar la lógica
-            found_treatments_data = TreatmentService.search_treatments(search_term=name)
+            # search_treatments_full_object retorna una lista de objetos Treatment
+            found_treatments = TreatmentService.search_treatments_full_object(search_term=name)
             
-            # Convierte las tuplas a objetos Treatment para el chequeo
-            found_treatments = [
-                Treatment(id=t[0], name=t[1], price=float(t[2]), description="", duration="00:00:00", is_active=True) 
-                for t in found_treatments_data
-            ]
-
             if found_treatments:
                 # Comprobar si hay una coincidencia exacta por nombre
                 for t in found_treatments:
@@ -34,12 +27,7 @@ class TreatmentService:
                         return t.id
             
             # Si no existe o no hay coincidencia exacta, crear nuevo tratamiento
-            # Se llama a create_treatment con los argumentos esperados,
-            # y se espera un ID o None, no la tupla (bool, str) que el otro create_treatment devolverá.
-            # Esto puede requerir un ajuste si quieres que create_treatment_if_not_exists también
-            # se alinee con el nuevo retorno de create_treatment.
-            # Por ahora, se asume que create_treatment sigue devolviendo un ID.
-            new_id, _ = TreatmentService.create_treatment( # Modificado para capturar el ID y descartar el mensaje
+            new_id, _ = TreatmentService.create_treatment(
                 name=name,
                 description=f"Tratamiento creado automáticamente: {name}",
                 price=price,
@@ -74,6 +62,38 @@ class TreatmentService:
             logger.error(f"Error al buscar tratamientos: {e}") # Mensaje de error más específico
             return [] # Retorna una lista vacía en caso de error
     
+    @staticmethod
+    def search_treatments_full_object(search_term: str = "") -> List[Treatment]:
+        """
+        Busca tratamientos por nombre y devuelve objetos Treatment.
+        Si search_term está vacío, devuelve todos los tratamientos.
+        """
+        try:
+            query = """
+                SELECT id, name, description, price, duration, is_active, created_at, updated_at
+                FROM treatments 
+                WHERE unaccent(name) ILIKE %s
+                ORDER BY name ASC
+                LIMIT 10
+            """
+            with get_db() as cursor:
+                cursor.execute(query, (f"%{search_term}%", ))
+                return [
+                    Treatment(
+                        id=row[0],
+                        name=row[1],
+                        description=row[2],
+                        price=float(row[3]),
+                        duration=row[4],
+                        is_active=row[5],
+                        created_at=row[6],
+                        updated_at=row[7]
+                    ) for row in cursor.fetchall()
+                ]
+        except Exception as e:
+            logger.error(f"Error al buscar tratamientos (full object): {e}")
+            return []
+
     @staticmethod
     def create_treatment(name: str, price: float, 
                          description: Optional[str] = None, # Ahora opcional
@@ -252,8 +272,6 @@ class TreatmentService:
             logger.error(f"Error al eliminar tratamiento {treatment_id}: {e}")
             return False, f"Error al eliminar tratamiento: {str(e)}"
 
-def search_treatment(*args, **kwargs):
-    # Esta función parece ser un wrapper para TreatmentService.search_treatments
-    # Si TreatmentService.search_treatments devuelve objetos Treatment, este wrapper
-    # podría necesitar ajustarse si se usa en otros lugares que esperan tuplas.
-    return TreatmentService.search_treatments(*args, **kwargs)
+# Esta función ya no es necesaria, se usará directamente TreatmentService.search_treatments_full_object
+# def search_treatment(*args, **kwargs):
+#     return TreatmentService.search_treatments(*args, **kwargs)

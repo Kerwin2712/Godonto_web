@@ -80,10 +80,10 @@ class ClientService:
         with get_db() as cursor:
             cursor.execute(
                 """
-                SELECT id, date, hour, status, notes
+                SELECT id, date, time, status, notes
                 FROM appointments
                 WHERE client_id = %s
-                ORDER BY date DESC, hour DESC
+                ORDER BY date DESC, time DESC
                 """,
                 (client_id,)
             )
@@ -182,7 +182,7 @@ class ClientService:
             return clients
     
     @staticmethod
-    def get_all_clients(search_term=None) -> List[Client]:
+    def get_all_clients(search_term=None) -> List[Client]: # Este método será reemplazado por get_all_clients_full_object
         query = """
             SELECT id, name, cedula, phone, email, created_at, updated_at 
             FROM clients
@@ -208,6 +208,75 @@ class ClientService:
             cursor.execute(query, params)
             return [Client(*row) for row in cursor.fetchall()]
 
+    @staticmethod
+    def search_clients_full_object(search_term: str = "") -> List[Client]:
+        """
+        Busca clientes por nombre, cédula, teléfono o email y devuelve objetos Client.
+        Si search_term está vacío, devuelve todos los clientes.
+        """
+        try:
+            query = """
+                SELECT id, name, cedula, phone, email, created_at, updated_at 
+                FROM clients
+                WHERE 1=1
+            """
+            params = []
+            
+            if search_term:
+                query += """
+                    AND (
+                        unaccent(name) ILIKE unaccent(%s) OR 
+                        unaccent(cedula) ILIKE unaccent(%s) OR 
+                        unaccent(phone) ILIKE unaccent(%s) OR 
+                        unaccent(email) ILIKE unaccent(%s)
+                    )
+                """
+                search_param = f"%{search_term}%"
+                params = [search_param] * 4
+            
+            query += " ORDER BY name ASC"
+            
+            with get_db() as cursor:
+                cursor.execute(query, params)
+                return [
+                    Client(
+                        id=row[0],
+                        name=row[1],
+                        cedula=row[2],
+                        phone=row[3],
+                        email=row[4],
+                        created_at=row[5],
+                        updated_at=row[6]
+                    ) for row in cursor.fetchall()
+                ]
+        except Exception as e:
+            logger.error(f"Error al buscar clientes (full object): {e}")
+            return []
+
+    @staticmethod
+    def get_all_clients_full_object() -> List[Client]:
+        """
+        Obtiene todos los clientes y devuelve objetos Client.
+        """
+        query = """
+            SELECT id, name, cedula, phone, email, created_at, updated_at 
+            FROM clients
+            ORDER BY name ASC
+        """
+        with get_db() as cursor:
+            cursor.execute(query)
+            return [
+                Client(
+                    id=row[0],
+                    name=row[1],
+                    cedula=row[2],
+                    phone=row[3],
+                    email=row[4],
+                    created_at=row[5],
+                    updated_at=row[6]
+                ) for row in cursor.fetchall()
+            ]
+    
     @staticmethod
     def create_client(client_data):
         query = """
