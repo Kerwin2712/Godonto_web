@@ -9,7 +9,6 @@ from utils.date_utils import (
     is_today
 )
 from utils.alerts import show_snackbar
-from utils.widgets import build_appointment_badge # Asumimos que build_appointment_badge maneja sus colores internamente
 from services.appointment_service import AppointmentService
 
 class CalendarView:
@@ -19,7 +18,7 @@ class CalendarView:
         AppointmentService().subscribe(self)
         self.current_date = datetime.now().date()
         self.selected_date = self.current_date
-        self.appointments = {}
+        self.appointments = {} # Ahora almacenará más información: {'fecha_str': {'appointments': [...], 'has_cancelled_appointments': bool}}
         
         self.calendar_grid = ft.GridView(
             expand=False,
@@ -55,7 +54,8 @@ class CalendarView:
     def on_event(self, event_type, data):
         """Maneja eventos de actualización de citas, recargando el calendario y la lista."""
         if event_type == 'APPOINTMENT_STATUS_CHANGED':
-            self.appointments = {}
+            # Recargar solo las citas del mes actual para eficiencia
+            self.appointments = {} # Reiniciar para asegurar la recarga completa de estados
             self.load_appointments()
             self.update_calendar()
             self.update_appointments_list()
@@ -235,7 +235,7 @@ class CalendarView:
         )
 
     def load_appointments(self):
-        """Carga las citas desde la base de datos para el mes actual."""
+        """Carga las citas desde la base de datos para el mes actual y detecta canceladas."""
         with get_db() as cursor:
             first_day = date(self.current_date.year, self.current_date.month, 1)
             last_day = date(
@@ -252,14 +252,21 @@ class CalendarView:
                 ORDER BY a.date, a.time
             """, (first_day, last_day))
             
-            self.appointments = {}
+            self.appointments = {} # Reiniciar el diccionario
             for appt in cursor.fetchall():
                 appt_date = appt[2] if isinstance(appt[2], date) else datetime.strptime(appt[2], "%Y-%m-%d").date()
                 appt_date_str = appt_date.strftime("%Y-%m-%d")
                 
                 if appt_date_str not in self.appointments:
-                    self.appointments[appt_date_str] = []
-                self.appointments[appt_date_str].append(appt)
+                    self.appointments[appt_date_str] = {
+                        'appointments': [],
+                        'has_cancelled_appointments': False
+                    }
+                
+                self.appointments[appt_date_str]['appointments'].append(appt)
+                if appt[4] == 'cancelled': # Si el estado es 'cancelled'
+                    self.appointments[appt_date_str]['has_cancelled_appointments'] = True
+
 
     def update_calendar(self):
         """Actualiza la cuadrícula del calendario con los días y citas del mes."""
@@ -282,9 +289,12 @@ class CalendarView:
         """Construye un botón individual para un día en el calendario."""
         is_current = is_current_month(day, self.current_date)
         is_selected = day == self.selected_date
-        has_appointments = day.strftime("%Y-%m-%d") in self.appointments
         is_today_flag = is_today(day)
         
+        day_info = self.appointments.get(day.strftime("%Y-%m-%d"), {'appointments': [], 'has_cancelled_appointments': False})
+        has_appointments = bool(day_info['appointments'])
+        has_cancelled_appointments = day_info['has_cancelled_appointments']
+
         # Colores para el día del calendario
         day_text_color_current_month = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
         day_text_color_other_month = ft.colors.GREY_500 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_300 # Más suave para oscuro
@@ -312,6 +322,14 @@ class CalendarView:
             ft.colors.BLUE_500 if is_selected else 
             ft.colors.TRANSPARENT
         )
+
+        # Determinar el color del badge
+        badge_color = ft.colors.TRANSPARENT # Por defecto sin color
+        if has_appointments and is_current: # Solo mostrar badge si hay citas y es el mes actual
+            if has_cancelled_appointments:
+                badge_color = ft.colors.RED_400 # Rojo si hay citas canceladas
+            else:
+                badge_color = ft.colors.BLUE_400 # Azul si hay citas y ninguna está cancelada
         
         return ft.Container(
             content=ft.Column(
@@ -323,7 +341,14 @@ class CalendarView:
                         color=text_color,
                         text_align=ft.TextAlign.CENTER
                     ),
-                    build_appointment_badge(has_appointments) if is_current else ft.Container()
+                    ft.Container( # El badge, con color condicional
+                        content=ft.CircleAvatar(
+                            radius=4,
+                            bgcolor=badge_color # Usar el color determinado
+                        ),
+                        width=10,
+                        height=10
+                    )
                 ],
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 spacing=0,
@@ -342,9 +367,6 @@ class CalendarView:
 
     def select_date(self, day):
         """Selecciona un día en el calendario y actualiza la lista de citas."""
-        # Se asegura de que solo los días del mes actual sean seleccionables.
-        # Ya no hay un if is_current_month(day, self.current_date) aquí, ya que el build_day_button
-        # oculta los badges para días de otros meses y el tooltip.
         self.selected_date = day
         self.selected_date_button_text.value = self.selected_date.strftime("%d/%m/%Y") # Actualizar el texto del botón
         self.update_calendar()
@@ -353,7 +375,9 @@ class CalendarView:
     def update_appointments_list(self):
         """Actualiza la lista de citas mostradas para la fecha seleccionada."""
         date_key = self.selected_date.strftime("%Y-%m-%d")
-        daily_appointments = self.appointments.get(date_key, [])
+        # Acceder a la lista de citas dentro del diccionario de día
+        daily_appointments_info = self.appointments.get(date_key, {'appointments': [], 'has_cancelled_appointments': False})
+        daily_appointments = daily_appointments_info['appointments']
         
         text_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
 
@@ -430,7 +454,7 @@ class CalendarView:
             new_year -= 1
             
         self.current_date = date(new_year, new_month, 1)
-        self.appointments = {}
+        self.appointments = {} # Resetear para forzar recarga
         self.load_appointments()
         self.update_calendar()
         self.update_appointments_list() # Asegura que la lista de citas se actualice al cambiar de mes
@@ -446,22 +470,28 @@ class CalendarView:
 
     def change_appointment_status(self, appointment_id, new_status):
         """Cambia el estado de una cita en la base de datos y actualiza la UI."""
+        # Se asume que get_db() es un context manager o una función que obtiene un cursor
         with get_db() as cursor:
             try:
-                cursor.execute(
-                    "UPDATE appointments SET status = %s WHERE id = %s",
-                    (new_status, appointment_id)
-                )
-                show_snackbar(self.page, f"Estado actualizado a {new_status.capitalize()}", "success")
+                # Actualizar el estado en la base de datos
+                # Usa AppointmentService para actualizar el estado, ya que se encarga de las notificaciones
+                # y lógica de negocio.
+                success = AppointmentService.update_appointment_status(appointment_id, new_status)
                 
-                self.appointments = {}
-                self.load_appointments()
-                self.update_calendar()
-                self.update_appointments_list()
-                
+                if success:
+                    show_snackbar(self.page, f"Estado actualizado a {new_status.capitalize()}", "success")
+                    # **CLAVE: Recargar las citas y actualizar la UI después del cambio**
+                    self.appointments = {} # Limpiar para recargar los datos actualizados
+                    self.load_appointments()
+                    self.update_calendar()
+                    self.update_appointments_list()
+                else:
+                    show_snackbar(self.page, f"Error al actualizar estado de la cita.", "error")
+                    
             except Exception as e:
                 show_snackbar(self.page, f"Error al actualizar: {str(e)}", "error")
 
 def calendar_view(page: ft.Page):
     """Función de fábrica para crear la vista del calendario."""
     return CalendarView(page).build_view()
+
