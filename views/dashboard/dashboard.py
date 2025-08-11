@@ -57,6 +57,8 @@ class DashboardView:
             logger.info(f"Citas próximas cargadas: {len(self.upcoming_appointments)}")
             self.recent_clients = self.client_service.get_recent_clients(limit=5)
             logger.info(f"Clientes recientes cargados: {len(self.recent_clients)}")
+            
+            # Obtener estadísticas actualizadas del StatsService
             self.stats = self.stats_service.get_dashboard_stats()
             logger.info(f"Estadísticas cargadas: {self.stats}")
         except Exception as e:
@@ -67,8 +69,9 @@ class DashboardView:
         """Construye la vista completa del dashboard"""
         try:
             # Asegurar que los datos estén cargados
-            if not self.upcoming_appointments or not self.stats:
-                self.load_data()
+            # Se elimina la carga aquí ya que load_data se llama en __init__ y on_event
+            # if not self.upcoming_appointments or not self.stats:
+            #     self.load_data()
                 
             view = ft.View(
                 "/dashboard",
@@ -259,12 +262,16 @@ class DashboardView:
             content=ft.Row(
                 controls=[
                     # Los colores de las tarjetas de estadísticas ya se manejan dentro de build_stat_card
+                    # Citas de hoy: Cantidad de citas del día actual
                     build_stat_card("Citas Hoy", self.stats.get('appointments_today', 0), 
                             ft.icons.CALENDAR_TODAY, ft.colors.BLUE_400),
+                    # Clientes Nuevos: Cantidad de clientes nuevos del día actual
                     build_stat_card("Clientes Nuevos", self.stats.get('new_clients_today', 0), 
                             ft.icons.PERSON_ADD, ft.colors.GREEN_400),
-                    build_stat_card("Pendientes", self.stats.get('pending_payments', 0), 
+                    # Pendientes: Monto total de deudas pendientes
+                    build_stat_card("Pendientes", f"${self.stats.get('total_pending_debts_amount', 0):,.2f}", 
                             ft.icons.PAYMENTS, ft.colors.AMBER_400),
+                    # Ingresos: Suma de los pagos realizados el día actual
                     build_stat_card("Ingresos", f"${self.stats.get('revenue_today', 0):,.2f}", 
                             ft.icons.ATTACH_MONEY, ft.colors.PURPLE_400)
                 ],
@@ -739,3 +746,4 @@ def dashboard_view(page: ft.Page):
     """Función de fábrica para la vista del dashboard"""
     dashboard = DashboardView(page)
     return dashboard.build_view()
+

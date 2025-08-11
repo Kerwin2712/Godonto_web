@@ -182,7 +182,8 @@ class StatsService:
         
         return {
             # Estadísticas de citas
-            'appointments_today': StatsService._count_appointments_by_status(today, today, 'pending'),
+            # Citas de hoy: Cantidad de citas del día actual (todas, no solo pendientes)
+            'appointments_today': StatsService._count_appointments_by_status(today, today, status=None),
             'appointments_week': StatsService._count_appointments_by_status(start_of_week, today, 'pending'),
             'appointments_month': StatsService._count_appointments_by_status(start_of_month, today, 'pending'),
             'appointments_year': StatsService._count_appointments_by_status(start_of_year, today, 'pending'),
@@ -192,8 +193,9 @@ class StatsService:
             'new_clients_month': StatsService._count_new_clients_month(start_of_month, today),
             
             # Estadísticas financieras
-            'pending_payments': StatsService._count_pending_payments(), # Esto sigue contando pagos con status 'pending'
-            'total_debts': StatsService._calculate_total_debts(),
+            # Pendientes: Monto total de deudas pendientes
+            'total_pending_debts_amount': StatsService._calculate_total_debts(), 
+            # Ingresos: Suma de los pagos realizados el día actual (estado 'completed')
             'revenue_today': StatsService._calculate_revenue(today, today),
             'revenue_week': StatsService._calculate_revenue(start_of_week, today),
             'revenue_month': StatsService._calculate_revenue(start_of_month, today),
@@ -269,7 +271,7 @@ class StatsService:
     
     @staticmethod
     def _count_appointments(start_date: date, end_date: date) -> int:
-        """Cuenta citas en un rango de fechas"""
+        """Cuenta citas en un rango de fechas (originalmente solo completadas, ahora no se usa para el dashboard)"""
         with get_db() as cursor:
             cursor.execute(
                 """
@@ -300,7 +302,7 @@ class StatsService:
     def _count_pending_payments() -> int:
         """
         Cuenta los pagos registrados que no tienen el estado 'completed'.
-        Esto es diferente a 'deudas pendientes'.
+        Esta función ya no se usa directamente para la métrica "Pendientes" en el dashboard.
         """
         with get_db() as cursor:
             cursor.execute(
@@ -316,15 +318,24 @@ class StatsService:
     def _calculate_revenue(start_date: date, end_date: date) -> float:
         """Calcula ingresos en un rango de fechas (solo pagos 'completed')"""
         with get_db() as cursor:
-            cursor.execute(
+            if start_date == end_date: # Si es para un solo día, compara solo la fecha
+                query = """
+                    SELECT COALESCE(SUM(amount), 0)
+                    FROM payments
+                    WHERE status = 'completed'
+                    AND DATE(payment_date) = %s
                 """
-                SELECT COALESCE(SUM(amount), 0)
-                FROM payments
-                WHERE status = 'completed'
-                AND payment_date BETWEEN %s AND %s
-                """,
-                (start_date, end_date)
-            )
+                params = (start_date,)
+            else: # Para rangos de fechas, usa BETWEEN como antes
+                query = """
+                    SELECT COALESCE(SUM(amount), 0)
+                    FROM payments
+                    WHERE status = 'completed'
+                    AND payment_date BETWEEN %s AND %s
+                """
+                params = (start_date, end_date)
+            
+            cursor.execute(query, params)
             return float(cursor.fetchone()[0] or 0)
 
     @staticmethod
@@ -405,3 +416,4 @@ class StatsService:
 get_dashboard_stats = StatsService.get_dashboard_stats
 get_client_stats = StatsService.get_client_stats
 get_appointment_stats = StatsService.get_appointment_stats
+
