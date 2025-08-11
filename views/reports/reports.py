@@ -81,7 +81,7 @@ class ReportGenerator:
             ("Citas Totales", stats.get('total_appointments', 0)),
             ("Citas Completadas", stats.get('completed_appointments', 0)),
             ("Ingresos Total", f"${stats.get('total_revenue', 0.0):,.2f}"),
-            ("Clientes Nuevos", stats.get('new_clients', 0)),
+            ("Cantidad de Clientes", stats.get('total_clients', 0)), # Actualizado
             ("Pagos Registrados", stats.get('total_payments', 0)),
             ("Monto Deudas Pendientes", f"${stats.get('total_pending_debts_amount', 0.0):,.2f}"),
             ("Monto Deudas Vencidas", f"${stats.get('overdue_debts_amount', 0.0):,.2f}"),
@@ -603,14 +603,13 @@ class ReportsView:
             popular_method = cursor.fetchone()
             stats['popular_payment_method'] = popular_method[0] if popular_method else "N/A"
             
-            # Clientes nuevos
+            # Cantidad total de clientes (todos, no solo nuevos)
             cursor.execute("""
                 SELECT COUNT(*) 
                 FROM clients 
-                WHERE created_at BETWEEN %s AND %s
-            """, (self.start_date, self.end_date))
-            new_clients_result = cursor.fetchone() # Capturar el resultado en una variable
-            stats['new_clients'] = int(new_clients_result[0]) if new_clients_result and new_clients_result[0] is not None else 0
+            """) # No se filtra por fecha para obtener el total general
+            total_clients_result = cursor.fetchone() 
+            stats['total_clients'] = int(total_clients_result[0]) if total_clients_result and total_clients_result[0] is not None else 0
         
         return stats
 
@@ -626,7 +625,7 @@ class ReportsView:
                                 ft.icons.CHECK_CIRCLE, ft.colors.GREEN_400),
                 self._build_stat_card("Ingresos Total", f"${stats['total_revenue']:,.2f}", 
                                 ft.icons.ATTACH_MONEY, ft.colors.PURPLE_400),
-                self._build_stat_card("Clientes Nuevos", stats['new_clients'], 
+                self._build_stat_card("Cantidad de Clientes", stats['total_clients'], # Actualizado aquí
                                 ft.icons.PERSON_ADD, ft.colors.ORANGE_400)
             ]),
             
@@ -1545,3 +1544,4 @@ def reports_view(page: ft.Page):
         page.go(e.route)
     
     return view.build_view()
+
