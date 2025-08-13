@@ -1211,10 +1211,10 @@ class ReportsView:
         return ft.DataTable(
             columns=[
                 ft.DataColumn(ft.Text("Cliente", color=header_text_color)),
-                ft.DataColumn(ft.Text("Fecha Creación", color=header_text_color)),
-                ft.DataColumn(ft.Text("Monto Total", color=header_text_color), numeric=True),
-                ft.DataColumn(ft.Text("Monto Pagado", color=header_text_color), numeric=True),
-                ft.DataColumn(ft.Text("Monto Restante", color=header_text_color), numeric=True),
+                ft.DataColumn(ft.Text("Fecha", color=header_text_color)),
+                ft.DataColumn(ft.Text("Total", color=header_text_color), numeric=True),
+                ft.DataColumn(ft.Text("Pagado", color=header_text_color), numeric=True),
+                ft.DataColumn(ft.Text("Restante", color=header_text_color), numeric=True),
                 ft.DataColumn(
                     ft.Text("Descripción", color=header_text_color)
                 ),
