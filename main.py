@@ -19,6 +19,7 @@ from views.tretment.treatments import treatments_view
 from services.preference_service import PreferenceService
 from views.clients.history import client_history_view
 from views.dentistas.dentist_view import dentists_view
+from services.appointment_service import AppointmentService # Importar AppointmentService
 
 # Configuración de logging
 log_dir = os.path.join(os.getenv('LOCALAPPDATA'), 'GodontoClinic', 'logs')
@@ -187,6 +188,9 @@ def main(page: ft.Page):
     
     page.on_route_change = route_change
     page.on_error = lambda e: handle_error(e)
+    
+    # Llamar a la función para cancelar citas pasadas pendientes al inicio
+    AppointmentService.cancel_past_pending_appointments()
     
     page.go("/login")
     

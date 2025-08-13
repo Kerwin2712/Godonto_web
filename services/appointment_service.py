@@ -636,6 +636,52 @@ class AppointmentService(Observable):
             logger.error(f"Error al eliminar cita con ID {appointment_id} y sus deudas asociadas: {e}")
             return False
 
+    @staticmethod
+    def cancel_past_pending_appointments():
+        """
+        Revisa todas las citas marcadas como 'pending' cuya fecha ya pasó
+        y las marca como 'cancelled'.
+        """
+        try:
+            with get_db() as cursor:
+                # Obtener la fecha y hora actuales
+                now = datetime.now()
+                today_date = now.date()
+                current_time = now.time()
+
+                # Buscar citas pendientes cuya fecha ya pasó, o cuya fecha es hoy pero la hora ya pasó
+                cursor.execute(
+                    """
+                    UPDATE appointments
+                    SET status = 'cancelled', updated_at = NOW()
+                    WHERE status = 'pending' 
+                    AND (
+                        date < %s OR 
+                        (date = %s AND time < %s)
+                    )
+                    RETURNING id, client_name, date, time;
+                    """,
+                    (today_date, today_date, current_time)
+                )
+                cancelled_appointments = cursor.fetchall()
+
+                for appt_id, client_name, appt_date, appt_time in cancelled_appointments:
+                    logger.info(f"Cita pasada ID {appt_id} ({client_name} - {appt_date} {appt_time}) marcada como 'cancelled'.")
+                    notify_all('APPOINTMENT_STATUS_CHANGED', {
+                        'id': appt_id,
+                        'status': 'cancelled'
+                    })
+                
+                if cancelled_appointments:
+                    logger.info(f"Total de {len(cancelled_appointments)} citas pendientes pasadas marcadas como canceladas.")
+                else:
+                    logger.info("No se encontraron citas pendientes pasadas para cancelar.")
+
+                return True
+        except Exception as e:
+            logger.error(f"Error al cancelar citas pendientes pasadas: {str(e)}")
+            return False
+
 # Funciones de conveniencia para mantener compatibilidad
 def create_appointment(*args, **kwargs):
     # Asegúrate de que se pase la instancia de AppointmentService si es un método de instancia
