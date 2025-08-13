@@ -607,6 +607,11 @@ class DashboardView:
                         appointment.id, "cancelled", appointment.client_name)
                 ),
                 ft.PopupMenuItem(
+                    text="Pendiente", # Nueva opción
+                    on_click=lambda e: self._confirm_status_change(
+                        appointment.id, "pending", appointment.client_name)
+                ),
+                ft.PopupMenuItem(
                     text="Editar",
                     on_click=lambda e: self.page.go(f"/appointment_form/{appointment.id}")
                 ),

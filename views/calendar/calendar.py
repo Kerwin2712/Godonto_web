@@ -426,6 +426,10 @@ class CalendarView:
                                 on_click=lambda e, a=appointment: self.change_appointment_status(a[0], "cancelled")
                             ),
                             ft.PopupMenuItem(
+                                text="Pendiente", # Nueva opción
+                                on_click=lambda e, a=appointment: self.change_appointment_status(a[0], "pending")
+                            ),
+                            ft.PopupMenuItem(
                                 text="Editar",
                                 on_click=lambda e, a=appointment: self.page.go(f"/appointment_form/{a[0]}")
                                 #on_click=lambda e: self.page.go(f"/appointment_form/{appointment.id}")
@@ -494,4 +498,3 @@ class CalendarView:
 def calendar_view(page: ft.Page):
     """Función de fábrica para crear la vista del calendario."""
     return CalendarView(page).build_view()
-
