@@ -276,6 +276,20 @@ class AppointmentService(Observable):
                     else:
                         return False, "Cita no encontrada."
 
+                # --- Lógica para cambiar el estado a 'pending' si la fecha o la hora cambian ---
+                # Obtener la cita actual para comparar
+                current_appointment = AppointmentService.get_appointment_by_id(appointment_id)
+                if current_appointment:
+                    new_date = updates.get('date')
+                    new_time = updates.get('time')
+                    
+                    # Si la fecha o la hora han cambiado, forzar el estado a 'pending'
+                    if (new_date and new_date != current_appointment.date) or \
+                       (new_time and new_time != current_appointment.time):
+                        updates['status'] = 'pending'
+                        logger.info(f"Fecha u hora de cita {appointment_id} cambiada. Estado forzado a 'pending'.")
+                # --- Fin de la lógica de cambio de estado ---
+
                 # Actualizar campos de la cita principal
                 if updates:
                     set_clause = ", ".join([f"{field} = %s" for field in updates.keys()])
