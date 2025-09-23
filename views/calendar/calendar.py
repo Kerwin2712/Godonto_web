@@ -239,32 +239,45 @@ class CalendarView:
         with get_db() as cursor:
             first_day = date(self.current_date.year, self.current_date.month, 1)
             last_day = date(
-                self.current_date.year, 
-                self.current_date.month, 
+                self.current_date.year,
+                self.current_date.month,
                 calendar.monthrange(self.current_date.year, self.current_date.month)[1]
             )
-            
+
             cursor.execute("""
-                SELECT a.id, c.name, a.date, a.time, a.status 
+                SELECT
+                    a.id,
+                    c.name AS client_name,
+                    a.date,
+                    a.time,
+                    a.status,
+                    a.notes,
+                    d.name AS dentist_name,
+                    STRING_AGG(t.name, ', ') AS treatments,
+                    SUM(t.price) AS total_amount
                 FROM appointments a
                 JOIN clients c ON a.client_id = c.id
+                LEFT JOIN dentists d ON a.dentist_id = d.id
+                LEFT JOIN appointment_treatments at ON a.id = at.appointment_id
+                LEFT JOIN treatments t ON at.treatment_id = t.id
                 WHERE a.date BETWEEN %s AND %s
+                GROUP BY a.id, c.name, a.date, a.time, a.status, d.name
                 ORDER BY a.date, a.time
             """, (first_day, last_day))
-            
-            self.appointments = {} # Reiniciar el diccionario
+
+            self.appointments = {}  # Reiniciar el diccionario
             for appt in cursor.fetchall():
                 appt_date = appt[2] if isinstance(appt[2], date) else datetime.strptime(appt[2], "%Y-%m-%d").date()
                 appt_date_str = appt_date.strftime("%Y-%m-%d")
-                
+
                 if appt_date_str not in self.appointments:
                     self.appointments[appt_date_str] = {
                         'appointments': [],
                         'has_cancelled_appointments': False
                     }
-                
+
                 self.appointments[appt_date_str]['appointments'].append(appt)
-                if appt[4] == 'cancelled': # Si el estado es 'cancelled'
+                if appt[4] == 'cancelled':  # Si el estado es 'cancelled'
                     self.appointments[appt_date_str]['has_cancelled_appointments'] = True
 
 
@@ -402,20 +415,33 @@ class CalendarView:
             'completed': ft.colors.GREEN,
             'cancelled': ft.colors.RED
         }.get(appointment[4], ft.colors.BLUE)
-        
+
         card_bgcolor = ft.colors.WHITE if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_700
         text_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
         subtitle_color = ft.colors.GREY_700 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_200
 
+        notes = appointment[5] if appointment[5] else "No especificado"
+        dentist_name = appointment[6] if appointment[6] else "No asignado"
+        treatments = appointment[7] if appointment[7] else "No especificado"
+        total_amount = appointment[8] if appointment[8] else 0
+
+        details = ft.Column([
+            ft.Text(f"Hora: {appointment[3]} - Estado: {appointment[4].capitalize()}", color=subtitle_color),
+            ft.Text(f"Odontólogo: {dentist_name}", color=subtitle_color),
+            ft.Text(f"Tratamientos: {treatments}", color=subtitle_color),
+            ft.Text(f"Notas: {notes}", color=subtitle_color),
+            ft.Text(f"Monto a pagar: ${total_amount:,.2f}", color=subtitle_color, weight="bold"),
+        ])
+
         return ft.Card(
-            content=ft.Container( # Envuelve el ListTile en un Container para el color de fondo
+            content=ft.Container(
                 content=ft.ListTile(
                     leading=ft.Icon(ft.icons.ACCESS_TIME, color=status_color),
                     title=ft.Text(appointment[1], color=text_color),
-                    subtitle=ft.Text(f"{appointment[3]} - {appointment[4].capitalize()}", color=subtitle_color),
+                    subtitle=details,
                     trailing=ft.PopupMenuButton(
                         icon=ft.icons.MORE_VERT,
-                        icon_color=text_color, # Color del icono del menú
+                        icon_color=text_color,
                         items=[
                             ft.PopupMenuItem(
                                 text="Completar",
@@ -426,13 +452,12 @@ class CalendarView:
                                 on_click=lambda e, a=appointment: self.change_appointment_status(a[0], "cancelled")
                             ),
                             ft.PopupMenuItem(
-                                text="Pendiente", # Nueva opción
+                                text="Pendiente",
                                 on_click=lambda e, a=appointment: self.change_appointment_status(a[0], "pending")
                             ),
                             ft.PopupMenuItem(
                                 text="Editar",
                                 on_click=lambda e, a=appointment: self.page.go(f"/appointment_form/{a[0]}")
-                                #on_click=lambda e: self.page.go(f"/appointment_form/{appointment.id}")
                             )
                         ]
                     )
