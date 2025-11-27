@@ -3,9 +3,26 @@ from models.client import Client  # Asegúrate de tener este modelo
 from typing import List, Optional
 import logging
 #print
+from services.observable import Observable
+
 logger = logging.getLogger(__name__)
 
-class ClientService:
+class ClientService(Observable):
+    _instance = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(ClientService, cls).__new__(cls)
+            # Inicializar Observable manualmente ya que __init__ podría no ser llamado si retornamos instancia existente
+            # o asegurarse de que __init__ maneje la inicialización única.
+            # Mejor opción: Inicializar aquí si es nuevo.
+            super(ClientService, cls._instance).__init__()
+        return cls._instance
+
+    def __init__(self):
+        # Evitar re-inicialización si ya tiene observadores
+        if not hasattr(self, '_observers'):
+            super().__init__()
     @staticmethod
     def get_client_by_id(client_id: int) -> Optional[Client]: # Añadido este método
         """Obtiene un cliente por su ID."""
@@ -132,7 +149,10 @@ class ClientService:
                     "DELETE FROM clients WHERE id = %s RETURNING id",
                     (client_id,)
                 )
-                return cursor.fetchone() is not None
+                result = cursor.fetchone()
+                if result:
+                    ClientService().notify_all('CLIENT_DELETED', {'client_id': client_id})
+                return result is not None
                 
             except Exception as e:
                 logger.error(f"Error al eliminar cliente con dependencias: {str(e)}")
@@ -156,7 +176,10 @@ class ClientService:
                 "DELETE FROM clients WHERE id = %s RETURNING id",
                 (client_id,)
             )
-            return cursor.fetchone() is not None
+            result = cursor.fetchone()
+            if result:
+                ClientService().notify_all('CLIENT_DELETED', {'client_id': client_id})
+            return result is not None
     
     @staticmethod
     def get_recent_clients(limit: int = 5) -> List[Client]:
@@ -291,4 +314,6 @@ class ClientService:
                 client_data['phone'],
                 client_data['email']
             ))
-            return cursor.fetchone()[0]
+            new_id = cursor.fetchone()[0]
+            ClientService().notify_all('CLIENT_CREATED', {'client_id': new_id})
+            return new_id

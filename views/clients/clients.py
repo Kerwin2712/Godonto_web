@@ -13,12 +13,22 @@ class ClientsView:
     def __init__(self, page: ft.Page):
         self.page = page
         self.client_service = ClientService()
+        self.client_service.subscribe(self) # Suscribirse a eventos
         self.all_clients = []
         
         self.search_bar = self._build_search_bar()
         self.client_list = ft.Column(scroll=ft.ScrollMode.AUTO, expand=True, spacing=10)
         
         self.load_clients()
+
+    def on_event(self, event_type, data):
+        """Maneja eventos de actualización"""
+        if event_type in ['CLIENT_CREATED', 'CLIENT_DELETED', 'CLIENT_UPDATED']:
+            # Verificar si la vista sigue activa
+            if self.page.views and self.page.views[-1].route == "/clients":
+                # Si hay término de búsqueda, reaplicarlo, si no, cargar todo
+                current_search = self.search_bar.value if self.search_bar.value else None
+                self.load_clients(current_search)
     
     def _build_search_bar(self):
         return ft.SearchBar(
@@ -815,8 +825,8 @@ class ClientsView:
         def _delete_client_confirmed(client: Client):
             try:
                 if self.client_service.delete_client(client.id):
-                    self.all_clients.remove(client)
-                    self.update_clients()
+                    # self.all_clients.remove(client) # Ya no es necesario si recargamos por evento
+                    # self.update_clients() # Ya no es necesario si recargamos por evento
                     show_success(self.page, f"Cliente {client.name} eliminado")
                 else:
                     show_error(self.page, "No se pudo eliminar el cliente")
@@ -826,8 +836,8 @@ class ClientsView:
         def _delete_client_with_dependencies(client: Client):
             try:
                 if self.client_service.delete_client_with_dependencies(client.id):
-                    self.all_clients.remove(client)
-                    self.update_clients()
+                    # self.all_clients.remove(client)
+                    # self.update_clients()
                     show_success(
                         self.page, 
                         f"Cliente {client.name} y todos sus registros asociados eliminados"

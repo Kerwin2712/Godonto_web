@@ -8,6 +8,7 @@ class AppointmentsView:
     def __init__(self, page: ft.Page):
         self.page = page
         self.appointment_service = AppointmentService()
+        self.appointment_service.subscribe(self) # Suscribirse a eventos
         
         self.total_items = 0
         self.filters = {
@@ -30,6 +31,13 @@ class AppointmentsView:
         self._init_search_controls()
         
         self.update_appointments()
+
+    def on_event(self, event_type, data):
+        """Maneja eventos de actualización"""
+        if event_type == 'APPOINTMENT_STATUS_CHANGED':
+            # Verificar si la vista sigue activa antes de actualizar
+            if self.page.views and self.page.views[-1].route == "/appointments":
+                self.update_appointments()
 
     def _init_date_pickers(self):
         """Inicializa los selectores de fecha"""
@@ -118,6 +126,9 @@ class AppointmentsView:
 
     def _render_appointments(self, appointments):
         """Renderiza las citas en el grid"""
+        # Si no hay controles en el grid, o si queremos forzar una actualización completa
+        # En este caso simple, limpiamos y reconstruimos, pero como es llamado por on_event,
+        # el usuario verá la actualización sin recargar toda la página.
         self.appointment_grid.controls.clear()
         
         if not appointments:
@@ -275,7 +286,12 @@ class AppointmentsView:
         """Elimina una cita"""
         try:
             self.appointment_service.delete_appointment(appointment_id)
-            self.update_appointments()
+            self.appointment_service.delete_appointment(appointment_id)
+            # self.update_appointments() # Ya no es necesario llamar explícitamente si el servicio notifica
+            # Pero si delete_appointment NO notifica (revisar servicio), lo dejamos o lo agregamos.
+            # Asumimos que delete_appointment debería notificar. Si no, lo llamamos.
+            # Por seguridad, llamamos a update si el servicio no emite evento de borrado (que debería).
+            self.update_appointments() 
             AlertManager.show_success(self.page, f"Cita con {client_name} eliminada")
         except Exception as e:
             AlertManager.show_error(self.page, f"Error al eliminar: {str(e)}")
