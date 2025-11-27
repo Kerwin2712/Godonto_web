@@ -36,6 +36,11 @@ class DashboardView:
         
         # Cargar datos iniciales
         self.load_data()
+
+        # Referencias a controles dinámicos
+        self.stats_row_container = None
+        self.appointments_column = None
+        self.clients_row = None
     
     def on_event(self, event_type, data):
         """Maneja eventos de actualización"""
@@ -43,9 +48,10 @@ class DashboardView:
             # Recargar datos
             self.load_data()
             
-            # Actualizar la vista actual si estamos en el dashboard
-            if self.page.views and self.page.views[-1].route == "/dashboard":
-                self.page.views[-1] = self.build_view()
+            # Actualizar componentes específicos
+            self.update_stats()
+            self.update_appointments()
+            # Si hubiera cambios que afecten a clientes, llamaríamos a self.update_clients()
             
             self.page.update()
     
@@ -258,20 +264,15 @@ class DashboardView:
 
     def _build_stats_row(self):
         """Construye la fila de estadísticas"""
-        return ft.Container(
+        self.stats_row_container = ft.Container(
             content=ft.Row(
                 controls=[
-                    # Los colores de las tarjetas de estadísticas ya se manejan dentro de build_stat_card
-                    # Citas de hoy: Cantidad de citas del día actual
                     build_stat_card("Citas Hoy", self.stats.get('appointments_today', 0), 
                             ft.icons.CALENDAR_TODAY, ft.colors.BLUE_400),
-                    # Clientes Nuevos: Cantidad de clientes nuevos del día actual
                     build_stat_card("Clientes Nuevos", self.stats.get('new_clients_today', 0), 
                             ft.icons.PERSON_ADD, ft.colors.GREEN_400),
-                    # Pendientes: Monto total de deudas pendientes
                     build_stat_card("Pendientes", f"${self.stats.get('total_pending_debts_amount', 0):,.2f}", 
                             ft.icons.PAYMENTS, ft.colors.AMBER_400),
-                    # Ingresos: Suma de los pagos realizados el día actual
                     build_stat_card("Ingresos", f"${self.stats.get('revenue_today', 0):,.2f}", 
                             ft.icons.ATTACH_MONEY, ft.colors.PURPLE_400)
                 ],
@@ -280,6 +281,22 @@ class DashboardView:
             ),
             padding=ft.padding.symmetric(vertical=10)
         )
+        return self.stats_row_container
+
+    def update_stats(self):
+        """Actualiza solo la fila de estadísticas"""
+        if self.stats_row_container and self.stats_row_container.content:
+            self.stats_row_container.content.controls = [
+                build_stat_card("Citas Hoy", self.stats.get('appointments_today', 0), 
+                        ft.icons.CALENDAR_TODAY, ft.colors.BLUE_400),
+                build_stat_card("Clientes Nuevos", self.stats.get('new_clients_today', 0), 
+                        ft.icons.PERSON_ADD, ft.colors.GREEN_400),
+                build_stat_card("Pendientes", f"${self.stats.get('total_pending_debts_amount', 0):,.2f}", 
+                        ft.icons.PAYMENTS, ft.colors.AMBER_400),
+                build_stat_card("Ingresos", f"${self.stats.get('revenue_today', 0):,.2f}", 
+                        ft.icons.ATTACH_MONEY, ft.colors.PURPLE_400)
+            ]
+            self.stats_row_container.update()
 
     def _build_content_sections(self):
         """Construye las secciones de contenido principal"""
@@ -305,6 +322,12 @@ class DashboardView:
         bg_section = ft.colors.GREY_50 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_700
         border_section = ft.colors.GREY_300 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_600
         
+        # Contenedor para la lista de citas (para poder actualizarlo)
+        self.appointments_column = ft.Column(
+            controls=[self._build_appointment_card(appt) for appt in self.upcoming_appointments],
+            spacing=15
+        )
+
         return ft.Container(
             content=ft.Column(
                 controls=[
@@ -316,7 +339,7 @@ class DashboardView:
                     ft.Divider(height=10, color=border_section), # Color del divisor
                     ft.Container(content=self._build_appointment_actions()), # Envuelto en Container
                     ft.Divider(height=10, color=border_section), # Color del divisor
-                    *[self._build_appointment_card(appt) for appt in self.upcoming_appointments]
+                    self.appointments_column # Usar la columna referenciada
                 ],
                 spacing=15,
                 expand=True
@@ -327,6 +350,14 @@ class DashboardView:
             bgcolor=bg_section,
             expand=True
         )
+
+    def update_appointments(self):
+        """Actualiza solo la lista de citas"""
+        if self.appointments_column:
+            self.appointments_column.controls = [
+                self._build_appointment_card(appt) for appt in self.upcoming_appointments
+            ]
+            self.appointments_column.update()
 
     def _build_client_card(self, client):
         """Construye una tarjeta horizontal para cada cliente"""
@@ -369,6 +400,12 @@ class DashboardView:
         bg_section = ft.colors.GREY_50 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_700
         border_section = ft.colors.GREY_300 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_600
 
+        self.clients_row = ft.Row(
+            controls=[self._build_client_card(client) for client in self.recent_clients],
+            scroll=ft.ScrollMode.AUTO,
+            spacing=15
+        )
+
         return ft.Container(
             content=ft.Column(
                 controls=[
@@ -381,11 +418,7 @@ class DashboardView:
                     self._build_client_actions(), # ft.Row es compatible, no necesita Container adicional aquí.
                     ft.Divider(height=5, color=border_section), # Color del divisor
                     ft.Container(
-                        content=ft.Row(
-                            controls=[self._build_client_card(client) for client in self.recent_clients],
-                            scroll=ft.ScrollMode.AUTO,
-                            spacing=15
-                        ),
+                        content=self.clients_row,
                         height=120
                     )
                 ],
@@ -398,6 +431,14 @@ class DashboardView:
             bgcolor=bg_section,
             expand=True
         )
+
+    def update_clients(self):
+        """Actualiza solo la lista de clientes"""
+        if self.clients_row:
+            self.clients_row.controls = [
+                self._build_client_card(client) for client in self.recent_clients
+            ]
+            self.clients_row.update()
 
     def _build_section_header(self, title: str, button_text: str, route: str):
         """
@@ -663,9 +704,9 @@ class DashboardView:
                         logger.warning(f"No se encontró deuda asociada a la cita {appointment_id} para eliminar o falló la eliminación al cancelar.")
 
                 self.load_data()
-                current_route = self.page.views[-1].route if self.page.views else ""
-                if current_route == "/dashboard":
-                    self.page.views[-1] = self.build_view()
+                # Actualización granular
+                self.update_stats()
+                self.update_appointments()
                 self.page.update()
                 self._show_success(f"Estado actualizado a {new_status.capitalize()}")
             else:
@@ -708,9 +749,9 @@ class DashboardView:
             success = self.appointment_service.delete_appointment(appointment_id)
             if success:
                 self.load_data()
-                current_route = self.page.views[-1].route if self.page.views else ""
-                if current_route == "/dashboard":
-                    self.page.views[-1] = self.build_view()
+                # Actualización granular
+                self.update_stats()
+                self.update_appointments()
                 self.page.update()
                 self._show_success("Cita eliminada exitosamente.")
             else:
