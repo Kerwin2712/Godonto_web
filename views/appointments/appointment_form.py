@@ -94,7 +94,7 @@ class AppointmentFormView:
     def _handle_dentist_change(self, e):
         """Maneja la selección de un dentista en el Dropdown."""
         self.form_data['dentist_id'] = int(e.control.value) if e.control.value else None
-        self.page.update()
+        # self.page.update() # No visual change needed immediately other than the dropdown itself which updates automatically
 
     """Metodos para la barra de busqueda de tratamientos"""
     
@@ -129,7 +129,7 @@ class AppointmentFormView:
         search_term = self.treatment_search.value.strip()
         self.update_treatment_search_results(search_term)
         self.treatment_search.open_view()
-        self.page.update()
+        self.treatment_search.update()
 
     def update_treatment_search_results(self, search_term: str):
         """Actualiza los resultados de búsqueda de tratamientos en el SearchBar."""
@@ -161,7 +161,7 @@ class AppointmentFormView:
                 )
             
             self.treatment_search.update()
-            self.page.update()
+            # self.page.update() # Removed global update
         except Exception as e:
             show_error(self.page, f"Error al actualizar resultados de tratamientos: {str(e)}")
 
@@ -212,14 +212,13 @@ class AppointmentFormView:
         self.treatment_search.value = ""
         self.treatment_search.controls.clear() # Limpiar resultados directamente del SearchBar
         self.treatment_search.close_view()
-        self.page.update()
+        self.treatment_search.update()
 
     def _remove_treatment(self, treatment_id: int):
         """Elimina un tratamiento de la lista de seleccionados."""
         self.selected_treatments = [t for t in self.selected_treatments if t['id'] != treatment_id]
         self.form_data['treatments'] = [t for t in self.form_data['treatments'] if t['id'] != treatment_id]
         self._update_treatments_display()
-        self.page.update()
 
     def _update_treatment_quantity(self, treatment_id: int, new_quantity: str):
         """Actualiza la cantidad de un tratamiento seleccionado."""
@@ -238,7 +237,9 @@ class AppointmentFormView:
                 if t_fd['id'] == treatment_id:
                     t_fd['quantity'] = quantity
                     break
-            self.page.update()
+                    t_fd['quantity'] = quantity
+                    break
+            # self.page.update() # Removed global update, maybe update total if exists? Currently no total display in appointment form
         except ValueError:
             show_error(self.page, "La cantidad debe ser un número entero válido.")
 
@@ -249,7 +250,6 @@ class AppointmentFormView:
                 t['quantity'] += 1
                 break
         self._update_treatments_display()
-        self.page.update()
 
     def _decrement_treatment_quantity(self, treatment_id: int):
         """Decrementa la cantidad de un tratamiento seleccionado, mínimo 1."""
@@ -261,7 +261,6 @@ class AppointmentFormView:
                     show_error(self.page, "La cantidad no puede ser menor a 1.")
                 break
         self._update_treatments_display()
-        self.page.update()
         
     def _update_treatments_display(self):
         """Actualiza la visualización de los tratamientos seleccionados."""
@@ -325,6 +324,9 @@ class AppointmentFormView:
                     elevation=1
                 ) for t in self.selected_treatments
             ]
+
+        if self.treatments_column.page:
+            self.treatments_column.update()
     
     def _reset_treatment_search(self):
         """Resetea la búsqueda de tratamientos y la lista de seleccionados."""
@@ -334,7 +336,7 @@ class AppointmentFormView:
         self.form_data['treatments'] = []
         self._update_treatments_display()
         self.treatment_search.close_view()
-        self.page.update()
+        self.treatment_search.update()
     
     def handle_treatment_search_submit(self, e):
         """Maneja la selección directa con Enter en la búsqueda de tratamientos."""
@@ -376,7 +378,7 @@ class AppointmentFormView:
         search_term = self.client_search.value.strip()
         self.update_client_search_results(search_term)
         self.client_search.open_view()
-        self.page.update()
+        self.client_search.update()
 
     def update_client_search_results(self, search_term: str):
         """Actualiza los resultados de búsqueda de clientes en el SearchBar."""
@@ -408,7 +410,7 @@ class AppointmentFormView:
                 )
 
             self.client_search.update()
-            self.page.update()
+            # self.page.update() # Removed global update
         except Exception as e:
             show_error(self.page, f"Error al actualizar resultados de clientes: {str(e)}")
 
@@ -468,8 +470,11 @@ class AppointmentFormView:
         self.selected_client_text.style = None 
         self.selected_client_text.color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
 
+        self.selected_client_text.color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
+        
         self.client_search.close_view()
-        self.page.update()
+        self.client_search.update()
+        self.selected_client_text.update()
 
     def _reset_client_search(self):
         """Resetea la búsqueda de clientes y la selección."""
@@ -479,20 +484,26 @@ class AppointmentFormView:
         self.selected_client_text.value = "Ningún cliente seleccionado"
         self.selected_client_text.style = ft.TextStyle(italic=True)
         self.selected_client_text.color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
+        self.selected_client_text.color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
         self.client_search.close_view()
-        self.page.update()
+        self.client_search.update()
+        self.selected_client_text.update()
 
     def handle_date_change(self, e):
         """Maneja el cambio de fecha seleccionado en el DatePicker."""
         self.form_data['date'] = self.date_picker.value.date()
         self.date_text.value = self.form_data['date'].strftime("%d/%m/%Y") if self.form_data['date'] else "No seleccionada"
-        self.page.update()
+        self.date_text.value = self.form_data['date'].strftime("%d/%m/%Y") if self.form_data['date'] else "No seleccionada"
+        if self.date_text.page:
+            self.date_text.update()
     
     def handle_time_change(self, e):
         """Maneja el cambio de hora seleccionado en el TimePicker."""
         self.form_data['hour'] = self.time_picker.value
         self.time_text.value = self.form_data['hour'].strftime("%H:%M") if self.form_data['hour'] else "No seleccionada"
-        self.page.update()
+        self.time_text.value = self.form_data['hour'].strftime("%H:%M") if self.form_data['hour'] else "No seleccionada"
+        if self.time_text.page:
+            self.time_text.update()
     
     def load_appointment_data(self):
         """Carga los datos de una cita existente para edición."""

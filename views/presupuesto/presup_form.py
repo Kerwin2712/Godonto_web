@@ -209,7 +209,8 @@ class PresupFormView:
                 ) for client in clients
             ]
             e.control.update()
-            self.page.update()
+            e.control.update()
+            # self.page.update() # Removed global update
         except Exception as ex:
             logger.error(f"Error en búsqueda de clientes: {str(ex)}")
             show_error(self.page, f"Error en búsqueda de clientes: {str(ex)}")
@@ -228,14 +229,17 @@ class PresupFormView:
         self.selected_client_text.style = None
         self.selected_client_text.color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
         self.client_search.close_view()
-        self.page.update()
+        self.client_search.update()
+        self.selected_client_text.update()
+        
         # Si ya hay un cliente seleccionado, habilitar el botón de guardar
         if self.save_budget_button_ref.current:
             self.save_budget_button_ref.current.disabled = False
+            self.save_budget_button_ref.current.update()
         # Si ya hay un quote_id (es una edición), también se puede habilitar el botón de PDF
         if self.download_pdf_button_ref.current and self.quote_id is not None and self.selected_treatments: # Añadir check para tratamientos
              self.download_pdf_button_ref.current.disabled = False
-        self.page.update()
+             self.download_pdf_button_ref.current.update()
 
 
     def _reset_client_search(self):
@@ -247,12 +251,16 @@ class PresupFormView:
         self.selected_client_text.style = ft.TextStyle(italic=True)
         self.selected_client_text.color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
         self.client_search.close_view()
+        self.client_search.update()
+        self.selected_client_text.update()
+        
         # Deshabilitar ambos botones cuando no hay cliente seleccionado
         if self.save_budget_button_ref.current:
             self.save_budget_button_ref.current.disabled = True
+            self.save_budget_button_ref.current.update()
         if self.download_pdf_button_ref.current:
             self.download_pdf_button_ref.current.disabled = True
-        self.page.update()
+            self.download_pdf_button_ref.current.update()
 
 
     async def _load_client_data(self):
@@ -315,7 +323,8 @@ class PresupFormView:
                 ) for t in treatments
             ]
             e.control.update()
-            self.page.update()
+            e.control.update()
+            # self.page.update() # Removed global update
         except Exception as ex:
             logger.error(f"Error en búsqueda de tratamientos: {str(ex)}")
             show_error(self.page, f"Error en búsqueda de tratamientos: {str(ex)}")
@@ -328,7 +337,7 @@ class PresupFormView:
         self.treatment_search.value = ""
         self.treatment_search.controls = []
         self.treatment_search.close_view()
-        self.page.update()
+        self.treatment_search.update()
 
     def _select_treatment(self, treatment_id: int, name: str, price: float):
         """Selecciona un tratamiento existente y lo añade a la lista"""
@@ -344,7 +353,7 @@ class PresupFormView:
         self.treatment_search.value = ""
         self.treatment_search.controls = []
         self.treatment_search.close_view()
-        self.page.update()
+        self.treatment_search.update()
         self._update_total_amount()
 
     def _update_total_amount(self):
@@ -354,7 +363,8 @@ class PresupFormView:
         if final_total < 0:
             final_total = 0
         self.total_amount_text.value = f"Total: ${final_total:,.2f}"
-        self.page.update()
+        if self.total_amount_text.page:
+            self.total_amount_text.update()
 
     def _on_discount_change(self, e: ft.ControlEvent):
         """Maneja el cambio en el campo de descuento."""
@@ -384,11 +394,10 @@ class PresupFormView:
         self.selected_treatments = [t for t in self.selected_treatments if t.get('unique_key') != unique_key]
         self._update_treatments_display()
         self._update_total_amount()
-        self.page.update()
         # Si no quedan tratamientos o el presupuesto no ha sido guardado, deshabilitar el botón de PDF
         if self.download_pdf_button_ref.current:
             self.download_pdf_button_ref.current.disabled = (not self.selected_treatments) or (self.quote_id is None)
-            self.page.update()
+            self.download_pdf_button_ref.current.update()
 
     def _get_treatment_by_unique_key(self, unique_key: str) -> Optional[dict]:
         """Obtiene un tratamiento de selected_treatments por su unique_key."""
@@ -402,7 +411,7 @@ class PresupFormView:
         item = self._get_treatment_by_unique_key(item_unique_key)
         if item:
             item['name'] = e.control.value
-            self.page.update()
+            # No es necesario actualizar la UI aquí ya que el TextField se actualiza solo al escribir
 
     def _handle_treatment_price_change(self, e: ft.ControlEvent, item_unique_key: str):
         """Maneja el cambio en el precio de un tratamiento."""
@@ -572,7 +581,9 @@ class PresupFormView:
                         elevation=1
                     )
                 )
-        self.page.update()
+
+        if self.treatments_column.page:
+            self.treatments_column.update()
 
     def add_new_treatment_item(self, e=None):
         """Añade un nuevo item de tratamiento vacío para que el usuario lo rellene"""
@@ -580,7 +591,6 @@ class PresupFormView:
         self.selected_treatments.append({'id': None, 'name': '', 'price': 0.0, 'quantity': 1, 'unique_key': f"new-{len(self.selected_treatments)}-{datetime.now().timestamp()}"})
         self._update_treatments_display()
         self._update_total_amount()
-        self.page.update()
 
     def _validate_budget_data(self) -> bool:
         """Valida los datos del presupuesto antes de guardar o generar PDF."""
