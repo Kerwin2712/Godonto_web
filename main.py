@@ -5,21 +5,9 @@ from datetime import datetime
 import sys
 from core.config import settings
 from core.database import Database
-from views.auth.login import login_view
-from views.dashboard.dashboard import dashboard_view
-from views.clients.clients import clients_view
-from views.appointments.appointments import appointments_view
-from views.calendar.calendar import calendar_view
-from views.reports.reports import reports_view
-from views.clients.client_form import client_form_view
-from views.appointments.appointment_form import appointment_form_view
-from views.presupuesto.presup_form import presup_view
-from views.presupuesto.quotes import quotes_view
-from views.tretment.treatments import treatments_view
-from services.preference_service import PreferenceService
-from views.clients.history import client_history_view
-from views.dentistas.dentist_view import dentists_view
-from services.appointment_service import AppointmentService # Importar AppointmentService
+from core.database import Database
+from views.splash import SplashView
+# Lazy loading imports will be inside route_change
 
 # Configuración de logging
 log_dir = os.path.join(os.getenv('LOCALAPPDATA'), 'GodontoClinic', 'logs')
@@ -57,10 +45,9 @@ def main(page: ft.Page):
     page.assets_dir = "assets" 
     logger.info(f"Directorio de assets configurado a: {page.assets_dir}")
 
-    user_id_for_preferences = 1 
-    saved_theme = PreferenceService.get_user_theme(user_id_for_preferences)
-    page.theme_mode = ft.ThemeMode.DARK if saved_theme == 'dark' else ft.ThemeMode.LIGHT
-    logger.info(f"Tema inicial cargado para el usuario {user_id_for_preferences}: {page.theme_mode}")
+    # Tema inicial por defecto (se actualizará en el Splash)
+    page.theme_mode = ft.ThemeMode.LIGHT 
+    logger.info(f"Tema inicial por defecto: {page.theme_mode}")
 
     def window_event(e):
         if e.data == "close":
@@ -115,15 +102,22 @@ def main(page: ft.Page):
             page.update()
 
             try:
-                if page.route == "/login":
+                if page.route == "/splash":
+                    page.views.append(SplashView(page, lambda: page.go("/login")))
+                elif page.route == "/login":
+                    from views.auth.login import login_view
                     page.views.append(login_view(page))
                 elif page.route == "/dashboard":
+                    from views.dashboard.dashboard import dashboard_view
                     page.views.append(dashboard_view(page))
                 elif page.route == "/treatments":
+                    from views.tretment.treatments import treatments_view
                     page.views.append(treatments_view(page))
                 elif page.route == "/clients":
+                    from views.clients.clients import clients_view
                     page.views.append(clients_view(page))
                 elif page.route == "/client_form" or page.route.startswith("/client_form/"):
+                    from views.clients.client_form import client_form_view
                     client_id = None
                     if len(current_route.split("/")) > 2:
                         try:
@@ -132,6 +126,7 @@ def main(page: ft.Page):
                             pass
                     page.views.append(client_form_view(page, client_id))
                 elif page.route.startswith("/clients/") and current_route.endswith("/history"):
+                    from views.clients.history import client_history_view
                     client_id = None
                     try:
                         client_id = int(current_route.split("/")[2])
@@ -139,10 +134,13 @@ def main(page: ft.Page):
                         logger.error(f"Error al parsear ID de cliente de la ruta de historial: {page.route}")
                     page.views.append(client_history_view(page, client_id))
                 elif page.route == "/appointments":
+                    from views.appointments.appointments import appointments_view
                     page.views.append(appointments_view(page))
                 elif page.route == "/dentists":
+                    from views.dentistas.dentist_view import dentists_view
                     page.views.append(dentists_view(page))
                 elif page.route == "/presupuesto" or page.route.startswith("/presupuesto/"):
+                    from views.presupuesto.presup_form import presup_view
                     client_id = None
                     quote_id = None 
                     route_parts = page.route.split("/")
@@ -157,6 +155,7 @@ def main(page: ft.Page):
                             logger.error(f"Error al parsear ID de presupuesto o cliente de la ruta: {page.route}")
                     page.views.append(presup_view(page, client_id, quote_id)) 
                 elif page.route == "/appointment_form" or page.route.startswith("/appointment_form/"):
+                    from views.appointments.appointment_form import appointment_form_view
                     appointment_id = None
                     if page.route.startswith("/appointment_form/"):
                         try:
@@ -165,10 +164,13 @@ def main(page: ft.Page):
                             logger.error(f"Error {IndexError}: {str(ValueError)}")
                     page.views.append(appointment_form_view(page, appointment_id))
                 elif page.route == "/quotes": 
+                    from views.presupuesto.quotes import quotes_view
                     page.views.append(quotes_view(page))
                 elif page.route == "/calendar":
+                    from views.calendar.calendar import calendar_view
                     page.views.append(calendar_view(page))
                 elif page.route == "/reports":
+                    from views.reports.reports import reports_view
                     page.views.append(reports_view(page))
                 
                 page.update()
@@ -189,17 +191,14 @@ def main(page: ft.Page):
     page.on_route_change = route_change
     page.on_error = lambda e: handle_error(e)
     
-    # Llamar a la función para cancelar citas pasadas pendientes al inicio
-    AppointmentService.cancel_past_pending_appointments()
-    
-    page.go("/login")
+    page.go("/splash")
     
     page.on_close = Database.close_all_connections
 
 if __name__ == "__main__":
     try:
         try:
-            Database.initialize()
+            # Database.initialize() # Se inicializa en el Splash
             ft.app(target=main, view=ft.AppView.FLET_APP)
         finally:
             Database.close_all_connections()
