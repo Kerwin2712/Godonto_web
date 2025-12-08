@@ -29,7 +29,7 @@ class ClientService(Observable):
         with get_db() as cursor:
             cursor.execute(
                 """
-                SELECT id, name, cedula, phone, email, created_at, updated_at
+                SELECT id, name, cedula, phone, email, address, birth_date, created_at, updated_at
                 FROM clients
                 WHERE id = %s
                 """,
@@ -43,8 +43,10 @@ class ClientService(Observable):
                     cedula=row[2],
                     phone=row[3],
                     email=row[4],
-                    created_at=row[5],
-                    updated_at=row[6]
+                    address=row[5],
+                    birth_date=row[6],
+                    created_at=row[7],
+                    updated_at=row[8]
                 )
             return None # Retornar None si el cliente no se encuentra
     
@@ -186,7 +188,7 @@ class ClientService(Observable):
         """Obtiene los clientes más recientes"""
         with get_db() as cursor:
             cursor.execute("""
-                SELECT id, name, cedula, phone, email, created_at, updated_at
+                SELECT id, name, cedula, phone, email, address, birth_date, created_at, updated_at
                 FROM clients
                 ORDER BY created_at DESC
                 LIMIT %s
@@ -199,8 +201,10 @@ class ClientService(Observable):
                     cedula=row[2],
                     phone=row[3],
                     email=row[4],
-                    created_at=row[5],
-                    updated_at=row[6]
+                    address=row[5],
+                    birth_date=row[6],
+                    created_at=row[7],
+                    updated_at=row[8]
                 ))
             return clients
     
@@ -239,7 +243,7 @@ class ClientService(Observable):
         """
         try:
             query = """
-                SELECT id, name, cedula, phone, email, created_at, updated_at 
+                SELECT id, name, cedula, phone, email, address, birth_date, created_at, updated_at 
                 FROM clients
                 WHERE 1=1
             """
@@ -268,8 +272,10 @@ class ClientService(Observable):
                         cedula=row[2],
                         phone=row[3],
                         email=row[4],
-                        created_at=row[5],
-                        updated_at=row[6]
+                        address=row[5],
+                        birth_date=row[6],
+                        created_at=row[7],
+                        updated_at=row[8]
                     ) for row in cursor.fetchall()
                 ]
         except Exception as e:
@@ -282,7 +288,7 @@ class ClientService(Observable):
         Obtiene todos los clientes y devuelve objetos Client.
         """
         query = """
-            SELECT id, name, cedula, phone, email, created_at, updated_at 
+            SELECT id, name, cedula, phone, email, address, birth_date, created_at, updated_at 
             FROM clients
             ORDER BY name ASC
         """
@@ -295,16 +301,18 @@ class ClientService(Observable):
                     cedula=row[2],
                     phone=row[3],
                     email=row[4],
-                    created_at=row[5],
-                    updated_at=row[6]
+                    address=row[5],
+                    birth_date=row[6],
+                    created_at=row[7],
+                    updated_at=row[8]
                 ) for row in cursor.fetchall()
             ]
     
     @staticmethod
     def create_client(client_data):
         query = """
-            INSERT INTO clients (name, cedula, phone, email)
-            VALUES (%s, %s, %s, %s)
+            INSERT INTO clients (name, cedula, phone, email, birth_date)
+            VALUES (%s, %s, %s, %s, %s)
             RETURNING id
         """
         with Database.get_cursor() as cursor:
@@ -312,8 +320,48 @@ class ClientService(Observable):
                 client_data['name'],
                 client_data['cedula'],
                 client_data['phone'],
-                client_data['email']
+                client_data['email'],
+                client_data.get('birth_date')
             ))
             new_id = cursor.fetchone()[0]
             ClientService().notify_all('CLIENT_CREATED', {'client_id': new_id})
             return new_id
+
+    @staticmethod
+    def get_clients_with_birthdays_in_month(month: int) -> List[Client]:
+        """Obtiene clientes que cumplen años en el mes especificado"""
+        with get_db() as cursor:
+            cursor.execute("""
+                SELECT id, name, cedula, phone, email, address, birth_date, created_at, updated_at
+                FROM clients
+                WHERE EXTRACT(MONTH FROM birth_date) = %s
+                ORDER BY EXTRACT(DAY FROM birth_date) ASC
+            """, (month,))
+            
+            return [
+                Client(
+                    id=row[0],
+                    name=row[1],
+                    cedula=row[2],
+                    phone=row[3],
+                    email=row[4],
+                    address=row[5],
+                    birth_date=row[6],
+                    created_at=row[7],
+                    updated_at=row[8]
+                ) for row in cursor.fetchall()
+            ]
+
+    @staticmethod
+    def get_todays_birthdays_count() -> int:
+        """Obtiene la cantidad de personas que cumplen años hoy"""
+        from datetime import date
+        today = date.today()
+        with get_db() as cursor:
+            cursor.execute("""
+                SELECT COUNT(*)
+                FROM clients
+                WHERE EXTRACT(MONTH FROM birth_date) = %s 
+                AND EXTRACT(DAY FROM birth_date) = %s
+            """, (today.month, today.day))
+            return cursor.fetchone()[0]

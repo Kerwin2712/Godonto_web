@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, date
 from typing import Optional, Tuple, List, TYPE_CHECKING
 from utils.validators import Validators
 from models.appointment import Appointment
@@ -28,6 +28,7 @@ class Client:
     phone: Optional[str] = None
     email: Optional[str] = None
     address: Optional[str] = None
+    birth_date: Optional[date] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     appointments: List[Appointment] = None
@@ -68,6 +69,7 @@ class Client:
             "phone": self.phone,
             "email": self.email,
             "address": self.address,
+            "birth_date": self.birth_date.isoformat() if self.birth_date else None,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None
         }
@@ -90,6 +92,8 @@ class Client:
                         if data.get('created_at') else None)
             updated_at = (datetime.fromisoformat(data['updated_at']) 
                         if data.get('updated_at') else None)
+            birth_date = (date.fromisoformat(data['birth_date'])
+                        if data.get('birth_date') else None)
             
             return cls(
                 id=data['id'],
@@ -98,6 +102,7 @@ class Client:
                 phone=data.get('phone'),
                 email=data.get('email'),
                 address=data.get('address'),
+                birth_date=birth_date,
                 created_at=created_at,
                 updated_at=updated_at
             )

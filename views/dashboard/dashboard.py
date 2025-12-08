@@ -271,6 +271,8 @@ class DashboardView:
                             ft.icons.CALENDAR_TODAY, ft.colors.BLUE_400),
                     build_stat_card("Clientes Nuevos", self.stats.get('new_clients_today', 0), 
                             ft.icons.PERSON_ADD, ft.colors.GREEN_400),
+                    build_stat_card("Cumpleaños Hoy", self.client_service.get_todays_birthdays_count(), 
+                            ft.icons.CAKE, ft.colors.PINK_400),
                     build_stat_card("Pendientes", f"${self.stats.get('total_pending_debts_amount', 0):,.2f}", 
                             ft.icons.PAYMENTS, ft.colors.AMBER_400),
                     build_stat_card("Ingresos", f"${self.stats.get('revenue_today', 0):,.2f}", 
@@ -291,6 +293,8 @@ class DashboardView:
                         ft.icons.CALENDAR_TODAY, ft.colors.BLUE_400),
                 build_stat_card("Clientes Nuevos", self.stats.get('new_clients_today', 0), 
                         ft.icons.PERSON_ADD, ft.colors.GREEN_400),
+                build_stat_card("Cumpleaños Hoy", self.client_service.get_todays_birthdays_count(), 
+                        ft.icons.CAKE, ft.colors.PINK_400),
                 build_stat_card("Pendientes", f"${self.stats.get('total_pending_debts_amount', 0):,.2f}", 
                         ft.icons.PAYMENTS, ft.colors.AMBER_400),
                 build_stat_card("Ingresos", f"${self.stats.get('revenue_today', 0):,.2f}", 
@@ -681,9 +685,9 @@ class DashboardView:
             content=ft.Text(f"¿Marcar cita con {client_name} como {new_status}?", color=dialog_text_color),
             actions=[
                 ft.TextButton("Cancelar", on_click=lambda e: setattr(self.page.dialog, "open", False),
-                              style=ft.ButtonStyle(color=dialog_text_color)),
+                            style=ft.ButtonStyle(color=dialog_text_color)),
                 ft.TextButton("Confirmar", on_click=handle_confirm,
-                              style=ft.ButtonStyle(color=ft.colors.BLUE_500)),
+                            style=ft.ButtonStyle(color=ft.colors.BLUE_500)),
             ],
             bgcolor=dialog_bg_color
         )
@@ -733,7 +737,7 @@ class DashboardView:
             content=ft.Text(f"¿Está seguro de que desea eliminar la cita de {client_name}? Esta acción no se puede deshacer.", color=dialog_text_color),
             actions=[
                 ft.TextButton("No", on_click=delete_confirmed, data=False,
-                              style=ft.ButtonStyle(color=dialog_text_color)),
+                            style=ft.ButtonStyle(color=dialog_text_color)),
                 ft.FilledButton("Sí", on_click=delete_confirmed, data=True, 
                                 style=ft.ButtonStyle(bgcolor=ft.colors.RED_500)),
             ],
@@ -780,7 +784,7 @@ class DashboardView:
             title=ft.Text("Error", color=dialog_text_color),
             content=ft.Text(message, color=dialog_text_color),
             actions=[ft.TextButton("OK", on_click=lambda e: setattr(self.page.dialog, "open", False),
-                                   style=ft.ButtonStyle(color=ft.colors.BLUE_500))
+                                style=ft.ButtonStyle(color=ft.colors.BLUE_500))
 ],
             bgcolor=dialog_bg_color
         )

@@ -10,6 +10,7 @@ from utils.date_utils import (
 )
 from utils.alerts import show_snackbar
 from services.appointment_service import AppointmentService
+from services.client_service import ClientService
 
 class CalendarView:
     def __init__(self, page: ft.Page):
@@ -42,7 +43,7 @@ class CalendarView:
         # Nuevo control para el texto del botón del DatePicker
         self.selected_date_button_text = ft.Text(self.selected_date.strftime("%d/%m/%Y")) 
         
-        self.load_appointments()
+        self.load_data()
         
         self.date_picker = ft.DatePicker(
             first_date=datetime.now().date() - timedelta(days=365),
@@ -56,7 +57,7 @@ class CalendarView:
         if event_type == 'APPOINTMENT_STATUS_CHANGED':
             # Recargar solo las citas del mes actual para eficiencia
             self.appointments = {} # Reiniciar para asegurar la recarga completa de estados
-            self.load_appointments()
+            self.load_data()
             self.update_calendar()
             self.update_appointments_list()
     
@@ -234,8 +235,9 @@ class CalendarView:
             scroll=ft.ScrollMode.AUTO
         )
 
-    def load_appointments(self):
-        """Carga las citas desde la base de datos para el mes actual y detecta canceladas."""
+    def load_data(self):
+        """Carga las citas y cumpleaños desde la base de datos para el mes actual."""
+        # 1. Cargar Citas
         with get_db() as cursor:
             first_day = date(self.current_date.year, self.current_date.month, 1)
             last_day = date(
@@ -273,12 +275,38 @@ class CalendarView:
                 if appt_date_str not in self.appointments:
                     self.appointments[appt_date_str] = {
                         'appointments': [],
+                        'birthdays': [],
                         'has_cancelled_appointments': False
                     }
 
                 self.appointments[appt_date_str]['appointments'].append(appt)
                 if appt[4] == 'cancelled':  # Si el estado es 'cancelled'
                     self.appointments[appt_date_str]['has_cancelled_appointments'] = True
+
+        # 2. Cargar Cumpleaños
+        birthday_clients = ClientService.get_clients_with_birthdays_in_month(self.current_date.month)
+        for client in birthday_clients:
+            if client.birth_date:
+                # Calcular la fecha del cumpleaños en el año actual (y mes actual)
+                try:
+                    bday_this_year = client.birth_date.replace(year=self.current_date.year)
+                except ValueError:
+                    # Manejar 29 de febrero en años no bisiestos
+                    if client.birth_date.month == 2 and client.birth_date.day == 29:
+                        bday_this_year = date(self.current_date.year, 3, 1) # O 28 de feb
+                    else:
+                        continue
+                
+                bday_str = bday_this_year.strftime("%Y-%m-%d")
+                
+                if bday_str not in self.appointments:
+                    self.appointments[bday_str] = {
+                        'appointments': [],
+                        'birthdays': [],
+                        'has_cancelled_appointments': False
+                    }
+                
+                self.appointments[bday_str]['birthdays'].append(client)
 
 
     def update_calendar(self):
@@ -304,8 +332,9 @@ class CalendarView:
         is_selected = day == self.selected_date
         is_today_flag = is_today(day)
         
-        day_info = self.appointments.get(day.strftime("%Y-%m-%d"), {'appointments': [], 'has_cancelled_appointments': False})
+        day_info = self.appointments.get(day.strftime("%Y-%m-%d"), {'appointments': [], 'birthdays': [], 'has_cancelled_appointments': False})
         has_appointments = bool(day_info['appointments'])
+        has_birthdays = bool(day_info['birthdays'])
         has_cancelled_appointments = day_info['has_cancelled_appointments']
 
         # Colores para el día del calendario
@@ -336,14 +365,27 @@ class CalendarView:
             ft.colors.TRANSPARENT
         )
 
-        # Determinar el color del badge
+        # Determinar indicadores
+        indicators = []
+        
+        # Badge de citas
         badge_color = ft.colors.TRANSPARENT # Por defecto sin color
         if has_appointments and is_current: # Solo mostrar badge si hay citas y es el mes actual
             if has_cancelled_appointments:
                 badge_color = ft.colors.RED_400 # Rojo si hay citas canceladas
             else:
                 badge_color = ft.colors.BLUE_400 # Azul si hay citas y ninguna está cancelada
+            
+            indicators.append(ft.Container(
+                content=ft.CircleAvatar(radius=3, bgcolor=badge_color),
+                width=6, height=6
+            ))
         
+        # Icono de cumpleaños
+        if has_birthdays and is_current:
+            indicators.append(ft.Icon(ft.icons.CAKE, size=12, color=ft.colors.PINK_400))
+
+
         return ft.Container(
             content=ft.Column(
                 controls=[
@@ -354,13 +396,10 @@ class CalendarView:
                         color=text_color,
                         text_align=ft.TextAlign.CENTER
                     ),
-                    ft.Container( # El badge, con color condicional
-                        content=ft.CircleAvatar(
-                            radius=4,
-                            bgcolor=badge_color # Usar el color determinado
-                        ),
-                        width=10,
-                        height=10
+                    ft.Row(
+                        controls=indicators,
+                        alignment=ft.MainAxisAlignment.CENTER,
+                        spacing=2
                     )
                 ],
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
@@ -389,18 +428,31 @@ class CalendarView:
         """Actualiza la lista de citas mostradas para la fecha seleccionada."""
         date_key = self.selected_date.strftime("%Y-%m-%d")
         # Acceder a la lista de citas dentro del diccionario de día
-        daily_appointments_info = self.appointments.get(date_key, {'appointments': [], 'has_cancelled_appointments': False})
-        daily_appointments = daily_appointments_info['appointments']
+        daily_info = self.appointments.get(date_key, {'appointments': [], 'birthdays': [], 'has_cancelled_appointments': False})
+        daily_appointments = daily_info['appointments']
+        daily_birthdays = daily_info['birthdays']
         
         text_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
 
         self.appointments_list.controls = []
         
+        # Mostrar Cumpleaños primero
+        if daily_birthdays:
+            self.appointments_list.controls.append(ft.Text("Cumpleaños", weight="bold", color=ft.colors.PINK_400))
+            for client in daily_birthdays:
+                self.appointments_list.controls.append(
+                    self.build_birthday_card(client)
+                )
+            self.appointments_list.controls.append(ft.Divider())
+
+        # Mostrar Citas
         if not daily_appointments:
-            self.appointments_list.controls.append(
-                ft.Text("No hay citas programadas", italic=True, color=text_color)
-            )
+            if not daily_birthdays:
+                self.appointments_list.controls.append(
+                    ft.Text("No hay citas programadas ni cumpleaños", italic=True, color=text_color)
+                )
         else:
+            self.appointments_list.controls.append(ft.Text("Citas", weight="bold", color=text_color))
             for appt in daily_appointments:
                 self.appointments_list.controls.append(
                     self.build_appointment_card(appt)
@@ -484,7 +536,7 @@ class CalendarView:
             
         self.current_date = date(new_year, new_month, 1)
         self.appointments = {} # Resetear para forzar recarga
-        self.load_appointments()
+        self.load_data()
         self.update_calendar()
         self.update_appointments_list() # Asegura que la lista de citas se actualice al cambiar de mes
 
@@ -493,7 +545,7 @@ class CalendarView:
         self.current_date = datetime.now().date()
         self.selected_date = self.current_date
         self.appointments = {}
-        self.load_appointments()
+        self.load_data()
         self.update_calendar()
         self.update_appointments_list()
 
@@ -511,7 +563,7 @@ class CalendarView:
                     show_snackbar(self.page, f"Estado actualizado a {new_status.capitalize()}", "success")
                     # **CLAVE: Recargar las citas y actualizar la UI después del cambio**
                     self.appointments = {} # Limpiar para recargar los datos actualizados
-                    self.load_appointments()
+                    self.load_data()
                     self.update_calendar()
                     self.update_appointments_list()
                 else:
@@ -519,6 +571,32 @@ class CalendarView:
                     
             except Exception as e:
                 show_snackbar(self.page, f"Error al actualizar: {str(e)}", "error")
+
+    def build_birthday_card(self, client):
+        """Construye una tarjeta para mostrar un cumpleaños."""
+        card_bgcolor = ft.colors.WHITE if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_700
+        text_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
+        
+        return ft.Card(
+            content=ft.Container(
+                content=ft.ListTile(
+                    leading=ft.Icon(ft.icons.CAKE, color=ft.colors.PINK_400),
+                    title=ft.Row(
+                        controls=[
+                            ft.Text(client.name, color=text_color, weight="bold"),
+                            ft.Icon(ft.icons.CAKE, size=16, color=ft.colors.PINK_400)
+                        ],
+                        spacing=5
+                    ),
+                    subtitle=ft.Text(f"¡Está de cumpleaños!", color=ft.colors.PINK_300),
+                ),
+                bgcolor=card_bgcolor,
+                padding=ft.padding.all(5),
+                border_radius=10,
+                border=ft.border.all(1, ft.colors.PINK_200)
+            ),
+            elevation=1
+        )
 
 def calendar_view(page: ft.Page):
     """Función de fábrica para crear la vista del calendario."""
