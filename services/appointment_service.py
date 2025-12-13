@@ -455,19 +455,37 @@ class AppointmentService(Observable):
     
     @staticmethod
     def get_upcoming_appointments(limit: int = 5) -> List[Appointment]:
-        """Versión más robusta con manejo de errores"""
+        """Versión optimizada con eager loading de tratamientos"""
         try:
             with get_db() as cursor:
+                # Utilizamos json_agg para agrupar los tratamientos en la misma consulta
+                # y evitar el problema N+1
                 cursor.execute("""
-                    SELECT a.id, a.client_id, c.name, c.cedula, 
+                    SELECT 
+                        a.id, a.client_id, c.name, c.cedula, 
                         a.date, a.time, a.status, a.notes,
                         a.created_at, a.updated_at,
-                        a.dentist_id, d.name AS dentist_name
+                        a.dentist_id, d.name AS dentist_name,
+                        COALESCE(
+                            json_agg(
+                                json_build_object(
+                                    'id', t.id,
+                                    'name', t.name,
+                                    'price', at.price,
+                                    'notes', at.notes,
+                                    'quantity', at.quantity
+                                )
+                            ) FILTER (WHERE t.id IS NOT NULL),
+                            '[]'
+                        ) as treatments
                     FROM appointments a
                     JOIN clients c ON a.client_id = c.id
                     LEFT JOIN dentists d ON a.dentist_id = d.id
+                    LEFT JOIN appointment_treatments at ON a.id = at.appointment_id
+                    LEFT JOIN treatments t ON at.treatment_id = t.id
                     WHERE a.date >= CURRENT_DATE
                     AND a.status = 'pending'
+                    GROUP BY a.id, c.id, c.name, c.cedula, d.id, d.name
                     ORDER BY a.date ASC, a.time ASC
                     LIMIT %s
                 """, (limit,))
@@ -479,7 +497,7 @@ class AppointmentService(Observable):
                 appointments = []
                 for row in results:
                     try:
-                        appointments.append(Appointment(
+                        appt = Appointment(
                             id=row[0],
                             client_id=row[1],
                             client_name=row[2],
@@ -492,7 +510,10 @@ class AppointmentService(Observable):
                             updated_at=row[9],
                             dentist_id=row[10],
                             dentist_name=row[11]
-                        ))
+                        )
+                        # Asignar tratamientos directamente desde la consulta
+                        appt.treatments = row[12] 
+                        appointments.append(appt)
                     except Exception as e:
                         logger.error(f"Error al crear Appointment desde get_upcoming_appointments: {str(e)}")
                         continue

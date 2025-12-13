@@ -1,13 +1,15 @@
 import flet as ft
 from datetime import datetime, time # Importar time para el tipo de dato en _build_appointment_card
 from core.database import Database
-from services.appointment_service import AppointmentService, get_appointment_treatments, get_appointment_by_id
+from services.appointment_service import AppointmentService, get_appointment_by_id
 from services.client_service import ClientService
 from services.stats_service import StatsService
 from services.payment_service import PaymentService
 from services.preference_service import PreferenceService
 from utils.date_utils import format_date
 from utils.widgets import build_stat_card
+from utils.alerts import show_success, show_error, show_confirmation_dialog
+from utils.theme_utils import AppTheme # Importar AppTheme
 import logging
 
 # Importar la nueva vista de dentistas (ya estaba, pero se mantiene)
@@ -107,13 +109,11 @@ class DashboardView:
 
     def _build_appbar(self):
         """Construye la barra de aplicación con botón de cerrar sesión y menú de temas"""
-        # Ajusta los colores de la AppBar para el modo oscuro
-        bgcolor_appbar = ft.colors.BLUE_700 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_900
-        color_appbar_text = ft.colors.WHITE if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
+        colors = AppTheme.get_colors(self.page.theme_mode)
         
         return ft.AppBar(
-            title=ft.Text("Inicio", color=color_appbar_text),
-            bgcolor=bgcolor_appbar,
+            title=ft.Text("Inicio", color=colors['appbar_text']),
+            bgcolor=colors['appbar_bg'],
             automatically_imply_leading=False,
             leading=ft.PopupMenuButton(
                 icon=ft.icons.MENU,
@@ -142,7 +142,7 @@ class DashboardView:
                     icon=ft.icons.LOGOUT,
                     tooltip="Cerrar sesión",
                     on_click=lambda e: self.page.go("/login"),
-                    icon_color=color_appbar_text # Asegura que el icono también cambie de color
+                    icon_color=colors['appbar_text'] # Asegura que el icono también cambie de color
                 )
             ]
         )
@@ -165,11 +165,11 @@ class DashboardView:
 
             if selected_mode == "light":
                 self.page.theme_mode = ft.ThemeMode.LIGHT
-                self._show_success("Tema cambiado a Claro")
+                show_success(self.page, "Tema cambiado a Claro")
                 theme_dialog.open = False
             elif selected_mode == "dark":
                 self.page.theme_mode = ft.ThemeMode.DARK
-                self._show_success("Tema cambiado a Oscuro")
+                show_success(self.page, "Tema cambiado a Oscuro")
                 theme_dialog.open = False
             
             # Es crucial actualizar el AppBar y la vista completa para que los colores se apliquen
@@ -569,18 +569,21 @@ class DashboardView:
 
             time_str = appointment.time.strftime("%H:%M") if isinstance(appointment.time, time) else str(appointment.time)
             
-            treatments = get_appointment_treatments(appointment.id)
+            # Usar tratamientos disponibles en el objeto (eager loaded) o lista vacía
+            treatments = getattr(appointment, 'treatments', [])
             
             treatments_controls = []
-            # Ajusta el color del texto para tratamientos
-            treatment_text_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
+            colors = AppTheme.get_colors(self.page.theme_mode)
+            treatment_text_color = colors['text_primary']
             
             if treatments:
-                treatments_controls.append(ft.Divider(height=1, color=ft.colors.GREY_400 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_600))
+                treatments_controls.append(ft.Divider(height=1, color=colors['divider']))
                 treatments_controls.append(ft.Text("Tratamientos:", size=12, weight=ft.FontWeight.BOLD, color=treatment_text_color))
                 for t in treatments:
+                    # Parsear datos de tratamiento (puede venir como dict o objeto, aquí asumimos dict por json_agg)
+                    price = float(t.get('price', 0))
                     treatments_controls.append(
-                        ft.Text(f"- {t['name']} (${t['price']:.2f})", size=12, color=treatment_text_color)
+                        ft.Text(f"- {t.get('name', 'Desconocido')} (${price:.2f})", size=12, color=treatment_text_color)
                     )
             else:
                 treatments_controls.append(ft.Text("Sin tratamientos", size=12, italic=True, color=treatment_text_color))
@@ -588,19 +591,19 @@ class DashboardView:
             # Controles para el dentista
             dentist_info_controls = []
             if appointment.dentist_name:
-                dentist_info_controls.append(ft.Divider(height=1, color=ft.colors.GREY_400 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_600))
+                dentist_info_controls.append(ft.Divider(height=1, color=colors['divider']))
                 dentist_info_controls.append(ft.Text("Dentista:", size=12, weight=ft.FontWeight.BOLD, color=treatment_text_color))
                 dentist_info_controls.append(ft.Text(appointment.dentist_name, size=12, color=treatment_text_color))
             else:
-                dentist_info_controls.append(ft.Divider(height=1, color=ft.colors.GREY_400 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_600))
+                dentist_info_controls.append(ft.Divider(height=1, color=colors['divider']))
                 dentist_info_controls.append(ft.Text("Dentista no asignado", size=12, italic=True, color=treatment_text_color))
 
 
             # Ajusta colores de la tarjeta de cita
-            card_inner_bgcolor = ft.colors.WHITE if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_800
-            card_border_color = ft.colors.GREY_300 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_600
-            title_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
-            subtitle_color = ft.colors.GREY_700 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_200
+            card_inner_bgcolor = colors['bg_secondary']
+            card_border_color = colors['border']
+            title_color = colors['text_primary']
+            subtitle_color = colors['text_secondary']
 
             return ft.Card(
                 content=ft.Container(
@@ -712,12 +715,12 @@ class DashboardView:
                 self.update_stats()
                 self.update_appointments()
                 self.page.update()
-                self._show_success(f"Estado actualizado a {new_status.capitalize()}")
+                show_success(self.page, f"Estado actualizado a {new_status.capitalize()}")
             else:
-                self._show_error("No se pudo actualizar el estado")
+                show_error(self.page, "No se pudo actualizar el estado")
         except Exception as e:
             logger.error(f"Error al actualizar: {str(e)}")
-            self._show_error(f"Error al actualizar: {str(e)}")
+            show_error(self.page, f"Error al actualizar: {str(e)}")
 
     def _confirm_delete_appointment(self, appointment_id: int, client_name: str):
         """Muestra un diálogo de confirmación antes de eliminar una cita."""
@@ -757,43 +760,17 @@ class DashboardView:
                 self.update_stats()
                 self.update_appointments()
                 self.page.update()
-                self._show_success("Cita eliminada exitosamente.")
+                show_success(self.page, "Cita eliminada exitosamente.")
             else:
-                self._show_error("No se pudo eliminar la cita.")
+                show_error(self.page, "No se pudo eliminar la cita.")
         except Exception as e:
             logger.error(f"Error al eliminar cita: {e}")
-            self._show_error(f"Error al eliminar cita: {e}")
+            show_error(self.page, f"Error al eliminar cita: {e}")
 
-    def _show_success(self, message):
-        """Muestra un mensaje de éxito"""
-        snackbar_bgcolor = ft.colors.GREEN_500 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.GREEN_700
-        
-        self.snack_bar = ft.SnackBar(
-            content=ft.Text(message, color=ft.colors.WHITE),
-            bgcolor=snackbar_bgcolor,
-        )
-        self.page.open(self.snack_bar)
-        self.page.update()
-    
-    def _show_error(self, message):
-        """Muestra un mensaje de error"""
-        dialog_bg_color = ft.colors.WHITE if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_800
-        dialog_text_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
 
-        self.page.dialog = ft.AlertDialog(
-            title=ft.Text("Error", color=dialog_text_color),
-            content=ft.Text(message, color=dialog_text_color),
-            actions=[ft.TextButton("OK", on_click=lambda e: setattr(self.page.dialog, "open", False),
-                                style=ft.ButtonStyle(color=ft.colors.BLUE_500))
-],
-            bgcolor=dialog_bg_color
-        )
-        self.page.open(self.page.dialog)
-        self.page.update()
 
 
 def dashboard_view(page: ft.Page):
     """Función de fábrica para la vista del dashboard"""
     dashboard = DashboardView(page)
     return dashboard.build_view()
-
