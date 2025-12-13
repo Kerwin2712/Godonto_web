@@ -283,17 +283,37 @@ class ClientService(Observable):
             return []
 
     @staticmethod
-    def get_all_clients_full_object() -> List[Client]:
+    def get_paginated_clients(page: int = 1, per_page: int = 10, search_term: str = "") -> List[Client]:
         """
-        Obtiene todos los clientes y devuelve objetos Client.
+        Obtiene clientes paginados y filtrados.
         """
+        limit = per_page
+        offset = (page - 1) * per_page
+        
         query = """
             SELECT id, name, cedula, phone, email, address, birth_date, created_at, updated_at 
             FROM clients
-            ORDER BY name ASC
+            WHERE 1=1
         """
+        params = []
+        
+        if search_term:
+            query += """
+                AND (
+                    unaccent(name) ILIKE unaccent(%s) OR 
+                    unaccent(cedula) ILIKE unaccent(%s) OR 
+                    unaccent(phone) ILIKE unaccent(%s) OR 
+                    unaccent(email) ILIKE unaccent(%s)
+                )
+            """
+            search_param = f"%{search_term}%"
+            params = [search_param] * 4
+        
+        query += " ORDER BY name ASC LIMIT %s OFFSET %s"
+        params.extend([limit, offset])
+        
         with get_db() as cursor:
-            cursor.execute(query)
+            cursor.execute(query, params)
             return [
                 Client(
                     id=row[0],
@@ -307,6 +327,39 @@ class ClientService(Observable):
                     updated_at=row[8]
                 ) for row in cursor.fetchall()
             ]
+
+    @staticmethod
+    def count_clients(search_term: str = "") -> int:
+        """
+        Cuenta el total de clientes (con filtros opcionales).
+        """
+        query = "SELECT COUNT(*) FROM clients WHERE 1=1"
+        params = []
+        
+        if search_term:
+            query += """
+                AND (
+                    unaccent(name) ILIKE unaccent(%s) OR 
+                    unaccent(cedula) ILIKE unaccent(%s) OR 
+                    unaccent(phone) ILIKE unaccent(%s) OR 
+                    unaccent(email) ILIKE unaccent(%s)
+                )
+            """
+            search_param = f"%{search_term}%"
+            params = [search_param] * 4
+        
+        with get_db() as cursor:
+            cursor.execute(query, params)
+            return cursor.fetchone()[0]
+
+    @staticmethod
+    def get_all_clients_full_object() -> List[Client]:
+        """
+        Obtiene todos los clientes y devuelve objetos Client.
+        DEPRECATED: Use get_paginated_clients instead.
+        """
+        return ClientService.get_paginated_clients(page=1, per_page=1000)
+
     
     @staticmethod
     def create_client(client_data):

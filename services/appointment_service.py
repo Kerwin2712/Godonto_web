@@ -505,42 +505,59 @@ class AppointmentService(Observable):
     
     @staticmethod
     def get_appointments(limit: int = 10, offset: int = 0, filters: dict = None) -> List[Appointment]:
-        """Obtiene citas paginadas con filtros"""
+        """Obtiene citas paginadas con filtros e incluye tratamientos para evitar N+1"""
         filters = filters or {}
-        query = """
-            SELECT a.id, a.client_id, c.name, c.cedula, 
-                a.date, a.time, a.status, a.notes,
-                a.created_at, a.updated_at,
-                a.dentist_id, d.name AS dentist_name
+        
+        # 1. Obtener los IDs de las citas paginadas primero
+        id_query = """
+            SELECT a.id
             FROM appointments a
             JOIN clients c ON a.client_id = c.id
             LEFT JOIN dentists d ON a.dentist_id = d.id
             WHERE 1=1
         """
-        params = []
+        id_params = []
     
-        # Aplicar filtros
         if filters.get('date_from'):
-            query += " AND a.date >= %s"
-            params.append(filters['date_from'])
+            id_query += " AND a.date >= %s"
+            id_params.append(filters['date_from'])
         if filters.get('date_to'):
-            query += " AND a.date <= %s"
-            params.append(filters['date_to'])
+            id_query += " AND a.date <= %s"
+            id_params.append(filters['date_to'])
         if filters.get('status'):
-            query += " AND a.status = %s"
-            params.append(filters['status'])
+            id_query += " AND a.status = %s"
+            id_params.append(filters['status'])
         if filters.get('search_term'):
-            query += " AND (unaccent(c.name) ILIKE %s OR c.cedula ILIKE %s OR a.notes ILIKE %s)"
-            params.extend([f"%{filters['search_term']}%"] * 3)
+            id_query += " AND (unaccent(c.name) ILIKE unaccent(%s) OR c.cedula ILIKE %s OR unaccent(a.notes) ILIKE unaccent(%s))"
+            id_params.extend([f"%{filters['search_term']}%"] * 3)
         
-        query += " ORDER BY a.date DESC, a.time DESC LIMIT %s OFFSET %s"
-        params.extend([limit, offset])
+        id_query += " ORDER BY a.date DESC, a.time DESC LIMIT %s OFFSET %s"
+        id_params.extend([limit, offset])
         
         with get_db() as cursor:
-            cursor.execute(query, params)
-            appointments = []
+            cursor.execute(id_query, id_params)
+            appointment_ids = [row[0] for row in cursor.fetchall()]
+            
+            if not appointment_ids:
+                return []
+            
+            # 2. Obtener datos completos de las citas encontradas
+            placeholders = ', '.join(['%s'] * len(appointment_ids))
+            query = f"""
+                SELECT a.id, a.client_id, c.name, c.cedula, 
+                    a.date, a.time, a.status, a.notes,
+                    a.created_at, a.updated_at,
+                    a.dentist_id, d.name AS dentist_name
+                FROM appointments a
+                JOIN clients c ON a.client_id = c.id
+                LEFT JOIN dentists d ON a.dentist_id = d.id
+                WHERE a.id IN ({placeholders})
+                ORDER BY a.date DESC, a.time DESC
+            """
+            cursor.execute(query, appointment_ids)
+            appointments_map = {}
             for row in cursor.fetchall():
-                appointments.append(Appointment(
+                appt = Appointment(
                     id=row[0],
                     client_id=row[1],
                     client_name=row[2],
@@ -553,8 +570,33 @@ class AppointmentService(Observable):
                     updated_at=row[9],
                     dentist_id=row[10],
                     dentist_name=row[11]
-                ))
-            return appointments
+                )
+                appt.treatments = [] # Inicializar lista de tratamientos
+                appointments_map[appt.id] = appt
+
+            # 3. Obtener tratamientos para esas citas (Eager Loading)
+            treatments_query = f"""
+                SELECT at.appointment_id, t.id, t.name, at.price, at.notes, at.quantity
+                FROM appointment_treatments at
+                JOIN treatments t ON at.treatment_id = t.id
+                WHERE at.appointment_id IN ({placeholders})
+            """
+            cursor.execute(treatments_query, appointment_ids)
+            
+            for row in cursor.fetchall():
+                appt_id = row[0]
+                if appt_id in appointments_map:
+                    appointments_map[appt_id].treatments.append({
+                        'id': row[1],
+                        'name': row[2],
+                        'price': float(row[3]),
+                        'notes': row[4],
+                        'quantity': row[5]
+                    })
+            
+            # Devolver lista ordenada según ids originales
+            return [appointments_map[aid] for aid in appointment_ids]
+
 
     @staticmethod
     def count_appointments(filters: dict = None) -> int:
@@ -574,7 +616,7 @@ class AppointmentService(Observable):
             query += " AND a.status = %s"
             params.append(filters['status'])
         if filters.get('search_term'):
-            query += " AND (c.name ILIKE %s OR c.cedula ILIKE %s OR a.notes ILIKE %s)"
+            query += " AND (unaccent(c.name) ILIKE unaccent(%s) OR c.cedula ILIKE %s OR unaccent(a.notes) ILIKE unaccent(%s))"
             params.extend([f"%{filters['search_term']}%"] * 3)
         
         with get_db() as cursor:

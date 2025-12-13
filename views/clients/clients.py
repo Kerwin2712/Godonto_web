@@ -16,10 +16,37 @@ class ClientsView:
         self.client_service.subscribe(self) # Suscribirse a eventos
         self.all_clients = []
         
+        # Paginación y búsqueda
+        self.page_number = 1
+        self.items_per_page = 20
+        self.total_pages = 1
+        self.search_term = ""
+        self.debounce_timer = None
+        
         self.search_bar = self._build_search_bar()
         self.client_list = ft.Column(scroll=ft.ScrollMode.AUTO, expand=True, spacing=10)
+        self.pagination_controls = ft.Row(alignment=ft.MainAxisAlignment.CENTER, spacing=20)
         
-        self.load_clients()
+        self.load_clients(update_ui=False)
+        self._render_initial_pagination() # Renderizar controloes iniciales sin update
+        
+    def _render_initial_pagination(self):
+        """Renderiza controles de paginación iniciales sin llamar a update()"""
+        self.pagination_controls.controls = [
+            ft.IconButton(
+                icon=ft.icons.ARROW_BACK,
+                on_click=self._prev_page,
+                disabled=self.page_number <= 1,
+                tooltip="Anterior"
+            ),
+            ft.Text(f"Página {self.page_number} de {self.total_pages}"),
+            ft.IconButton(
+                icon=ft.icons.ARROW_FORWARD,
+                on_click=self._next_page,
+                disabled=self.page_number >= self.total_pages,
+                tooltip="Siguiente"
+            )
+        ]
 
     def on_event(self, event_type, data):
         """Maneja eventos de actualización"""
@@ -47,26 +74,47 @@ class ClientsView:
     def _handle_search_change(self, e):
         search_term = e.control.value.strip()
         
-        if not search_term:
-            self.update_clients()
-            self.search_bar.controls.clear()
-            self.search_bar.update()
-            return
+        # Cancelar timer anterior si existe
+        if self.debounce_timer:
+            self.debounce_timer.cancel()
+            
+        # Iniciar nuevo timer (debounce de 500ms)
+        import threading
+        self.debounce_timer = threading.Timer(0.5, self._perform_search, args=[search_term])
+        self.debounce_timer.start()
+
+    def _perform_search(self, search_term):
+        self.search_term = search_term
+        self.page_number = 1 # Resetear a la primera página
+        self.load_clients()
         
-        filtered_clients = self.client_service.get_all_clients(search_term)
-        
-        self.update_clients(filtered_clients)
-        
-        self.search_bar.controls = [
-            ft.ListTile(
-                title=ft.Text(c.name),
-                subtitle=ft.Text(f"Cédula: {c.cedula}"),
-                on_click=lambda e, c=c: self._select_client(c),
-                data=c
+    def _update_pagination_controls(self):
+        self.pagination_controls.controls = [
+            ft.IconButton(
+                icon=ft.icons.ARROW_BACK,
+                on_click=self._prev_page,
+                disabled=self.page_number <= 1,
+                tooltip="Anterior"
+            ),
+            ft.Text(f"Página {self.page_number} de {self.total_pages}"),
+            ft.IconButton(
+                icon=ft.icons.ARROW_FORWARD,
+                on_click=self._next_page,
+                disabled=self.page_number >= self.total_pages,
+                tooltip="Siguiente"
             )
-            for c in filtered_clients[:10]
         ]
-        self.search_bar.update()
+        self.pagination_controls.update()
+        
+    def _prev_page(self, e):
+        if self.page_number > 1:
+            self.page_number -= 1
+            self.load_clients()
+            
+    def _next_page(self, e):
+        if self.page_number < self.total_pages:
+            self.page_number += 1
+            self.load_clients()
     
     def _handle_search_submit(self, e):
         if self.search_bar.open and self.search_bar.controls:
@@ -642,7 +690,7 @@ class ClientsView:
             content=ft.Text(f"¿Está seguro de que desea eliminar el pago de ${payment['amount']:,.2f} realizado el {payment['payment_date'].strftime('%d/%m/%Y %H:%M')}?", color=dialog_text_color),
             actions=[
                 ft.TextButton("No", on_click=delete_confirmed, data=False,
-                              style=ft.ButtonStyle(color=dialog_text_color)),
+                            style=ft.ButtonStyle(color=dialog_text_color)),
                 ft.FilledButton("Sí", on_click=delete_confirmed, data=True, 
                                 style=ft.ButtonStyle(bgcolor=ft.colors.RED_500)),
             ],
@@ -686,7 +734,7 @@ class ClientsView:
             content=ft.Text(f"¿Está seguro de que desea eliminar la deuda de ${debt['amount']:,.2f} con descripción '{debt['description']}'?", color=dialog_text_color),
             actions=[
                 ft.TextButton("No", on_click=delete_confirmed, data=False,
-                              style=ft.ButtonStyle(color=dialog_text_color)),
+                            style=ft.ButtonStyle(color=dialog_text_color)),
                 ft.FilledButton("Sí", on_click=delete_confirmed, data=True, 
                                 style=ft.ButtonStyle(bgcolor=ft.colors.RED_500)),
             ],
@@ -733,14 +781,32 @@ class ClientsView:
         )
     
     def load_clients(self, search_term=None):
-        self.all_clients = self.client_service.get_all_clients(search_term)
+        if search_term is not None:
+            self.search_term = search_term
+        
+        # Obtener total de items y calcular páginas
+        total_items = self.client_service.count_clients(self.search_term)
+        import math
+        self.total_pages = max(1, math.ceil(total_items / self.items_per_page))
+        
+        # Validar número de página
+        self.page_number = min(max(1, self.page_number), self.total_pages)
+        
+        # Obtener clientes paginados
+        self.all_clients = self.client_service.get_paginated_clients(
+            page=self.page_number,
+            per_page=self.items_per_page,
+            search_term=self.search_term
+        )
         self.update_clients()
+        self._update_pagination_controls()
     
     def update_clients(self, clients=None):
-        display_clients = clients or self.all_clients
+        display_clients = clients if clients is not None else self.all_clients
         self.client_list.controls = [
             self._build_client_card(client) for client in display_clients
         ]
+        self.client_list.update() # Asegurar actualización inmediata
         self.page.update()
     
     def _filter_clients(self, e):
@@ -895,6 +961,8 @@ class ClientsView:
                                 expand=True,
                                 padding=ft.padding.symmetric(horizontal=10),
                             ),
+                            ft.Divider(),
+                            self.pagination_controls, # Controles de paginación
                         ],
                         spacing=0,
                         expand=True,

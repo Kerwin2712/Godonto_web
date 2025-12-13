@@ -11,12 +11,19 @@ class AppointmentsView:
         self.appointment_service.subscribe(self) # Suscribirse a eventos
         
         self.total_items = 0
+        self.page_number = 1
+        self.items_per_page = 12
+        self.total_pages = 1
+        self.debounce_timer = None
+        
         self.filters = {
             'date_from': None,
             'date_to': None,
             'status': None,
             'search_term': None
         }
+        
+        self.pagination_controls = ft.Row(alignment=ft.MainAxisAlignment.CENTER, spacing=20)
         
         self.appointment_grid = ft.GridView(
             expand=True,
@@ -30,7 +37,7 @@ class AppointmentsView:
         self._init_date_pickers()
         self._init_search_controls()
         
-        self.update_appointments()
+        self.update_appointments(update_ui=False)
 
     def on_event(self, event_type, data):
         """Maneja eventos de actualización"""
@@ -116,15 +123,73 @@ class AppointmentsView:
         self.date_to_button.text = "Hasta"
         self.update_appointments()
 
-    def update_appointments(self):
-        """Actualiza la lista de citas con los filtros actuales"""
+    def update_appointments(self, update_ui=True):
+        """Actualiza la lista de citas con los filtros actuales y paginación"""
+        offset = (self.page_number - 1) * self.items_per_page
+        
+        # Obtener total y calcular páginas
+        self.total_items = self.appointment_service.count_appointments(self.filters)
+        import math
+        self.total_pages = max(1, math.ceil(self.total_items / self.items_per_page))
+        self.page_number = min(max(1, self.page_number), self.total_pages)
+        
         appointments = self.appointment_service.get_appointments(
+            limit=self.items_per_page,
+            offset=offset,
             filters=self.filters
         )
-        self.total_items = self.appointment_service.count_appointments(self.filters)
-        self._render_appointments(appointments)
+        self._render_appointments(appointments, update_ui=update_ui)
+        if update_ui:
+            self._update_pagination_controls()
+        else:
+            self._render_initial_pagination()
 
-    def _render_appointments(self, appointments):
+    def _render_initial_pagination(self):
+        self.pagination_controls.controls = [
+            ft.IconButton(
+                icon=ft.icons.ARROW_BACK,
+                on_click=self._prev_page,
+                disabled=self.page_number <= 1,
+                tooltip="Anterior"
+            ),
+            ft.Text(f"Página {self.page_number} de {self.total_pages}"),
+            ft.IconButton(
+                icon=ft.icons.ARROW_FORWARD,
+                on_click=self._next_page,
+                disabled=self.page_number >= self.total_pages,
+                tooltip="Siguiente"
+            )
+        ]
+
+    def _prev_page(self, e):
+        if self.page_number > 1:
+            self.page_number -= 1
+            self.update_appointments()
+            
+    def _next_page(self, e):
+        if self.page_number < self.total_pages:
+            self.page_number += 1
+            self.update_appointments()
+
+    def _update_pagination_controls(self):
+        self.pagination_controls.controls = [
+            ft.IconButton(
+                icon=ft.icons.ARROW_BACK,
+                on_click=self._prev_page,
+                disabled=self.page_number <= 1,
+                tooltip="Anterior"
+            ),
+            ft.Text(f"Página {self.page_number} de {self.total_pages}"),
+            ft.IconButton(
+                icon=ft.icons.ARROW_FORWARD,
+                on_click=self._next_page,
+                disabled=self.page_number >= self.total_pages,
+                tooltip="Siguiente"
+            )
+        ]
+        self.pagination_controls.update()
+
+    def _render_appointments(self, appointments, update_ui=True):
         """Renderiza las citas en el grid"""
         # Si no hay controles en el grid, o si queremos forzar una actualización completa
         # En este caso simple, limpiamos y reconstruimos, pero como es llamado por on_event,
@@ -132,7 +197,7 @@ class AppointmentsView:
         self.appointment_grid.controls.clear()
         
         if not appointments:
-            self._render_empty_state()
+            self._render_empty_state(update_ui=update_ui)
             return
             
         for appt in appointments:
@@ -140,16 +205,17 @@ class AppointmentsView:
                 self._build_appointment_card(appt)
             )
         
-        self.page.update()
+        if update_ui:
+            self.page.update()
 
-    def _render_empty_state(self):
+    def _render_empty_state(self, update_ui=True):
         """Muestra estado cuando no hay citas"""
         self.appointment_grid.controls.append(
             ft.Container(
                 content=ft.Column([
                     ft.Icon(ft.icons.INFO_OUTLINE, size=40),
                     ft.Text("No se encontraron citas", 
-                           text_align=ft.TextAlign.CENTER)
+                        text_align=ft.TextAlign.CENTER)
                 ], 
                 alignment=ft.MainAxisAlignment.CENTER,
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER),
@@ -157,12 +223,13 @@ class AppointmentsView:
                 alignment=ft.alignment.center
             )
         )
-        self.page.update()
+        if update_ui:
+            self.page.update()
 
     def _build_appointment_card(self, appointment: Appointment):
         """Construye una tarjeta de cita individual"""
-        # Obtener los tratamientos asociados a la cita
-        treatments = get_appointment_treatments(appointment.id)
+        # Obtener los tratamientos asociados a la cita (YA PRE-CARGADOS)
+        treatments = appointment.treatments or []
         
         # Construir la lista de controles para los tratamientos y calcular el total
         treatments_controls = []
@@ -209,7 +276,7 @@ class AppointmentsView:
                 content=ft.Column([
                     ft.ListTile(
                         title=ft.Text(appointment.client_name, 
-                                     weight=ft.FontWeight.BOLD),
+                                    weight=ft.FontWeight.BOLD),
                         subtitle=ft.Text(f"Cédula: {appointment.client_cedula}"),
                         trailing=ft.PopupMenuButton(
                             icon=ft.icons.MORE_VERT,
@@ -241,8 +308,8 @@ class AppointmentsView:
                             ft.Row([
                                 ft.Icon(ft.icons.INFO_OUTLINE, size=16),
                                 ft.Text(appointment.status.name.capitalize(), 
-                                       color=self._get_status_color(appointment.status.name.lower()), 
-                                       size=14)
+                                    color=self._get_status_color(appointment.status.name.lower()), 
+                                    size=14)
                             ]),
                             # Sección de dentista
                             *dentist_info, # Mostrar información del dentista
@@ -359,14 +426,19 @@ class AppointmentsView:
         ], spacing=10)
 
     def _handle_search_change(self, e):
-        """Maneja el cambio en la búsqueda"""
+        """Maneja el cambio en la búsqueda con Debounce"""
         search_term = e.control.value.strip()
-        if not search_term:
-            self.search_bar.controls = []
-            self.page.update()
-            return
         
+        if self.debounce_timer:
+            self.debounce_timer.cancel()
+            
+        import threading
+        self.debounce_timer = threading.Timer(0.5, self._perform_search, args=[search_term])
+        self.debounce_timer.start()
+
+    def _perform_search(self, search_term):
         self.filters['search_term'] = search_term if search_term else None
+        self.page_number = 1
         self.update_appointments()
     
     def _handle_search_submit(self, e):
@@ -406,6 +478,8 @@ class AppointmentsView:
                                     ft.Container(
                                         content=ft.Column([
                                             self.appointment_grid,
+                                            ft.Divider(),
+                                            self.pagination_controls
                                         ]),
                                         padding=ft.padding.only(top=20),
                                         expand=True

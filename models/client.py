@@ -40,20 +40,16 @@ class Client:
         
         Returns:
             Tuple[bool, Optional[str]]: (True, None) si es válido, 
-                                      (False, mensaje_error) si no
+            (False, mensaje_error) si no
         """
         if not self.name or len(self.name.strip()) < 3:
             return False, "El nombre debe tener al menos 3 caracteres"
-            
         if cedula_error := Validators.validate_cedula(self.cedula):
             return False, cedula_error
-            
         if self.phone and (phone_error := Validators.validate_phone(self.phone)):
             return False, phone_error
-            
         if self.email and (email_error := Validators.validate_email(self.email)):
             return False, email_error
-            
         return True, None
 
     def to_dict(self) -> dict:

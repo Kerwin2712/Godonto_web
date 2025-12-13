@@ -1,7 +1,7 @@
 from __future__ import annotations
 from datetime import date, time, datetime
 from dataclasses import dataclass
-from typing import Optional, Tuple, Literal
+from typing import Optional, Tuple, Literal, List
 from enum import Enum, auto
 
 class AppointmentStatus(Enum):
@@ -47,6 +47,7 @@ class Appointment:
     updated_at: Optional[datetime] = None
     dentist_id: Optional[int] = None
     dentist_name: Optional[str] = None # ¡Añadido!
+    treatments: Optional[List[dict]] = None # Tratamientos asociados
 
     def __post_init__(self):
         """Validación inicial después de la creación y conversión de estado."""
@@ -90,9 +91,9 @@ class Appointment:
             time_obj = datetime.strptime(time_str, "%H:%M").time()
             
             created_at = (datetime.fromisoformat(data['created_at']) 
-                         if data.get('created_at') else None)
+                        if data.get('created_at') else None)
             updated_at = (datetime.fromisoformat(data['updated_at']) 
-                         if data.get('updated_at') else None)
+                        if data.get('updated_at') else None)
             
             return cls(
                 id=data['id'],
@@ -131,6 +132,6 @@ class Appointment:
             
         # Validar estado
         if not isinstance(self.status, AppointmentStatus): # Asegurar que es un Enum
-             return False, "El estado de la cita es inválido."
+            return False, "El estado de la cita es inválido."
             
         return True, None
