@@ -780,7 +780,7 @@ class ClientsView:
             ]
         )
     
-    def load_clients(self, search_term=None):
+    def load_clients(self, search_term=None, update_ui=True):
         if search_term is not None:
             self.search_term = search_term
         
@@ -798,16 +798,18 @@ class ClientsView:
             per_page=self.items_per_page,
             search_term=self.search_term
         )
-        self.update_clients()
-        self._update_pagination_controls()
+        self.update_clients(update_ui=update_ui)
+        if update_ui:
+            self._update_pagination_controls()
     
-    def update_clients(self, clients=None):
+    def update_clients(self, clients=None, update_ui=True):
         display_clients = clients if clients is not None else self.all_clients
         self.client_list.controls = [
             self._build_client_card(client) for client in display_clients
         ]
-        self.client_list.update() # Asegurar actualización inmediata
-        self.page.update()
+        if update_ui:
+            self.client_list.update() # Asegurar actualización inmediata
+            self.page.update()
     
     def _filter_clients(self, e):
         search_term = e.control.value.strip()
