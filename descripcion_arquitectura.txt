@@ -1,0 +1,59 @@
+DESCRIPCIÓN DEL PROYECTO Y ARQUITECTURA
+========================================
+
+PROYECTO: Godonto (Godonto_web)
+-------------------------------
+Godonto es un sistema de gestión integral para clínicas dentales, diseñado para operar como una aplicación de escritorio moderna. Su objetivo es facilitar la administración diaria de la clínica, desde la gestión de pacientes hasta el control financiero.
+
+Funcionalidades Principales:
+- Gestión de Clientes: Registro y seguimiento de pacientes, historial clínico.
+- Gestión de Citas: Agendamiento, reprogramación y control de estados de citas.
+- Tratamientos y Presupuestos: Catálogo de tratamientos, generación y gestión de presupuestos para pacientes.
+- Finanzas: Registro de pagos, control de deudas y saldos pendientes.
+- Panel de Control (Dashboard): Visualización de métricas clave y resúmenes de actividad.
+- Autenticación y Usuarios: Gestión de dentistas y usuarios del sistema.
+
+ARQUITECTURA DEL SISTEMA
+------------------------
+El proyecto sigue una arquitectura modular en capas, separando claramente la responsabilidad de la interfaz de usuario, la lógica de negocio y el acceso a datos.
+
+Tecnologías Clave:
+- Lenguaje: Python
+- Framework UI: Flet (Framework de UI basado en Flutter para Python)
+- Base de Datos: PostgreSQL (inferido por referencias a puerto 5432 y logs)
+
+Estructura de Directorios y Capas:
+
+1. Capa de Presentación (Views)
+   Ubicación: `/views`
+   Responsabilidad: Manejar la interfaz de usuario y la interacción con el usuario.
+   Detalles: Construida con Flet. Cada módulo principal (Dashboard, Clientes, Citas) tiene su propia vista y componentes. Se comunica con la capa de servicios para obtener y enviar datos.
+
+2. Capa de Servicios (Services)
+   Ubicación: `/services`
+   Responsabilidad: Contener la lógica de negocio de la aplicación.
+   Detalles: Actúa como intermediario entre las Vistas y los Modelos/Base de Datos. Implementa reglas de negocio, validaciones y orquestación de operaciones.
+   - Patrón Observador: Uso de `observable.py` para manejar eventos y reactividad entre servicios y vistas.
+   - Componentes clave: `ClientService`, `AppointmentService`, `PaymentService`, `QuoteService`.
+
+3. Capa de Modelo (Models)
+   Ubicación: `/models`
+   Responsabilidad: Definir la estructuras de datos y entidades del sistema.
+   Detalles: Clases que representan las tablas de la base de datos y objetos de negocio.
+   - Entidades: `Client`, `Appointment`, `Treatment`, `User`, `Payment`, `Quote`.
+
+4. Núcleo e Infraestructura (Core)
+   Ubicación: `/core`
+   Responsabilidad: Manejo de conexiones a base de datos y configuraciones globales.
+   Detalles: Gestiona el pool de conexiones y la configuración del entorno.
+
+5. Punto de Entrada
+   Archivo: `main.py`
+   Responsabilidad: Inicialización de la aplicación, configuración de Flet, rutas y arranque del servidor/ventana.
+
+6. Utilidades y Assets
+   - `/utils`: Funciones auxiliares y herramientas comunes.
+   - `/assets`: Recursos estáticos como iconos e imágenes.
+
+Flujo de Datos Típico:
+Usuario interactúa con Vista (Flet) -> Vista llama a Servicio -> Servicio procesa lógica y consulta Base de Datos (vía Modelos/Core) -> Datos retornan a la Vista para renderizado.
