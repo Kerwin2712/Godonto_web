@@ -11,6 +11,8 @@ from utils.date_utils import (
 from utils.alerts import show_snackbar
 from services.appointment_service import AppointmentService
 from services.client_service import ClientService
+from services.payment_service import PaymentService
+from utils.alerts import show_snackbar, show_error, show_success
 
 class CalendarView:
     def __init__(self, page: ft.Page):
@@ -250,6 +252,7 @@ class CalendarView:
                 SELECT
                     a.id,
                     c.name AS client_name,
+                    c.id AS client_id,
                     a.date,
                     a.time,
                     a.status,
@@ -263,13 +266,13 @@ class CalendarView:
                 LEFT JOIN appointment_treatments at ON a.id = at.appointment_id
                 LEFT JOIN treatments t ON at.treatment_id = t.id
                 WHERE a.date BETWEEN %s AND %s
-                GROUP BY a.id, c.name, a.date, a.time, a.status, d.name
+                GROUP BY a.id, c.name, c.id, a.date, a.time, a.status, d.name
                 ORDER BY a.date, a.time
             """, (first_day, last_day))
 
             self.appointments = {}  # Reiniciar el diccionario
             for appt in cursor.fetchall():
-                appt_date = appt[2] if isinstance(appt[2], date) else datetime.strptime(appt[2], "%Y-%m-%d").date()
+                appt_date = appt[3] if isinstance(appt[3], date) else datetime.strptime(appt[3], "%Y-%m-%d").date()
                 appt_date_str = appt_date.strftime("%Y-%m-%d")
 
                 if appt_date_str not in self.appointments:
@@ -280,7 +283,7 @@ class CalendarView:
                     }
 
                 self.appointments[appt_date_str]['appointments'].append(appt)
-                if appt[4] == 'cancelled':  # Si el estado es 'cancelled'
+                if appt[5] == 'cancelled':  # Si el estado es 'cancelled'
                     self.appointments[appt_date_str]['has_cancelled_appointments'] = True
 
         # 2. Cargar Cumpleaños
@@ -466,19 +469,19 @@ class CalendarView:
             'pending': ft.colors.ORANGE,
             'completed': ft.colors.GREEN,
             'cancelled': ft.colors.RED
-        }.get(appointment[4], ft.colors.BLUE)
+        }.get(appointment[5], ft.colors.BLUE)
 
         card_bgcolor = ft.colors.WHITE if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_700
         text_color = ft.colors.BLACK if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.WHITE
         subtitle_color = ft.colors.GREY_700 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_GREY_200
 
-        notes = appointment[5] if appointment[5] else "No especificado"
-        dentist_name = appointment[6] if appointment[6] else "No asignado"
-        treatments = appointment[7] if appointment[7] else "No especificado"
-        total_amount = appointment[8] if appointment[8] else 0
+        notes = appointment[6] if appointment[6] else "No especificado"
+        dentist_name = appointment[7] if appointment[7] else "No asignado"
+        treatments = appointment[8] if appointment[8] else "No especificado"
+        total_amount = appointment[9] if appointment[9] else 0
 
         details = ft.Column([
-            ft.Text(f"Hora: {appointment[3]} - Estado: {appointment[4].capitalize()}", color=subtitle_color),
+            ft.Text(f"Hora: {appointment[4]} - Estado: {appointment[5].capitalize()}", color=subtitle_color),
             ft.Text(f"Odontólogo: {dentist_name}", color=subtitle_color),
             ft.Text(f"Tratamientos: {treatments}", color=subtitle_color),
             ft.Text(f"Notas: {notes}", color=subtitle_color),
@@ -495,6 +498,11 @@ class CalendarView:
                         icon=ft.icons.MORE_VERT,
                         icon_color=text_color,
                         items=[
+                            ft.PopupMenuItem(
+                                text="Registrar Pago",
+                                icon=ft.icons.PAYMENT,
+                                on_click=lambda e, a=appointment: self._show_payment_dialog(a[2], a[1])
+                            ),
                             ft.PopupMenuItem(
                                 text="Completar",
                                 on_click=lambda e, a=appointment: self.change_appointment_status(a[0], "completed")
@@ -521,6 +529,87 @@ class CalendarView:
             ),
             elevation=1
         )
+
+    def _show_payment_dialog(self, client_id, client_name):
+        amount_field = ft.TextField(label="Monto", keyboard_type=ft.KeyboardType.NUMBER)
+        method_field = ft.Dropdown(
+            label="Método de pago",
+            options=[
+                ft.dropdown.Option("Efectivo"),
+                ft.dropdown.Option("Tarjeta"),
+                ft.dropdown.Option("Transferencia"),
+                ft.dropdown.Option("Otro")
+            ]
+        )
+        notes_field = ft.TextField(label="Notas (opcional)", multiline=True)
+        
+        def close_dialog(e):
+            dialog.open = False
+            self.page.update()
+        
+        def handle_submit(e):
+            try:
+                amount = float(amount_field.value)
+                method = method_field.value
+                notes = notes_field.value
+                
+                payment_service = PaymentService()
+                
+                initial_summary = payment_service.get_payment_summary(client_id)
+                initial_pending_debt = initial_summary.get('total_pending_debt', 0.0)
+                
+                success, message = payment_service.create_payment(
+                    client_id=client_id,
+                    amount=amount,
+                    method=method,
+                    notes=notes
+                )
+                
+                if success:
+                    new_summary = payment_service.get_payment_summary(client_id)
+                    new_pending_debt = new_summary.get('total_pending_debt', 0.0)
+                    
+                    debt_applied_by_this_payment = initial_pending_debt - new_pending_debt
+                    
+                    if debt_applied_by_this_payment > 0.001:
+                        msg = f"Pago de ${amount:,.2f} registrado. Se aplicó ${debt_applied_by_this_payment:,.2f} a deudas pendientes."
+                        if new_pending_debt > 0:
+                            msg += f" Saldo pendiente de deudas: ${new_pending_debt:,.2f}"
+                        else:
+                            msg += " Todas las deudas pendientes han sido cubiertas."
+                    else:
+                        msg = f"Pago de ${amount:,.2f} registrado para {client_name}."
+                        if initial_pending_debt > 0:
+                            msg += f" Aún quedan deudas pendientes: ${initial_pending_debt:,.2f}."
+                        else:
+                            msg += " No había deudas pendientes a las cuales aplicar el pago."
+
+                    show_success(self.page, msg)
+                    close_dialog(e)
+                else:
+                    show_error(self.page, message)
+            except ValueError:
+                show_error(self.page, "Ingrese un monto válido")
+            except Exception as e:
+                # logger.error(f"Error al registrar pago: {str(e)}") # Logger not imported in calendar.py view, verify imports
+                show_error(self.page, f"Error al registrar pago: {str(e)}")
+        
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text(f"Registrar Pago para {client_name}"),
+            content=ft.Column([
+                amount_field,
+                method_field,
+                notes_field
+            ], tight=True),
+            actions=[
+                ft.TextButton("Cancelar", on_click=close_dialog),
+                ft.TextButton("Registrar", on_click=handle_submit)
+            ]
+        )
+        self.page.open(dialog)
+        dialog.open = True
+        self.page.update()
 
     def change_month(self, delta):
         """Cambia el mes actual del calendario."""
