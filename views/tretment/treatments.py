@@ -11,6 +11,8 @@ class TreatmentsView:
         self.page = page
         self.treatments: List[Dict] = [] # Lista para almacenar los tratamientos mostrados
         self.edit_treatment_id: Optional[int] = None # Para saber si estamos editando o creando
+        self.show_archived = False # Estado para controlar la vista de archivados
+        self.search_term = "" # Estado para el término de búsqueda
 
         # Componentes UI
         self.search_bar = ft.SearchBar(
@@ -69,7 +71,23 @@ class TreatmentsView:
     def _load_treatments(self, search_term: str = ""):
         """Carga los tratamientos desde el servicio y actualiza la UI."""
         try:
-            self.treatments = TreatmentService.get_all_treatments(search_term=search_term)
+            # Si show_archived es True, active_status=False (mostrar inactivos)
+            # Si show_archived es False, active_status=True (mostrar activos)
+            active_status = not self.show_archived
+            
+            # Obtener objetos Treatment
+            treatments_list = TreatmentService.get_all_treatments(active_status=active_status, search_term=search_term)
+            
+            # Convertir a dict para compatibilidad con el resto de la vista
+            self.treatments = [
+                {
+                    "id": t.id,
+                    "name": t.name,
+                    "price": t.price,
+                    "description": t.description,
+                    "is_active": t.is_active
+                } for t in treatments_list
+            ]
             self._update_treatments_display()
         except Exception as e:
             logger.error(f"Error al cargar tratamientos: {e}")
@@ -87,49 +105,67 @@ class TreatmentsView:
 
     def _build_treatment_card(self, treatment: Dict):
         """Crea un ft.Card para un tratamiento individual."""
-        return ft.Card(
-            content=ft.Container(
-                content=ft.Row(
-                    [
-                        ft.Column(
-                            [
-                                ft.Text(treatment.name, weight=ft.FontWeight.BOLD, size=16),
-                                ft.Text(f"Precio: ${treatment.price:.2f}"),
-                            ],
-                            expand=True
-                        ),
-                        ft.Row(
-                            [
-                                ft.IconButton(
-                                    icon=ft.icons.EDIT,
-                                    tooltip="Editar tratamiento",
-                                    on_click=lambda e, t_id=treatment.id, t_name=treatment.name, t_price=treatment.price: self._open_add_edit_dialog(t_id, t_name, t_price)
-                                ),
-                                ft.IconButton(
-                                    icon=ft.icons.DELETE,
-                                    tooltip="Eliminar tratamiento",
-                                    icon_color=ft.colors.RED_500,
-                                    on_click=lambda e, t_id=treatment.id: self._confirm_delete_treatment(t_id)
-                                )
-                            ]
-                        )
-                    ],
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER
+        card_content = ft.Container(
+            content=ft.Column([
+                ft.ListTile(
+                    leading=ft.Icon(ft.icons.MEDICAL_SERVICES, color=ft.colors.BLUE),
+                    title=ft.Text(treatment["name"], weight="bold"),
+                    subtitle=ft.Column([
+                        ft.Text(f"${treatment['price']:,.2f}", weight="bold", color=ft.colors.GREEN),
+                        ft.Text(treatment["description"] if treatment["description"] else "Sin descripción", size=12, italic=True)
+                    ]),
+                    trailing=ft.PopupMenuButton(
+                        icon=ft.icons.MORE_VERT,
+                        items=[
+                            ft.PopupMenuItem(
+                                text="Editar",
+                                icon=ft.icons.EDIT,
+                                on_click=lambda e: self._open_add_edit_dialog(treatment["id"], treatment["name"], treatment["price"])
+                            ),
+                            ft.PopupMenuItem(
+                                text="Eliminar",
+                                icon=ft.icons.DELETE,
+                                on_click=lambda e: self._confirm_delete_treatment(treatment["id"])
+                            ),
+                        ]
+                    ),
                 ),
-                padding=10
-            )
+                ft.Container(
+                    content=ft.Row([
+                        ft.Text("Estado:", size=12),
+                        ft.Switch(
+                            value=treatment["is_active"],
+                            label="Activo" if treatment["is_active"] else "Archivado",
+                            on_change=lambda e: self._toggle_treatment_active(treatment["id"], e.control.value)
+                        )
+                    ], alignment=ft.MainAxisAlignment.END),
+                    padding=ft.padding.only(right=10, bottom=5)
+                )
+            ]),
+            padding=5
         )
+        return ft.Card(content=card_content)
+
+    def _toggle_treatment_active(self, treatment_id: int, is_active: bool):
+        try:
+            success, message = TreatmentService.toggle_treatment_active(treatment_id, is_active)
+            if success:
+                show_success(self.page, message)
+                self._load_treatments(self.search_term) # Recargar lista
+            else:
+                show_error(self.page, message)
+        except Exception as e:
+            show_error(self.page, f"Error al cambiar estado: {str(e)}")
 
     def _handle_search_change(self, e):
         """Maneja el cambio en el campo de búsqueda de tratamientos."""
-        search_term = e.control.value.strip()
-        self._load_treatments(search_term)
+        self.search_term = e.control.value.strip()
+        self._load_treatments(self.search_term)
 
     def _handle_search_submit(self, e):
         """Maneja el envío de la búsqueda (ej. al presionar Enter)."""
-        search_term = e.control.value.strip()
-        self._load_treatments(search_term)
+        self.search_term = e.control.value.strip()
+        self._load_treatments(self.search_term)
         e.control.close_view() # Cierra la vista de sugerencias
         e.control.update()
 
@@ -228,27 +264,46 @@ class TreatmentsView:
             logger.error(f"Error al eliminar tratamiento: {e}")
             show_error(self.page, f"Error al eliminar tratamiento: {e}")
 
+    def _toggle_archived_view(self, e):
+        self.show_archived = e.control.value
+        self.page.update() # Actualizar UI para reflejar cambio en botón si es necesario
+        self._load_treatments(self.search_term)
+
     def _build_controls_row(self):
         """
         Construye la fila superior con la barra de búsqueda y el botón de añadir.
         Retorna un ft.ResponsiveRow para manejar la responsividad y el 'wrap' correctamente.
         """
+        # Switch para ver archivados
+        archived_switch = ft.Switch(
+            label="Ver Archivados",
+            value=self.show_archived,
+            on_change=self._toggle_archived_view
+        )
+
         return ft.ResponsiveRow(
             controls=[
                 ft.Column(
-                    col={"sm": 12, "md": 8}, # Ocupa 8/12 columnas en pantallas medianas y grandes
+                    col={"sm": 12, "md": 6}, # Ocupa 8/12 columnas en pantallas medianas y grandes
                     controls=[self.search_bar],
                     expand=True
                 ),
                 ft.Column(
-                    col={"sm": 12, "md": 4}, # Ocupa 4/12 columnas en pantallas medianas y grandes
+                    col={"sm": 12, "md": 6}, # Ocupa 4/12 columnas en pantallas medianas y grandes
                     controls=[
-                        ft.FilledButton(
-                            icon=ft.icons.ADD,
-                            text="Añadir Tratamiento",
-                            on_click=lambda e: self._open_add_edit_dialog(),
-                            expand=True, # Para que el botón se expanda dentro de su columna
-                            height=45 # Para mantener consistencia con otros botones
+                        ft.Row(
+                            [
+                                archived_switch,
+                                ft.FilledButton(
+                                    icon=ft.icons.ADD,
+                                    text="Añadir Tratamiento",
+                                    on_click=lambda e: self._open_add_edit_dialog(),
+                                    # expand=True, # No expandir para que quepa el switch
+                                    height=45 
+                                )
+                            ],
+                            alignment=ft.MainAxisAlignment.END,
+                            spacing=10
                         )
                     ],
                     alignment=ft.MainAxisAlignment.END # Alinea el botón a la derecha

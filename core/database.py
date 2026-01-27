@@ -9,6 +9,7 @@ logger = logging.getLogger(__name__)
 
 class Database:
     _connection_pool = None
+    _initialized = False
 
     # En database.py, modifica el método initialize:
     @classmethod

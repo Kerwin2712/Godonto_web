@@ -142,9 +142,9 @@ class AppointmentFormView:
         try:
             # Si no hay término de búsqueda, mostrar todos los tratamientos
             if not search_term:
-                treatments = TreatmentService.get_all_treatments() # Obtener todos los tratamientos
+                treatments = TreatmentService.get_all_treatments(active_status=True) # Obtener todos los tratamientos activos
             else:
-                treatments = TreatmentService.search_treatments_full_object(search_term) # Buscar tratamientos por término
+                treatments = TreatmentService.search_treatments_full_object(search_term, active_status=True) # Buscar tratamientos por término (activos)
             
             if treatments:
                 self.treatment_search.controls.extend([

@@ -313,7 +313,7 @@ class PresupFormView:
             return
 
         try:
-            treatments = TreatmentService.get_all_treatments(search_term=search_term)
+            treatments = TreatmentService.get_all_treatments(search_term=search_term, active_status=True)
             e.control.controls = [
                 ft.ListTile(
                     title=ft.Text(t.name, color=list_tile_title_color),

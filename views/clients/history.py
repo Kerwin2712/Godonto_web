@@ -385,7 +385,7 @@ class ClientHistoryView:
 
     def _populate_treatment_dropdown(self):
         """Rellena el dropdown de tratamientos."""
-        all_treatments = self.treatment_service.get_all_treatments(active_only=True)
+        all_treatments = self.treatment_service.get_all_treatments(active_status=True)
         self.new_history_treatment_dropdown.options = [
             ft.dropdown.Option(
                 key=str(t.id), # Key debe ser string para Dropdown

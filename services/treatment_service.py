@@ -63,21 +63,30 @@ class TreatmentService:
             return [] # Retorna una lista vacía en caso de error
     
     @staticmethod
-    def search_treatments_full_object(search_term: str = "") -> List[Treatment]:
+    def search_treatments_full_object(search_term: str = "", active_status: Optional[bool] = None) -> List[Treatment]:
         """
         Busca tratamientos por nombre y devuelve objetos Treatment.
         Si search_term está vacío, devuelve todos los tratamientos.
+        Args:
+            search_term (str): Término de búsqueda.
+            active_status (Optional[bool]): Filtrar por estado activo.
         """
         try:
             query = """
                 SELECT id, name, description, price, duration, is_active, created_at, updated_at
                 FROM treatments 
-                WHERE unaccent(name) ILIKE %s
-                ORDER BY name ASC
-                LIMIT 10
+                WHERE (unaccent(name) ILIKE unaccent(%s))
             """
+            params = [f"%{search_term}%"]
+
+            if active_status is not None:
+                query += " AND is_active = %s"
+                params.append(active_status)
+            
+            query += " ORDER BY name ASC LIMIT 10;"
+
             with get_db() as cursor:
-                cursor.execute(query, (f"%{search_term}%", ))
+                cursor.execute(query, params)
                 return [
                     Treatment(
                         id=row[0],
@@ -159,11 +168,14 @@ class TreatmentService:
             return None
 
     @staticmethod
-    def get_all_treatments(active_only: bool = False, search_term: Optional[str] = None) -> List[Treatment]: # Cambiado active_only a False por defecto para la vista de administración
+    def get_all_treatments(active_status: Optional[bool] = None, search_term: Optional[str] = None) -> List[Treatment]:
         """
         Lista todos los tratamientos, con opciones de filtrado.
         Args:
-            active_only (bool): Si es True, solo lista tratamientos activos.
+            active_status (Optional[bool]): 
+                - True: Solo activos.
+                - False: Solo inactivos (archivados).
+                - None: Todos.
             search_term (Optional[str]): Término para buscar en el nombre o descripción del tratamiento.
         Returns:
             List[Treatment]: Una lista de objetos Treatment.
@@ -176,8 +188,9 @@ class TreatmentService:
             """
             params = []
 
-            if active_only:
-                query += " AND is_active = TRUE"
+            if active_status is not None:
+                query += " AND is_active = %s"
+                params.append(active_status)
             
             if search_term:
                 query += " AND (unaccent(name) ILIKE unaccent(%s) OR unaccent(description) ILIKE unaccent(%s))"
@@ -202,6 +215,29 @@ class TreatmentService:
         except Exception as e:
             logger.error(f"Error al obtener todos los tratamientos: {e}")
             return []
+
+    @staticmethod
+    def toggle_treatment_active(treatment_id: int, is_active: bool) -> Tuple[bool, str]:
+        """
+        Cambia el estado activo/inactivo de un tratamiento.
+        Args:
+            treatment_id (int): ID del tratamiento.
+            is_active (bool): Nuevo estado activo.
+        Returns:
+            Tuple[bool, str]: (True, mensaje_exito) o (False, mensaje_error).
+        """
+        try:
+            query = "UPDATE treatments SET is_active = %s, updated_at = NOW() WHERE id = %s"
+            with get_db() as cursor:
+                cursor.execute(query, (is_active, treatment_id))
+                if cursor.rowcount > 0:
+                    status_str = "activado" if is_active else "archivado"
+                    return True, f"Tratamiento {status_str} exitosamente."
+                else:
+                    return False, "Tratamiento no encontrado."
+        except Exception as e:
+            logger.error(f"Error al cambiar estado de tratamiento {treatment_id}: {e}")
+            return False, f"Error al cambiar estado: {str(e)}"
 
     @staticmethod
     def update_treatment(treatment_id: int, name: str, price: float) -> Tuple[bool, str]: # Simplificado para la vista
