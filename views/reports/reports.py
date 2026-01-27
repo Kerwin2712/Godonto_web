@@ -1390,7 +1390,12 @@ class ReportsView:
             ft.Divider(color=divider_color),
             ft.Text("Detalle de Citas Recientes", size=20, weight="bold", color=section_title_color),
             ft.Container(
-                content=self.appointments_table,
+                content=ft.Column([
+                    ft.Row(
+                        [self.appointments_table],
+                        scroll=ft.ScrollMode.AUTO,
+                    )
+                ], scroll=ft.ScrollMode.AUTO, expand=True),
                 border=ft.border.all(1, table_border_color),
                 border_radius=5,
                 height=300,
@@ -1411,8 +1416,11 @@ class ReportsView:
         return ft.Column([
             ft.Text("Reporte de Pagos", size=20, weight="bold", color=section_title_color),
             ft.Container(
-                content=ft.Column([  # Envuelve DataTable en un Column para manejar el scroll
-                    self.payments_table,
+                content=ft.Column([  # Envuelve DataTable en un Column para manejar el scroll vertical
+                    ft.Row(          # Envuelve en Row para scroll horizontal
+                        [self.payments_table],
+                        scroll=ft.ScrollMode.AUTO
+                    )
                 ], scroll=ft.ScrollMode.AUTO, expand=True), # El scroll va en Column
                 border=ft.border.all(1, table_border_color),
                 border_radius=5,
@@ -1434,8 +1442,11 @@ class ReportsView:
         return ft.Column([
             ft.Text("Reporte de Deudas", size=20, weight="bold", color=section_title_color),
             ft.Container(
-                content=ft.Column([ # Envuelve DataTable en un Column para manejar el scroll
-                    self.debts_table,
+                content=ft.Column([ # Envuelve DataTable en un Column para manejar el scroll vertical
+                     ft.Row(        # Envuelve en Row para scroll horizontal
+                        [self.debts_table],
+                        scroll=ft.ScrollMode.AUTO
+                    )
                 ], scroll=ft.ScrollMode.AUTO, expand=True), # El scroll va en Column
                 border=ft.border.all(1, table_border_color),
                 border_radius=5,
