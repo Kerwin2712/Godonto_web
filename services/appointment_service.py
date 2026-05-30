@@ -33,6 +33,111 @@ class AppointmentService(Observable):
             return cursor.rowcount > 0
     
     @staticmethod
+    def sync_appointment_treatments_with_quote(client_id: int, old_treatments: Optional[List[dict]], new_treatments: Optional[List[dict]], cursor) -> None:
+        """Sincroniza los tratamientos de la cita con el presupuesto pendiente (pendiente de pago) del cliente."""
+        try:
+            # 1. Buscar si existe un presupuesto pendiente para el cliente
+            pending_quote = QuoteService.get_pending_quote_by_client_id(client_id, cursor)
+            
+            if pending_quote:
+                quote_id = pending_quote['id']
+                # Obtener los tratamientos actuales del presupuesto
+                current_quote_treatments = QuoteService.get_quote_treatments(quote_id)
+                
+                # Mapear por nombre del tratamiento en minúsculas para combinar/restar cantidades
+                quote_map = {}
+                for t in current_quote_treatments:
+                    key = t['name'].lower().strip()
+                    quote_map[key] = {
+                        'name': t['name'],
+                        'price': t['price'],
+                        'quantity': t['quantity']
+                    }
+                    
+                # Restar los tratamientos antiguos de la cita
+                if old_treatments:
+                    for t in old_treatments:
+                        key = t['name'].lower().strip()
+                        if key in quote_map:
+                            quote_map[key]['quantity'] -= t.get('quantity', 1)
+                            if quote_map[key]['quantity'] <= 0:
+                                del quote_map[key]
+                                
+                # Sumar los nuevos tratamientos de la cita
+                if new_treatments:
+                    for t in new_treatments:
+                        name = t.get('name')
+                        price = t.get('price')
+                        if not name and 'id' in t:
+                            cursor.execute("SELECT name, price FROM treatments WHERE id = %s", (t['id'],))
+                            row = cursor.fetchone()
+                            if row:
+                                name, db_price = row
+                                if price is None:
+                                    price = float(db_price)
+                        
+                        if name:
+                            key = name.lower().strip()
+                            qty = t.get('quantity', 1)
+                            if key in quote_map:
+                                quote_map[key]['quantity'] += qty
+                            else:
+                                quote_map[key] = {
+                                    'name': name,
+                                    'price': float(price) if price is not None else 0.0,
+                                    'quantity': qty
+                                }
+                                
+                # Convertir el mapa de vuelta a la lista para el presupuesto
+                updated_quote_treatments = list(quote_map.values())
+                
+                if updated_quote_treatments:
+                    QuoteService.update_quote(
+                        quote_id=quote_id,
+                        client_id=client_id,
+                        treatments=updated_quote_treatments,
+                        expiration_date=None,
+                        notes=pending_quote['notes'],
+                        status='pending',
+                        discount=pending_quote['discount'],
+                        cursor=cursor
+                    )
+                else:
+                    # Si el presupuesto se queda sin tratamientos, se elimina limpiamente
+                    QuoteService.delete_quote(quote_id)
+            else:
+                # Si no existe presupuesto, y hay nuevos tratamientos, se crea uno nuevo
+                if new_treatments:
+                    formatted_treatments = []
+                    for t in new_treatments:
+                        name = t.get('name')
+                        price = t.get('price')
+                        if not name and 'id' in t:
+                            cursor.execute("SELECT name, price FROM treatments WHERE id = %s", (t['id'],))
+                            row = cursor.fetchone()
+                            if row:
+                                name, db_price = row
+                                if price is None:
+                                    price = float(db_price)
+                        if name:
+                            formatted_treatments.append({
+                                'name': name,
+                                'price': float(price) if price is not None else 0.0,
+                                'quantity': t.get('quantity', 1)
+                            })
+                    
+                    if formatted_treatments:
+                        QuoteService.create_quote(
+                            client_id=client_id,
+                            treatments=formatted_treatments,
+                            notes="Creado automáticamente desde cita",
+                            discount=0.0,
+                            cursor=cursor
+                        )
+        except Exception as e:
+            logger.error(f"Error al sincronizar tratamientos de cita con el presupuesto del cliente {client_id}: {str(e)}")
+    
+    @staticmethod
     def update_appointment_status(appointment_id, new_status):
         """Actualiza los estados de la cita y, si se completa, marca los tratamientos asociados en el historial.
 
@@ -190,6 +295,14 @@ class AppointmentService(Observable):
                         else:
                             logger.warning(f"Tratamiento incompleto, no se pudo añadir a la cita: {treatment}")
                 
+                # Sincronizar con el presupuesto pendiente
+                AppointmentService.sync_appointment_treatments_with_quote(
+                    client_id=client_id,
+                    old_treatments=None,
+                    new_treatments=treatments,
+                    cursor=cursor
+                )
+                
                 return True, f"Cita creada exitosamente (ID: {appointment_id})"
                 
         except Exception as e:
@@ -311,6 +424,9 @@ class AppointmentService(Observable):
                 
                 # Actualizar tratamientos asociados
                 if treatments is not None: # Solo si se pasa una lista de tratamientos
+                    # Obtener tratamientos antiguos para la sincronización con el presupuesto
+                    old_treatments = AppointmentService.get_appointment_treatments(appointment_id)
+
                     # Eliminar tratamientos existentes para esta cita
                     cursor.execute(
                         "DELETE FROM appointment_treatments WHERE appointment_id = %s",
@@ -361,9 +477,14 @@ class AppointmentService(Observable):
                                 cursor=cursor # Pasa el cursor
                             )
 
-                else:
-                    logger.warning(f"Tratamiento incompleto, no se pudo añadir a la cita: {treatment}")
-                            
+                    # Sincronizar con el presupuesto pendiente
+                    AppointmentService.sync_appointment_treatments_with_quote(
+                        client_id=client_id,
+                        old_treatments=old_treatments,
+                        new_treatments=treatments,
+                        cursor=cursor
+                    )
+                
                 return True, "Cita actualizada exitosamente"
                 
         except Exception as e:
@@ -654,6 +775,39 @@ class AppointmentService(Observable):
                 # Iniciar una transacción
                 cursor.execute("BEGIN;") 
                 
+                # Obtener el client_id y tratamientos antes de eliminar usando el mismo cursor
+                cursor.execute("SELECT client_id FROM appointments WHERE id = %s", (appointment_id,))
+                client_row = cursor.fetchone()
+                if client_row:
+                    client_id = client_row[0]
+                    
+                    cursor.execute(
+                        """
+                        SELECT t.id, t.name, at.price, at.notes, at.quantity
+                        FROM appointment_treatments at
+                        JOIN treatments t ON at.treatment_id = t.id
+                        WHERE at.appointment_id = %s
+                        """,
+                        (appointment_id,)
+                    )
+                    old_treatments = [
+                        {
+                            'id': r[0],
+                            'name': r[1],
+                            'price': float(r[2]),
+                            'notes': r[3],
+                            'quantity': r[4]
+                        } for r in cursor.fetchall()
+                    ]
+                    
+                    # Sincronizar con el presupuesto (restando los tratamientos a eliminar)
+                    AppointmentService.sync_appointment_treatments_with_quote(
+                        client_id=client_id,
+                        old_treatments=old_treatments,
+                        new_treatments=None,
+                        cursor=cursor
+                    )
+
                 # Paso 1: Eliminar los tratamientos de historial asociados a esta cita
                 HistoryService.delete_client_treatments_by_appointment(appointment_id, cursor)
 
