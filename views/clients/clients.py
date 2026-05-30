@@ -4,7 +4,8 @@ from utils.alerts import show_error, show_success
 from models.client import Client
 from services.appointment_service import AppointmentService
 from services.payment_service import PaymentService
-from datetime import datetime
+from services.history_service import HistoryService
+from datetime import datetime, date
 import logging
 
 logger = logging.getLogger(__name__)
@@ -267,6 +268,17 @@ class ClientsView:
         )
     
     def _show_payment_dialog(self, client):
+        # Determinar colores adaptados al tema actual
+        is_light = self.page.theme_mode == ft.ThemeMode.LIGHT
+        dialog_bg = ft.colors.WHITE if is_light else ft.colors.BLUE_GREY_800
+        dialog_text_color = ft.colors.BLACK if is_light else ft.colors.WHITE
+        
+        section_title_color = ft.colors.BLUE_700 if is_light else ft.colors.BLUE_300
+        section_bgcolor = ft.colors.GREY_50 if is_light else ft.colors.BLUE_GREY_900
+        section_border_color = ft.colors.GREY_300 if is_light else ft.colors.BLUE_GREY_600
+        subtitle_color = ft.colors.GREY_600 if is_light else ft.colors.GREY_400
+        checkbox_active_color = ft.colors.BLUE_600 if is_light else ft.colors.BLUE_400
+
         amount_field = ft.TextField(label="Monto", keyboard_type=ft.KeyboardType.NUMBER)
         method_field = ft.Dropdown(
             label="Método de pago",
@@ -279,21 +291,84 @@ class ClientsView:
         )
         notes_field = ft.TextField(label="Notas (opcional)", multiline=True)
         
+        # Obtener tratamientos pendientes para mostrar en el modal
+        try:
+            treatments = HistoryService.get_suggested_and_completed_treatments(client.id)
+            pending_treatments = [t for t in treatments if t.get('status') == 'pending']
+        except Exception as ex:
+            logger.error(f"Error al obtener tratamientos sugeridos: {str(ex)}")
+            pending_treatments = []
+
+        # Crear casillas de selección para cada tratamiento pendiente
+        treatment_checkboxes = []
+        for t in pending_treatments:
+            completed = t.get('completed_quantity', 0)
+            total = t.get('total_quantity', 1)
+            remaining = total - completed
+            source_text = f" ({t['source']})" if t.get('source') else ""
+            label_text = f"{t['name']} - ${t['price']:,.2f} (Restan: {remaining}){source_text}"
+            
+            cb = ft.Checkbox(
+                label=label_text,
+                value=False,
+                data=t,
+                label_style=ft.TextStyle(color=dialog_text_color),
+                active_color=checkbox_active_color
+            )
+            treatment_checkboxes.append(cb)
+
+        # Agrupar casillas de selección en un contenedor elegante
+        treatments_list_container = ft.Column(
+            controls=treatment_checkboxes,
+            scroll=ft.ScrollMode.AUTO,
+            height=180,
+            spacing=5
+        )
+        
+        treatments_section = ft.Container(
+            content=ft.Column([
+                ft.Text(
+                    "Marcar Tratamientos como Realizados:",
+                    weight=ft.FontWeight.BOLD,
+                    size=14,
+                    color=section_title_color
+                ),
+                treatments_list_container if treatment_checkboxes else ft.Text(
+                    "No hay tratamientos pendientes para este cliente.",
+                    italic=True,
+                    size=12,
+                    color=subtitle_color
+                )
+            ], spacing=5),
+            padding=12,
+            border=ft.border.all(1, section_border_color),
+            border_radius=8,
+            bgcolor=section_bgcolor
+        )
+
         def close_dialog(e):
             dialog.open = False
             self.page.update()
         
         def handle_submit(e):
             try:
+                if not amount_field.value:
+                    show_error(self.page, "Ingrese un monto válido")
+                    return
                 amount = float(amount_field.value)
                 method = method_field.value
                 notes = notes_field.value
+                
+                if not method:
+                    show_error(self.page, "Seleccione un método de pago")
+                    return
                 
                 payment_service = PaymentService()
                 
                 initial_summary = payment_service.get_payment_summary(client.id)
                 initial_pending_debt = initial_summary.get('total_pending_debt', 0.0)
                 
+                # Registrar el pago
                 success, message = payment_service.create_payment(
                     client_id=client.id,
                     amount=amount,
@@ -302,23 +377,46 @@ class ClientsView:
                 )
                 
                 if success:
+                    completed_treatments_count = 0
+                    completed_names = []
+                    
+                    # Registrar tratamientos seleccionados en el historial
+                    history_service = HistoryService()
+                    for cb in treatment_checkboxes:
+                        if cb.value:
+                            t_data = cb.data
+                            t_id = t_data['id']
+                            q_id = t_data.get('quote_id')
+                            a_id = t_data.get('appointment_id')
+                            
+                            # Nota del tratamiento en español corto
+                            treatment_notes = f"Realizado durante pago de ${amount:,.2f} ({method})."
+                            
+                            t_success, t_msg = history_service.add_client_treatment(
+                                client_id=client.id,
+                                treatment_id=t_id,
+                                notes=treatment_notes,
+                                treatment_date=date.today(),
+                                appointment_id=a_id,
+                                quote_id=q_id,
+                                quantity_to_mark_completed=1
+                            )
+                            if t_success:
+                                completed_treatments_count += 1
+                                completed_names.append(t_data['name'])
+                    
                     new_summary = payment_service.get_payment_summary(client.id)
                     new_pending_debt = new_summary.get('total_pending_debt', 0.0)
                     
                     debt_applied_by_this_payment = initial_pending_debt - new_pending_debt
                     
+                    # Mensaje detallado en español
+                    msg = f"Pago de ${amount:,.2f} registrado para {client.name}."
                     if debt_applied_by_this_payment > 0.001:
-                        msg = f"Pago de ${amount:,.2f} registrado. Se aplicó ${debt_applied_by_this_payment:,.2f} a deudas pendientes."
-                        if new_pending_debt > 0:
-                            msg += f" Saldo pendiente de deudas: ${new_pending_debt:,.2f}"
-                        else:
-                            msg += " Todas las deudas pendientes han sido cubiertas."
-                    else:
-                        msg = f"Pago de ${amount:,.2f} registrado para {client.name}."
-                        if initial_pending_debt > 0:
-                            msg += f" Aún quedan deudas pendientes: ${initial_pending_debt:,.2f}."
-                        else:
-                            msg += " No había deudas pendientes a las cuales aplicar el pago."
+                        msg += f" Se aplicó ${debt_applied_by_this_payment:,.2f} a deudas."
+                    
+                    if completed_treatments_count > 0:
+                        msg += f" Se completaron {completed_treatments_count} tratamientos: {', '.join(completed_names)}."
 
                     show_success(self.page, msg)
                     self.load_clients()
@@ -327,21 +425,24 @@ class ClientsView:
                     show_error(self.page, message)
             except ValueError:
                 show_error(self.page, "Ingrese un monto válido")
-            except Exception as e:
-                logger.error(f"Error al registrar pago: {str(e)}")
-                show_error(self.page, f"Error al registrar pago: {str(e)}")
+            except Exception as ex:
+                logger.error(f"Error al registrar pago: {str(ex)}")
+                show_error(self.page, f"Error al registrar pago: {str(ex)}")
         
         dialog = ft.AlertDialog(
             modal=True,
-            title=ft.Text(f"Registrar Pago para {client.name}"),
+            title=ft.Text(f"Registrar Pago para {client.name}", color=dialog_text_color),
+            bgcolor=dialog_bg,
             content=ft.Column([
                 amount_field,
                 method_field,
-                notes_field
-            ], tight=True),
+                notes_field,
+                ft.Divider(height=10, color=section_border_color),
+                treatments_section
+            ], tight=True, width=460),
             actions=[
-                ft.TextButton("Cancelar", on_click=close_dialog),
-                ft.TextButton("Registrar", on_click=handle_submit)
+                ft.TextButton("Cancelar", on_click=close_dialog, style=ft.ButtonStyle(color=dialog_text_color)),
+                ft.TextButton("Registrar", on_click=handle_submit, style=ft.ButtonStyle(color=ft.colors.BLUE_600 if is_light else ft.colors.BLUE_300))
             ]
         )
         self.page.open(dialog)

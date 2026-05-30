@@ -10,16 +10,29 @@ Sistema de gestión de citas para clínicas odontológicas.
 1. Clona el repositorio:  
    ```bash
    git clone https://github.com/tu-usuario/Godonto.git
+   ```
 
-2. Instala las dependencias:  
+2. Crea el entorno virtual:  
+   ```bash
+   python -m venv venv
+   ```
+
+3. Activa el entorno virtual:  
+   ```bash
+   .\venv\Scripts\activate
+   ```
+
+4. Instala las dependencias:  
    ```bash
    pip install -r requirements.txt  
    ```
-3. Crea la base de datos:  
+
+5. Crea la base de datos:  
    ```bash
    psql -U postgres -c "CREATE DATABASE godonto;"
    ```  
-4. Crea un las variables de entorno:
+
+6. Crea un las variables de entorno:
    ```bash
    DB_HOST = localhost
    DB_NAME= godonto
@@ -27,15 +40,18 @@ Sistema de gestión de citas para clínicas odontológicas.
    DB_PASSWORD = tu_pass
    DB_PORT=5432
    ```
-6. Crea las tablas:
+
+7. Crea las tablas:
    ```bash
    psql -U postgres -d godonto -f database/backup.sql
    ```
-7. Crea un usuario en la tabla users:
+
+8. Crea un usuario en la tabla users:
    ```bash
    INSERT INTO users (username, password_hash, email, is_admin, is_verified, is_active) VALUES ('admin', 'password', 'admin@example.com', True, True, True);
    ```
-8. Ejecuta el programa: 
+
+9. Ejecuta el programa: 
    ```bash
    python main.py
    ```

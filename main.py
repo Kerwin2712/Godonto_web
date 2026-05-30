@@ -5,7 +5,6 @@ from datetime import datetime
 import sys
 from core.config import settings
 from core.database import Database
-from core.database import Database
 from views.splash import SplashView
 # Lazy loading imports will be inside route_change
 
