@@ -1,10 +1,20 @@
 import os
+import sys
 from dotenv import load_dotenv
 from pathlib import Path
 from typing import Dict, Any
 import flet as ft
 
-load_dotenv()
+# Localizar la ruta del archivo .env de manera robusta
+def get_env_path():
+    if getattr(sys, 'frozen', False):
+        # Si está empaquetado con PyInstaller, buscar en el directorio del ejecutable (.exe)
+        return Path(sys.executable).parent / ".env"
+    # Si está en modo desarrollo, buscar en la raíz del proyecto
+    return Path(__file__).resolve().parent.parent / ".env"
+
+env_path = get_env_path()
+load_dotenv(dotenv_path=env_path)
 
 class Config:
     """Configuración base de la aplicación"""
