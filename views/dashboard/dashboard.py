@@ -1,11 +1,12 @@
 import flet as ft
-from datetime import datetime, time # Importar time para el tipo de dato en _build_appointment_card
+from datetime import datetime, time, date # Importar time y date
 from core.database import Database
 from services.appointment_service import AppointmentService, get_appointment_by_id
 from services.client_service import ClientService
 from services.stats_service import StatsService
 from services.payment_service import PaymentService
 from services.preference_service import PreferenceService
+from services.history_service import HistoryService
 from utils.date_utils import format_date
 from utils.widgets import build_stat_card
 from utils.alerts import show_success, show_error, show_confirmation_dialog
@@ -379,6 +380,16 @@ class DashboardView:
                             leading=ft.Icon(ft.icons.PERSON, color=text_color),
                             title=ft.Text(client.name, size=14, color=text_color),
                             subtitle=ft.Text(f"Cédula: {client.cedula}", size=12, color=subtitle_color),
+                            trailing=ft.PopupMenuButton(
+                                icon=ft.icons.MORE_VERT,
+                                items=[
+                                    ft.PopupMenuItem(
+                                        text="Registrar Pago",
+                                        icon=ft.icons.PAYMENT,
+                                        on_click=lambda e, c=client: self._show_payment_dialog(c)
+                                    )
+                                ]
+                            )
                         ),
                         ft.Text(f"Tel: {client.phone}", size=12, color=subtitle_color),
                         ft.Text(format_date(client.created_at), size=10, color=subtitle_color)
@@ -387,13 +398,13 @@ class DashboardView:
                     tight=True
                 ),
                 padding=10,
-                width=200,
+                width=230,
                 bgcolor=card_bgcolor,
                 border=ft.border.all(1, card_border_color), # Añadir borde a la tarjeta
                 border_radius=ft.border_radius.all(10) # Borde redondeado
             ),
             elevation=1,
-            height=110,
+            height=130,
             # Eliminar bgcolor y border directamente del Card si el Container ya lo tiene
             # para evitar duplicidad de estilos.
         )
@@ -423,7 +434,7 @@ class DashboardView:
                     ft.Divider(height=5, color=border_section), # Color del divisor
                     ft.Container(
                         content=self.clients_row,
-                        height=120
+                        height=140
                     )
                 ],
                 spacing=15,
@@ -645,6 +656,11 @@ class DashboardView:
             icon=ft.icons.MORE_VERT,
             items=[
                 ft.PopupMenuItem(
+                    text="Registrar Pago",
+                    icon=ft.icons.PAYMENT,
+                    on_click=lambda e, a=appointment: self._on_register_payment_from_appointment(a)
+                ),
+                ft.PopupMenuItem(
                     text="Completar",
                     on_click=lambda e: self._confirm_status_change(
                         appointment.id, "completed", appointment.client_name)
@@ -767,7 +783,204 @@ class DashboardView:
             logger.error(f"Error al eliminar cita: {e}")
             show_error(self.page, f"Error al eliminar cita: {e}")
 
+    def _on_register_payment_from_appointment(self, appointment):
+        """Busca el cliente de la cita y abre el modal de pagos."""
+        try:
+            client = self.client_service.get_client_by_id(appointment.client_id)
+            if client:
+                self._show_payment_dialog(client)
+            else:
+                show_error(self.page, "No se pudo cargar la información del cliente")
+        except Exception as e:
+            logger.error(f"Error al registrar pago desde cita: {str(e)}")
+            show_error(self.page, f"Error al buscar cliente: {str(e)}")
 
+    def _show_payment_dialog(self, client):
+        """Despliega el modal de pago adaptado a temas light/dark y registra tratamientos."""
+        # Determinar colores adaptados al tema actual
+        is_light = self.page.theme_mode == ft.ThemeMode.LIGHT
+        dialog_bg = ft.colors.WHITE if is_light else ft.colors.BLUE_GREY_800
+        dialog_text_color = ft.colors.BLACK if is_light else ft.colors.WHITE
+        
+        section_title_color = ft.colors.BLUE_700 if is_light else ft.colors.BLUE_300
+        section_bgcolor = ft.colors.GREY_50 if is_light else ft.colors.BLUE_GREY_900
+        section_border_color = ft.colors.GREY_300 if is_light else ft.colors.BLUE_GREY_600
+        subtitle_color = ft.colors.GREY_600 if is_light else ft.colors.GREY_400
+        checkbox_active_color = ft.colors.BLUE_600 if is_light else ft.colors.BLUE_400
+
+        amount_field = ft.TextField(label="Monto", keyboard_type=ft.KeyboardType.NUMBER)
+        method_field = ft.Dropdown(
+            label="Método de pago",
+            options=[
+                ft.dropdown.Option("Efectivo"),
+                ft.dropdown.Option("Tarjeta"),
+                ft.dropdown.Option("Transferencia"),
+                ft.dropdown.Option("Otro")
+            ]
+        )
+        notes_field = ft.TextField(label="Notas (opcional)", multiline=True)
+        
+        # Obtener tratamientos pendientes para mostrar en el modal
+        try:
+            treatments = HistoryService.get_suggested_and_completed_treatments(client.id)
+            pending_treatments = [t for t in treatments if t.get('status') == 'pending']
+        except Exception as ex:
+            logger.error(f"Error al obtener tratamientos sugeridos: {str(ex)}")
+            pending_treatments = []
+
+        # Crear casillas de selección para cada tratamiento pendiente
+        treatment_checkboxes = []
+        for t in pending_treatments:
+            completed = t.get('completed_quantity', 0)
+            total = t.get('total_quantity', 1)
+            remaining = total - completed
+            source_text = f" ({t['source']})" if t.get('source') else ""
+            label_text = f"{t['name']} - ${t['price']:,.2f} (Restan: {remaining}){source_text}"
+            
+            cb = ft.Checkbox(
+                label=label_text,
+                value=False,
+                data=t,
+                label_style=ft.TextStyle(color=dialog_text_color),
+                active_color=checkbox_active_color
+            )
+            treatment_checkboxes.append(cb)
+
+        # Agrupar casillas de selección en un contenedor elegante
+        treatments_list_container = ft.Column(
+            controls=treatment_checkboxes,
+            scroll=ft.ScrollMode.AUTO,
+            height=180,
+            spacing=5
+        )
+        
+        treatments_section = ft.Container(
+            content=ft.Column([
+                ft.Text(
+                    "Marcar Tratamientos como Realizados:",
+                    weight=ft.FontWeight.BOLD,
+                    size=14,
+                    color=section_title_color
+                ),
+                treatments_list_container if treatment_checkboxes else ft.Text(
+                    "No hay tratamientos pendientes para este cliente.",
+                    italic=True,
+                    size=12,
+                    color=subtitle_color
+                )
+            ], spacing=5),
+            padding=12,
+            border=ft.border.all(1, section_border_color),
+            border_radius=8,
+            bgcolor=section_bgcolor
+        )
+
+        def close_dialog(e):
+            dialog.open = False
+            self.page.update()
+        
+        def handle_submit(e):
+            try:
+                if not amount_field.value:
+                    show_error(self.page, "Ingrese un monto válido")
+                    return
+                amount = float(amount_field.value)
+                method = method_field.value
+                notes = notes_field.value
+                
+                if not method:
+                    show_error(self.page, "Seleccione un método de pago")
+                    return
+                
+                initial_summary = self.payment_service.get_payment_summary(client.id)
+                initial_pending_debt = initial_summary.get('total_pending_debt', 0.0)
+                
+                # Registrar el pago
+                success, message = self.payment_service.create_payment(
+                    client_id=client.id,
+                    amount=amount,
+                    method=method,
+                    notes=notes
+                )
+                
+                if success:
+                    completed_treatments_count = 0
+                    completed_names = []
+                    
+                    # Registrar tratamientos seleccionados en el historial
+                    history_service = HistoryService()
+                    for cb in treatment_checkboxes:
+                        if cb.value:
+                            t_data = cb.data
+                            t_id = t_data['id']
+                            q_id = t_data.get('quote_id')
+                            a_id = t_data.get('appointment_id')
+                            
+                            # Nota del tratamiento en español corto
+                            treatment_notes = f"Realizado durante pago de ${amount:,.2f} ({method})."
+                            
+                            t_success, t_msg = history_service.add_client_treatment(
+                                client_id=client.id,
+                                treatment_id=t_id,
+                                notes=treatment_notes,
+                                treatment_date=date.today(),
+                                appointment_id=a_id,
+                                quote_id=q_id,
+                                quantity_to_mark_completed=1
+                            )
+                            if t_success:
+                                completed_treatments_count += 1
+                                completed_names.append(t_data['name'])
+                    
+                    new_summary = self.payment_service.get_payment_summary(client.id)
+                    new_pending_debt = new_summary.get('total_pending_debt', 0.0)
+                    
+                    debt_applied_by_this_payment = initial_pending_debt - new_pending_debt
+                    
+                    # Mensaje detallado en español
+                    msg = f"Pago de ${amount:,.2f} registrado para {client.name}."
+                    if debt_applied_by_this_payment > 0.001:
+                        msg += f" Se aplicó ${debt_applied_by_this_payment:,.2f} a deudas."
+                    
+                    if completed_treatments_count > 0:
+                        msg += f" Se completaron {completed_treatments_count} tratamientos: {', '.join(completed_names)}."
+
+                    show_success(self.page, msg)
+                    
+                    # Recargar estadísticas y datos del Dashboard
+                    self.load_data()
+                    self.update_stats()
+                    self.update_appointments()
+                    self.update_clients()
+                    self.page.update()
+                    close_dialog(e)
+                else:
+                    show_error(self.page, message)
+            except ValueError:
+                show_error(self.page, "Ingrese un monto válido")
+            except Exception as ex:
+                logger.error(f"Error al registrar pago: {str(ex)}")
+                show_error(self.page, f"Error al registrar pago: {str(ex)}")
+        
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text(f"Registrar Pago para {client.name}", color=dialog_text_color),
+            bgcolor=dialog_bg,
+            content=ft.Column([
+                amount_field,
+                method_field,
+                notes_field,
+                ft.Divider(height=10, color=section_border_color),
+                treatments_section
+            ], tight=True, width=460),
+            actions=[
+                ft.TextButton("Cancelar", on_click=close_dialog, style=ft.ButtonStyle(color=dialog_text_color)),
+                ft.TextButton("Registrar", on_click=handle_submit, style=ft.ButtonStyle(color=ft.colors.BLUE_600 if is_light else ft.colors.BLUE_300))
+            ]
+        )
+        self.page.open(dialog)
+        dialog.open = True
+        self.page.update()
 
 
 def dashboard_view(page: ft.Page):
